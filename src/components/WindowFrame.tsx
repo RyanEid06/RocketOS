@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { WindowState, WindowSnapState, WindowBounds } from '../types';
 import { Minus, Square, Copy, X, Pin, Layers } from 'lucide-react';
 import { soundEngine } from '../utils/audio';
+import { SHELL_Z_LAYERS } from '../core/theme/tokens';
 
 interface WindowFrameProps {
   window: WindowState;
@@ -241,6 +242,8 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
   const isSnappedBottomLeft = win.snapState === 'bottom-left';
   const isSnappedBottomRight = win.snapState === 'bottom-right';
 
+  const effectiveZIndex = SHELL_Z_LAYERS.WINDOW_BASE + win.zIndex;
+
   const style: React.CSSProperties = isMax
     ? {
         position: 'fixed',
@@ -248,7 +251,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 0,
         width: '100vw',
         height: 'calc(100vh - 64px)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedLeft
     ? {
@@ -257,7 +260,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 0,
         width: '50vw',
         height: 'calc(100vh - 64px)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedRight
     ? {
@@ -266,7 +269,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 0,
         width: '50vw',
         height: 'calc(100vh - 64px)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedTopLeft
     ? {
@@ -275,7 +278,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 0,
         width: '50vw',
         height: 'calc((100vh - 64px) / 2)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedTopRight
     ? {
@@ -284,7 +287,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 0,
         width: '50vw',
         height: 'calc((100vh - 64px) / 2)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedBottomLeft
     ? {
@@ -293,7 +296,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 'calc((100vh - 64px) / 2)',
         width: '50vw',
         height: 'calc((100vh - 64px) / 2)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : isSnappedBottomRight
     ? {
@@ -302,7 +305,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: 'calc((100vh - 64px) / 2)',
         width: '50vw',
         height: 'calc((100vh - 64px) / 2)',
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       }
     : {
         position: 'absolute',
@@ -310,7 +313,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         top: `${win.position.y}px`,
         width: `${win.size.width}px`,
         height: `${win.size.height}px`,
-        zIndex: win.zIndex,
+        zIndex: effectiveZIndex,
       };
 
   return (

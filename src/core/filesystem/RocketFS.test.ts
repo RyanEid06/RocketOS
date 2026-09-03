@@ -26,7 +26,7 @@ describe('RocketFS & File Associations', () => {
     expect(FileAssociations.getDefaultAppId('graphics.rocket')).toBe('editor');
     expect(FileAssociations.getDefaultAppId('document.txt')).toBe('notes');
     expect(FileAssociations.getDefaultAppId('drawing.rpaint')).toBe('paint');
-    expect(FileAssociations.getDefaultAppId('sketch.png')).toBe('paint');
+    expect(FileAssociations.getDefaultAppId('sketch.png')).toBe('gallery');
   });
 
   it('writes and updates documents in user directory', () => {

@@ -147,6 +147,18 @@ export class AppRegistry {
       keywords: ['paint', 'draw', 'canvas', 'brush', 'art', 'graphic', 'sketch'],
       isSystemApp: false,
     },
+    gallery: {
+      id: 'gallery',
+      displayName: 'Rocket Gallery',
+      description: 'Image viewer and artwork library',
+      glyph: '🖼️',
+      category: 'graphics',
+      isSingleton: false,
+      constraints: { defaultWidth: 860, defaultHeight: 560, minWidth: 540, minHeight: 380 },
+      supportedExtensions: ['.png', '.jpg', '.jpeg', '.webp', '.rpaint'],
+      keywords: ['gallery', 'image', 'picture', 'photo', 'artwork', 'viewer'],
+      isSystemApp: false,
+    },
     notes: {
       id: 'notes',
       displayName: 'Notes & To-Do',

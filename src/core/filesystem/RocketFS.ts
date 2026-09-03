@@ -245,6 +245,43 @@ export class RocketFS {
       'fn main() -> Int:\n    print("Rocket Project Main Entry")\n    return 0\n'
     );
 
+    // User Pictures (Sample Gallery Images)
+    const svgNebula = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"><defs><radialGradient id="space" cx="50%" cy="50%" r="70%"><stop offset="0%" stop-color="#140b2b" /><stop offset="60%" stop-color="#080614" /><stop offset="100%" stop-color="#020205" /></radialGradient><radialGradient id="nebula" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.8" /><stop offset="50%" stop-color="#06b6d4" stop-opacity="0.4" /><stop offset="100%" stop-color="#000000" stop-opacity="0" /></radialGradient><linearGradient id="rocketBody" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffffff" /><stop offset="100%" stop-color="#94a3b8" /></linearGradient><linearGradient id="flame" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#ef4444" /></linearGradient></defs><rect width="800" height="600" fill="url(#space)" /><ellipse cx="380" cy="280" rx="350" ry="240" fill="url(#nebula)" filter="blur(40px)" /><circle cx="100" cy="80" r="1.5" fill="#fff" opacity="0.9" /><circle cx="220" cy="140" r="2" fill="#38bdf8" opacity="0.8" /><circle cx="310" cy="60" r="1" fill="#fff" opacity="0.7" /><circle cx="500" cy="120" r="2.5" fill="#a855f7" opacity="0.9" /><circle cx="680" cy="90" r="1.5" fill="#fff" opacity="0.8" /><circle cx="720" cy="300" r="2" fill="#38bdf8" opacity="0.8" /><g transform="translate(380, 240) rotate(-35)"><path d="M-15,60 Q0,110 0,130 Q0,110 15,60 Z" fill="url(#flame)" /><path d="M-28,45 L-40,70 L-20,60 Z" fill="#0284c7" /><path d="M28,45 L40,70 L20,60 Z" fill="#0284c7" /><path d="M0,-70 Q30,0 26,60 L-26,60 Q-30,0 0,-70 Z" fill="url(#rocketBody)" /><path d="M0,-70 Q15,-30 18,0 L-18,0 Q-15,-30 0,-70 Z" fill="#0284c7" /><circle cx="0" cy="0" r="12" fill="#0ea5e9" stroke="#fff" stroke-width="3" /><circle cx="3" cy="-3" r="4" fill="#ffffff" opacity="0.8" /></g><text x="40" y="540" font-family="system-ui, sans-serif" font-size="28" font-weight="bold" fill="#ffffff" opacity="0.9">Rocket Nebula</text><text x="40" y="570" font-family="system-ui, sans-serif" font-size="14" fill="#38bdf8" opacity="0.8">RocketOS Deep Space Visualizer • 800x600</text></svg>`;
+    this.createRawInode(
+      '/home/ryan/Pictures/rocket_nebula.png',
+      'file',
+      1000,
+      100,
+      0o644,
+      undefined,
+      'image/png',
+      `data:image/svg+xml;utf8,${encodeURIComponent(svgNebula)}`
+    );
+
+    const svgBlueprint = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"><defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#0369a1" stroke-width="1" opacity="0.3"/><path d="M 200 0 L 0 0 0 200" fill="none" stroke="#0ea5e9" stroke-width="1.5" opacity="0.5"/></pattern><radialGradient id="coreGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#38bdf8" stop-opacity="0.4" /><stop offset="100%" stop-color="#0c4a6e" stop-opacity="0" /></radialGradient></defs><rect width="800" height="600" fill="#082f49" /><rect width="800" height="600" fill="url(#grid)" /><circle cx="400" cy="280" r="180" fill="url(#coreGlow)" /><rect x="280" y="160" width="240" height="240" rx="16" fill="#0c4a6e" stroke="#38bdf8" stroke-width="3" /><rect x="320" y="200" width="160" height="160" rx="8" fill="#082f49" stroke="#7dd3fc" stroke-width="2" /><text x="400" y="275" font-family="monospace" font-size="18" font-weight="bold" fill="#38bdf8" text-anchor="middle">ROCKET 2.1</text><text x="400" y="300" font-family="monospace" font-size="12" fill="#bae6fd" text-anchor="middle">LLVM 22 JIT CORE</text><text x="400" y="325" font-family="monospace" font-size="11" fill="#7dd3fc" text-anchor="middle">ABI v1 FROZEN</text><line x1="200" y1="200" x2="280" y2="200" stroke="#38bdf8" stroke-width="2" /><circle cx="195" cy="200" r="4" fill="#38bdf8" /><line x1="200" y1="280" x2="280" y2="280" stroke="#38bdf8" stroke-width="2" /><circle cx="195" cy="280" r="4" fill="#38bdf8" /><line x1="520" y1="200" x2="600" y2="200" stroke="#38bdf8" stroke-width="2" /><circle cx="605" cy="200" r="4" fill="#38bdf8" /><line x1="520" y1="280" x2="600" y2="280" stroke="#38bdf8" stroke-width="2" /><circle cx="605" cy="280" r="4" fill="#38bdf8" /><text x="40" y="540" font-family="monospace" font-size="24" font-weight="bold" fill="#ffffff">SYSTEM BLUEPRINT CORE</text><text x="40" y="570" font-family="monospace" font-size="13" fill="#7dd3fc">ARCHITECTURAL SCHEMATIC • REV 2.1.6</text></svg>`;
+    this.createRawInode(
+      '/home/ryan/Pictures/blueprint_core.png',
+      'file',
+      1000,
+      100,
+      0o644,
+      undefined,
+      'image/png',
+      `data:image/svg+xml;utf8,${encodeURIComponent(svgBlueprint)}`
+    );
+
+    const svgAurora = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"><defs><linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#022c22" /><stop offset="50%" stop-color="#041f2a" /><stop offset="100%" stop-color="#050814" /></linearGradient><linearGradient id="aurora1" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#10b981" stop-opacity="0.8" /><stop offset="50%" stop-color="#06b6d4" stop-opacity="0.6" /><stop offset="100%" stop-color="#3b82f6" stop-opacity="0.1" /></linearGradient><linearGradient id="aurora2" x1="100%" y1="0%" x2="0%" y2="0%"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.7" /><stop offset="60%" stop-color="#06b6d4" stop-opacity="0.5" /><stop offset="100%" stop-color="#10b981" stop-opacity="0" /></linearGradient></defs><rect width="800" height="600" fill="url(#bg)" /><path d="M 0,200 Q 200,80 400,240 T 800,180 L 800,450 Q 600,520 400,380 T 0,460 Z" fill="url(#aurora1)" filter="blur(30px)" /><path d="M 0,280 Q 250,420 500,200 T 800,320 L 800,550 Q 550,420 300,520 T 0,560 Z" fill="url(#aurora2)" filter="blur(25px)" /><circle cx="420" cy="260" r="110" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" /><circle cx="420" cy="260" r="108" fill="rgba(255,255,255,0.05)" /><ellipse cx="385" cy="220" rx="35" ry="18" fill="rgba(255,255,255,0.3)" transform="rotate(-25, 385, 220)" /><text x="40" y="540" font-family="system-ui, sans-serif" font-size="28" font-weight="bold" fill="#ffffff">Liquid Aurora</text><text x="40" y="570" font-family="system-ui, sans-serif" font-size="14" fill="#6ee7b7">Fluid Luminescence Wallpaper Study</text></svg>`;
+    this.createRawInode(
+      '/home/ryan/Pictures/liquid_aurora.png',
+      'file',
+      1000,
+      100,
+      0o644,
+      undefined,
+      'image/png',
+      `data:image/svg+xml;utf8,${encodeURIComponent(svgAurora)}`
+    );
+
     // 5. /root user private profile
     this.createRawInode(
       '/root/.profile',

@@ -22,6 +22,7 @@ export type AppId =
   | 'graphics'
   | 'taskmanager'
   | 'paint'
+  | 'gallery'
   | 'notes'
   | 'trash'
   | 'thispc';
@@ -70,11 +71,13 @@ export interface TodoTask {
   completed: boolean;
 }
 
+export type NoteColor = 'yellow' | 'emerald' | 'sky' | 'purple' | 'rose' | 'amber' | 'indigo' | 'slate';
+
 export interface NoteItem {
   id: string;
   title: string;
   content: string;
-  color: 'yellow' | 'emerald' | 'sky' | 'purple' | 'rose';
+  color: NoteColor;
   category: 'all' | 'todo' | 'notes' | 'ideas';
   tasks: TodoTask[];
   updatedAt: string;

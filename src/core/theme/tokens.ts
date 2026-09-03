@@ -97,6 +97,17 @@ export const ACCENT_PALETTES: Record<AccentColor, AccentDefinition> = {
   },
 };
 
+export const SHELL_Z_LAYERS = {
+  DESKTOP_BACKGROUND: 0,
+  DESKTOP_ICONS: 10,
+  DESKTOP_DOCK: 20,
+  WINDOW_BASE: 100,
+  TASKBAR: 1000,
+  FLYOUT: 1100,
+  MODAL: 1200,
+  CONTEXT_MENU: 1300,
+} as const;
+
 export const DESIGN_TOKENS = {
   colors: {
     background: '#090d16',
@@ -146,15 +157,17 @@ export const DESIGN_TOKENS = {
     deliberate: '320ms',
   },
   zIndex: {
-    desktop: 1,
-    dock: 20,
-    taskbar: 30,
-    flyout: 40,
-    windowBase: 100,
+    desktopBackground: SHELL_Z_LAYERS.DESKTOP_BACKGROUND,
+    desktopIcons: SHELL_Z_LAYERS.DESKTOP_ICONS,
+    dock: SHELL_Z_LAYERS.DESKTOP_DOCK,
+    windowBase: SHELL_Z_LAYERS.WINDOW_BASE,
     snapPreview: 200,
     altTab: 500,
-    dialog: 600,
-    contextMenu: 1000,
+    taskbar: SHELL_Z_LAYERS.TASKBAR,
+    flyout: SHELL_Z_LAYERS.FLYOUT,
+    modal: SHELL_Z_LAYERS.MODAL,
+    dialog: SHELL_Z_LAYERS.MODAL,
+    contextMenu: SHELL_Z_LAYERS.CONTEXT_MENU,
   },
 };
 

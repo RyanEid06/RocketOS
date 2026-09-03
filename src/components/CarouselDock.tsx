@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { TRANSLATIONS } from '../utils/localization';
 import { soundEngine } from '../utils/audio';
+import { SHELL_Z_LAYERS } from '../core/theme/tokens';
 
 export interface DockAppItem {
   id: string;
@@ -34,6 +35,7 @@ interface CarouselDockProps {
   onDeleteFile?: (item: FSItem) => void;
   trashCount: number;
   openWindows?: WindowState[];
+  hasActiveWindows?: boolean;
 }
 
 export const CarouselDock: React.FC<CarouselDockProps> = ({
@@ -43,6 +45,7 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
   onDeleteFile,
   trashCount,
   openWindows = [],
+  hasActiveWindows = false,
 }) => {
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
 
@@ -141,8 +144,8 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
     {
       id: 'monitor',
       appId: 'monitor',
-      title: 'Hardware Monitor',
-      desc: 'PML4 paging & register telemetry',
+      title: 'System Monitor',
+      desc: 'Hardware & runtime diagnostics',
       category: 'Diagnostics',
       icon: <Cpu className="w-11 h-11 text-cyan-300" />,
       action: () => onOpenApp('monitor'),
@@ -285,7 +288,12 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
       aria-label="Application Dock"
       tabIndex={0}
       onKeyDown={handleKeyDown}
-      className="fixed bottom-22 left-1/2 -translate-x-1/2 z-20 pointer-events-auto select-none focus:outline-none"
+      style={{ zIndex: SHELL_Z_LAYERS.DESKTOP_DOCK }}
+      className={`fixed bottom-22 left-1/2 -translate-x-1/2 select-none focus:outline-none transition-all duration-300 ${
+        hasActiveWindows
+          ? 'opacity-0 pointer-events-none translate-y-4'
+          : 'opacity-100 pointer-events-auto translate-y-0'
+      }`}
     >
       {/* Completely Transparent Floating Area with Convex Arc Trajectory */}
       <div

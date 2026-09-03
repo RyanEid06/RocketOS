@@ -187,7 +187,7 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
             }`}
           >
             <Cpu className="w-3.5 h-3.5" />
-            <span>Honest Telemetry</span>
+            <span>System Diagnostics</span>
           </button>
         </div>
 

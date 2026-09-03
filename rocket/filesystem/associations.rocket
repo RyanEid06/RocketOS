@@ -37,15 +37,36 @@ fn get_standard_associations() -> List[FileAssociation]:
         FileAssociation(
             extension: ".png",
             mime_type: "image/png",
-            default_app_id: "paint",
-            associated_app_ids: ["paint"],
+            default_app_id: "gallery",
+            associated_app_ids: ["gallery", "paint"],
             friendly_name: "PNG Image"
+        ),
+        FileAssociation(
+            extension: ".jpg",
+            mime_type: "image/jpeg",
+            default_app_id: "gallery",
+            associated_app_ids: ["gallery", "paint"],
+            friendly_name: "JPEG Image"
+        ),
+        FileAssociation(
+            extension: ".jpeg",
+            mime_type: "image/jpeg",
+            default_app_id: "gallery",
+            associated_app_ids: ["gallery", "paint"],
+            friendly_name: "JPEG Image"
+        ),
+        FileAssociation(
+            extension: ".webp",
+            mime_type: "image/webp",
+            default_app_id: "gallery",
+            associated_app_ids: ["gallery", "paint"],
+            friendly_name: "WebP Image"
         ),
         FileAssociation(
             extension: ".rpaint",
             mime_type: "application/x-rocket-paint",
             default_app_id: "paint",
-            associated_app_ids: ["paint"],
+            associated_app_ids: ["paint", "gallery"],
             friendly_name: "Rocket Paint Project"
         ),
         FileAssociation(

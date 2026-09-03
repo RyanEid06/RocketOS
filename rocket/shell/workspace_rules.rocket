@@ -1,11 +1,20 @@
-// RocketOS Virtual Desktop and Workspace Domain Logic
-// Rules for window isolation, persistent workspace naming, and taskbar projection
+# RocketOS Virtual Desktop and Workspace Domain Logic
+# Rules for window isolation, purpose-built workspace profiles, and shortcut resolution
 
-struct WorkspaceInfo:
+struct WorkspaceShortcut:
+    id: String
+    title: String
+    app_id: String
+    extra_path: String
+    sub: String
+    icon_name: String
+
+struct WorkspaceProfile:
     id: Int
     name: String
+    subtitle: String
     icon: String
-    is_active: Bool
+    shortcuts: Array[WorkspaceShortcut]
 
 struct WorkspaceRegistry:
     active_id: Int
@@ -13,7 +22,7 @@ struct WorkspaceRegistry:
 
 fn is_window_visible_in_workspace(window_workspace_id: Int, active_workspace_id: Int) -> Bool:
     if window_workspace_id == 0:
-        return true // Sticky window visible on all desktops
+        return true
     return window_workspace_id == active_workspace_id
 
 fn get_next_workspace(current_id: Int, total: Int) -> Int:
@@ -25,3 +34,36 @@ fn get_prev_workspace(current_id: Int, total: Int) -> Int:
     if current_id <= 1:
         return total
     return current_id - 1
+
+fn get_general_shortcuts() -> Array[WorkspaceShortcut]:
+    return [
+        WorkspaceShortcut("app-thispc", "This PC", "explorer", "/ThisPC", "Storage & Specs", "HardDrive"),
+        WorkspaceShortcut("app-explorer", "File Explorer", "explorer", "/Desktop", "Browse Files", "Folder"),
+        WorkspaceShortcut("app-trash", "Recycle Bin", "explorer", "/Trash", "Deleted Items", "Trash2"),
+        WorkspaceShortcut("app-notes", "Notes & To-Do", "notes", "", "Checklists", "ListTodo"),
+        WorkspaceShortcut("app-settings", "Settings", "settings", "", "Personalization", "SettingsIcon")
+    ]
+
+fn get_dev_shortcuts() -> Array[WorkspaceShortcut]:
+    return [
+        WorkspaceShortcut("app-rocket-studio", "Rocket Studio", "rocket-studio", "", "IDE & Compiler", "Code2"),
+        WorkspaceShortcut("app-editor", "Rocket Editor", "editor", "", "rEdit Studio", "Edit3"),
+        WorkspaceShortcut("app-terminal", "Terminal", "terminal", "", "rsh v2.0 CLI", "Terminal"),
+        WorkspaceShortcut("app-projects", "Rocket Projects", "explorer", "/home/ryan/Projects/Rocket", "Source Repos", "FolderCode"),
+        WorkspaceShortcut("app-taskmanager", "Task Manager", "taskmanager", "", "Processes & CPU", "Activity")
+    ]
+
+fn get_design_shortcuts() -> Array[WorkspaceShortcut]:
+    return [
+        WorkspaceShortcut("app-paint", "Rocket Paint", "paint", "", "Canvas Draw", "Paintbrush"),
+        WorkspaceShortcut("app-gallery", "Rocket Gallery", "gallery", "/home/ryan/Pictures", "Image Viewer", "ImageIcon"),
+        WorkspaceShortcut("app-graphics", "Graphics Engine", "graphics", "", "Orbit Physics", "Rocket"),
+        WorkspaceShortcut("app-pictures", "Pictures Folder", "explorer", "/home/ryan/Pictures", "Artwork Library", "FolderImage")
+    ]
+
+fn get_workspace_profile(workspace_id: Int) -> WorkspaceProfile:
+    if workspace_id == 2:
+        return WorkspaceProfile(2, "Development & Code", "Developer workstation & source trees", "Terminal", get_dev_shortcuts())
+    if workspace_id == 3:
+        return WorkspaceProfile(3, "Design & Art", "Creative studio & visual media", "Paintbrush", get_design_shortcuts())
+    return WorkspaceProfile(1, "General System", "Primary system & everyday utilities", "Layers", get_general_shortcuts())

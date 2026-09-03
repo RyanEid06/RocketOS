@@ -24,6 +24,7 @@ import { RaylibCanvasApp } from './components/apps/RaylibCanvasApp';
 import { TaskManagerApp } from './components/apps/TaskManagerApp';
 import { PaintApp } from './components/apps/PaintApp';
 import { NotesApp } from './components/apps/NotesApp';
+import { RocketGallery } from './components/apps/RocketGallery';
 
 import { browserPersistenceProvider } from './platform/browser/BrowserPersistenceProvider';
 import { settingsService } from './core/settings/SettingsService';
@@ -441,6 +442,10 @@ export default function App() {
   // Open file based on FileAssociations
   const handleOpenFile = (file: FSItem) => {
     const targetAppId = FileAssociations.getDefaultAppId(file.name);
+    if (targetAppId === 'gallery') {
+      openApp('gallery', { file, path: file.path });
+      return;
+    }
     if (targetAppId === 'paint') {
       openApp('paint', { file, path: file.path });
       return;
@@ -684,7 +689,14 @@ export default function App() {
           />
         );
       case 'paint':
-        return <PaintApp />;
+        return <PaintApp initialFilePath={win.extraData?.path || win.extraData?.file?.path} />;
+      case 'gallery':
+        return (
+          <RocketGallery
+            initialFilePath={win.extraData?.path || win.extraData?.file?.path}
+            onOpenInPaint={(path) => openApp('paint', { path })}
+          />
+        );
       case 'notes':
         return <NotesApp />;
       case 'rocket-studio':
@@ -746,6 +758,7 @@ export default function App() {
         desktopFiles={getDesktopItems()}
         settings={settings}
         trashCount={trashItems.length}
+        currentWorkspace={currentWorkspace}
         onOpenApp={openApp}
         onOpenFile={handleOpenFile}
         onDeleteFile={handleDeleteItem}
@@ -754,6 +767,17 @@ export default function App() {
         onCreateDesktopFile={handleCreateDesktopFile}
         onCreateFolder={handleCreateDesktopFolder}
         onOpenTimeSettings={() => openApp('settings')}
+      />
+
+      {/* 5-App Circular Rotating Carousel Dock (Desktop furniture layered below windows) */}
+      <CarouselDock
+        settings={settings}
+        onOpenApp={openApp}
+        onOpenFile={handleOpenFile}
+        onDeleteFile={handleDeleteItem}
+        trashCount={trashItems.length}
+        openWindows={windows}
+        hasActiveWindows={visibleWindows.some((w) => !w.isMinimized)}
       />
 
       {/* Floating Windows (Workspace Isolated) */}
@@ -781,16 +805,6 @@ export default function App() {
           </AppErrorBoundary>
         </WindowFrame>
       ))}
-
-      {/* 5-App Circular Rotating Carousel Dock (Preserved aesthetic & track) */}
-      <CarouselDock
-        settings={settings}
-        onOpenApp={openApp}
-        onOpenFile={handleOpenFile}
-        onDeleteFile={handleDeleteItem}
-        trashCount={trashItems.length}
-        openWindows={windows}
-      />
 
       {/* Bottom Transparent Liquid Glass Taskbar with Workspace, Pinning, Search, Sound */}
       <Taskbar

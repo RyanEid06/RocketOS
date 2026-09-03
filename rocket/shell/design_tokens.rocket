@@ -32,6 +32,28 @@ struct ShellDimensions:
     min_window_width: Int
     min_window_height: Int
 
+struct ShellZLayers:
+    desktop_background: Int
+    desktop_icons: Int
+    desktop_dock: Int
+    window_base: Int
+    taskbar: Int
+    flyout: Int
+    modal: Int
+    context_menu: Int
+
+fn get_shell_z_layers() -> ShellZLayers:
+    return ShellZLayers(
+        desktop_background: 0,
+        desktop_icons: 10,
+        desktop_dock: 20,
+        window_base: 100,
+        taskbar: 1000,
+        flyout: 1100,
+        modal: 1200,
+        context_menu: 1300
+    )
+
 struct MotionTiming:
     instant_ms: Int
     fast_ms: Int

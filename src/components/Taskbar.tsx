@@ -289,8 +289,9 @@ export const Taskbar: React.FC<TaskbarProps> = ({
     >
       {/* Left Section: Start Button, Workspaces, Search Launcher */}
       <div className="flex items-center gap-1.5">
-        {/* Start Button */}
+        {/* Start Button - Microsoft 4-Square style with RocketOS Liquid Glass aesthetic */}
         <button
+          id="start-menu-button"
           type="button"
           onClick={() => {
             const next = !startMenuOpen;
@@ -300,17 +301,43 @@ export const Taskbar: React.FC<TaskbarProps> = ({
               soundEngine.playOpen();
             }
           }}
-          className={`h-9 px-3 rounded-2xl flex items-center gap-2 border transition-all cursor-pointer ${
+          className={`relative w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-150 cursor-pointer group shrink-0 ${
             startMenuOpen
-              ? 'bg-sky-500 text-white border-sky-400 shadow-lg shadow-sky-500/25 scale-[0.98]'
-              : 'bg-white/5 hover:bg-white/10 border-white/10 text-slate-200 hover:text-white'
+              ? 'bg-white/15 shadow-sm'
+              : 'hover:bg-white/10 opacity-90 hover:opacity-100'
           }`}
           title="Start Menu"
         >
-          <div className="w-5 h-5 rounded-lg bg-gradient-to-tr from-sky-400 to-indigo-500 flex items-center justify-center font-black text-white text-[11px] shadow-sm">
-            R
+          <div className="w-[21px] h-[21px] grid grid-cols-2 gap-[2px] transition-transform duration-150 group-hover:scale-105 group-active:scale-95">
+            <div
+              className={`rounded-[2px] transition-all duration-150 ${
+                startMenuOpen
+                  ? 'bg-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.7)]'
+                  : 'bg-sky-400 group-hover:bg-sky-300 group-hover:shadow-[0_0_6px_rgba(56,189,248,0.5)]'
+              }`}
+            />
+            <div
+              className={`rounded-[2px] transition-all duration-150 ${
+                startMenuOpen
+                  ? 'bg-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.7)]'
+                  : 'bg-sky-400 group-hover:bg-sky-300 group-hover:shadow-[0_0_6px_rgba(56,189,248,0.5)]'
+              }`}
+            />
+            <div
+              className={`rounded-[2px] transition-all duration-150 ${
+                startMenuOpen
+                  ? 'bg-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.7)]'
+                  : 'bg-sky-400 group-hover:bg-sky-300 group-hover:shadow-[0_0_6px_rgba(56,189,248,0.5)]'
+              }`}
+            />
+            <div
+              className={`rounded-[2px] transition-all duration-150 ${
+                startMenuOpen
+                  ? 'bg-sky-300 shadow-[0_0_8px_rgba(56,189,248,0.7)]'
+                  : 'bg-sky-400 group-hover:bg-sky-300 group-hover:shadow-[0_0_6px_rgba(56,189,248,0.5)]'
+              }`}
+            />
           </div>
-          <span className="text-xs font-bold hidden sm:inline">Rocket</span>
         </button>
 
         {/* Virtual Desktop Workspaces Switcher Button */}

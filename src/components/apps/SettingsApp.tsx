@@ -227,7 +227,7 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
             }`}
           >
             <Cpu className="w-4 h-4 text-purple-400" />
-            <span>System Telemetry</span>
+            <span>Kernel & Specs</span>
           </button>
         </div>
 
@@ -622,7 +622,7 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
                 <span>RocketOS Virtual Filesystem (VFS)</span>
               </h2>
               <p className="text-slate-400 text-xs mt-0.5">
-                Live POSIX-compliant virtual filesystem telemetry, directory hierarchy, and trash management.
+                Live POSIX-compliant virtual filesystem statistics, directory hierarchy, and trash management.
               </p>
             </div>
 

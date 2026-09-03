@@ -23,14 +23,21 @@ import {
   RefreshCw,
   Sliders,
   Check,
-  Cpu
+  Cpu,
+  Code2,
+  FolderCode,
+  Image as ImageIcon,
+  Layers,
 } from 'lucide-react';
 import { TRANSLATIONS, getLocaleCode } from '../utils/localization';
+import { WorkspaceRulesManager, WorkspaceShortcutItem } from '../core/workspace/WorkspaceRules';
+import { SHELL_Z_LAYERS } from '../core/theme/tokens';
 
 interface DesktopProps {
   desktopFiles: FSItem[];
   settings: SystemSettings;
   trashCount?: number;
+  currentWorkspace?: number;
   onOpenApp: (appId: AppId, extraData?: Record<string, any>) => void;
   onOpenFile: (file: FSItem) => void;
   onDeleteFile?: (file: FSItem) => void;
@@ -45,6 +52,7 @@ export const Desktop: React.FC<DesktopProps> = ({
   desktopFiles,
   settings,
   trashCount = 0,
+  currentWorkspace = 1,
   onOpenApp,
   onOpenFile,
   onDeleteFile,
@@ -59,7 +67,7 @@ export const Desktop: React.FC<DesktopProps> = ({
     x: number;
     y: number;
     type: 'desktop' | 'icon';
-    targetItem?: FSItem | { id: string; title: string; appId: AppId };
+    targetItem?: FSItem | WorkspaceShortcutItem;
   } | null>(null);
 
   const [timeStr, setTimeStr] = useState<string>('');
@@ -77,6 +85,10 @@ export const Desktop: React.FC<DesktopProps> = ({
   const desktopRef = useRef<HTMLDivElement | null>(null);
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
   const locale = getLocaleCode(settings.language);
+
+  // Active purpose-built workspace profile (Desktop 1 is clean without system shortcuts)
+  const workspaceProfile = WorkspaceRulesManager.getInstance().getProfile(currentWorkspace);
+  const activeShortcuts = currentWorkspace === 1 ? [] : workspaceProfile.shortcuts;
 
   // Live updated clock respecting 12h/24h, seconds, and language
   useEffect(() => {
@@ -116,7 +128,7 @@ export const Desktop: React.FC<DesktopProps> = ({
   // Handle right-click on specific icon
   const handleIconContextMenu = (
     e: React.MouseEvent,
-    targetItem: FSItem | { id: string; title: string; appId: AppId }
+    targetItem: FSItem | WorkspaceShortcutItem
   ) => {
     e.preventDefault();
     e.stopPropagation();
@@ -162,83 +174,50 @@ export const Desktop: React.FC<DesktopProps> = ({
     setSelectionBox(null);
   };
 
-  // Primary desktop shortcuts
-  const systemShortcuts = [
-    {
-      id: 'app-thispc',
-      title: t.thisPc,
-      appId: 'explorer' as AppId,
-      extraData: { path: '/ThisPC' },
-      icon: <HardDrive className="w-8 h-8 text-sky-400 drop-shadow-md" />,
-      sub: 'Storage & Specs',
-    },
-    {
-      id: 'app-trash',
-      title: t.recycleBin,
-      appId: 'explorer' as AppId,
-      extraData: { path: '/Trash' },
-      icon: (
-        <div className="relative">
-          <Trash2 className="w-8 h-8 text-slate-300 drop-shadow-md" />
-          {trashCount > 0 && (
-            <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center font-mono">
-              {trashCount}
-            </span>
-          )}
-        </div>
-      ),
-      sub: trashCount > 0 ? `${trashCount} items` : 'Empty',
-    },
-    {
-      id: 'app-notes',
-      title: t.notes,
-      appId: 'notes' as AppId,
-      icon: <ListTodo className="w-8 h-8 text-emerald-400 drop-shadow-md" />,
-      sub: 'Checklists',
-    },
-    {
-      id: 'app-paint',
-      title: t.paint,
-      appId: 'paint' as AppId,
-      icon: <Paintbrush className="w-8 h-8 text-amber-400 drop-shadow-md" />,
-      sub: 'Canvas Draw',
-    },
-    {
-      id: 'app-taskmanager',
-      title: t.taskManager,
-      appId: 'taskmanager' as AppId,
-      icon: <Activity className="w-8 h-8 text-rose-400 drop-shadow-md" />,
-      sub: 'Processes & CPU',
-    },
-    {
-      id: 'app-terminal',
-      title: t.terminal,
-      appId: 'terminal' as AppId,
-      icon: <Terminal className="w-8 h-8 text-slate-200 drop-shadow-md" />,
-      sub: 'rsh v2.0',
-    },
-    {
-      id: 'app-graphics',
-      title: t.graphicsEngine,
-      appId: 'graphics' as AppId,
-      icon: <Rocket className="w-8 h-8 text-purple-400 drop-shadow-md" />,
-      sub: 'Orbit Physics',
-    },
-    {
-      id: 'app-editor',
-      title: 'Rocket Editor',
-      appId: 'editor' as AppId,
-      icon: <Edit3 className="w-8 h-8 text-indigo-400 drop-shadow-md" />,
-      sub: 'rEdit Studio',
-    },
-    {
-      id: 'app-settings',
-      title: t.settings,
-      appId: 'settings' as AppId,
-      icon: <SettingsIcon className="w-8 h-8 text-sky-300 drop-shadow-md" />,
-      sub: 'System Control',
-    },
-  ];
+  // Icon renderer matching WorkspaceProfile shortcuts
+  const renderShortcutIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'HardDrive':
+        return <HardDrive className="w-8 h-8 text-sky-400 drop-shadow-md" />;
+      case 'Folder':
+        return <Folder className="w-8 h-8 text-sky-400 drop-shadow-md" />;
+      case 'Trash2':
+        return (
+          <div className="relative">
+            <Trash2 className="w-8 h-8 text-slate-300 drop-shadow-md" />
+            {trashCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-rose-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center font-mono">
+                {trashCount}
+              </span>
+            )}
+          </div>
+        );
+      case 'ListTodo':
+        return <ListTodo className="w-8 h-8 text-emerald-400 drop-shadow-md" />;
+      case 'SettingsIcon':
+        return <SettingsIcon className="w-8 h-8 text-sky-300 drop-shadow-md" />;
+      case 'Code2':
+        return <Code2 className="w-8 h-8 text-cyan-400 drop-shadow-md" />;
+      case 'Edit3':
+        return <Edit3 className="w-8 h-8 text-indigo-400 drop-shadow-md" />;
+      case 'Terminal':
+        return <Terminal className="w-8 h-8 text-slate-200 drop-shadow-md" />;
+      case 'FolderCode':
+        return <FolderCode className="w-8 h-8 text-emerald-400 drop-shadow-md" />;
+      case 'Activity':
+        return <Activity className="w-8 h-8 text-rose-400 drop-shadow-md" />;
+      case 'Paintbrush':
+        return <Paintbrush className="w-8 h-8 text-amber-400 drop-shadow-md" />;
+      case 'ImageIcon':
+        return <ImageIcon className="w-8 h-8 text-purple-400 drop-shadow-md" />;
+      case 'Rocket':
+        return <Rocket className="w-8 h-8 text-purple-400 drop-shadow-md" />;
+      case 'FolderImage':
+        return <Folder className="w-8 h-8 text-amber-400 drop-shadow-md" />;
+      default:
+        return <Sparkles className="w-8 h-8 text-sky-400 drop-shadow-md" />;
+    }
+  };
 
   // Dynamic Wallpaper styles (Refined & Modern Liquid Glass Archetype)
   const getWallpaperStyles = () => {
@@ -367,7 +346,89 @@ export const Desktop: React.FC<DesktopProps> = ({
         />
       )}
 
-      {/* Clean Desktop Surface - All apps accessed via the bottom dock & taskbar */}
+      {/* Purpose-Built Workspace Shortcuts Grid & Desktop Files */}
+      <div
+        style={{ zIndex: SHELL_Z_LAYERS.DESKTOP_ICONS }}
+        className="absolute top-6 left-6 grid grid-flow-col grid-rows-6 auto-cols-max gap-3 select-none pointer-events-auto"
+      >
+        {/* Workspace Purpose-Built System Shortcuts */}
+        {activeShortcuts.map((shortcut) => {
+          const isSelected = selectedIconId === shortcut.id;
+          return (
+            <div
+              key={shortcut.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedIconId(shortcut.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onOpenApp(shortcut.appId, shortcut.extraData);
+              }}
+              onContextMenu={(e) => handleIconContextMenu(e, shortcut)}
+              className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
+                isSelected
+                  ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
+                  : 'hover:bg-white/5 border border-transparent'
+              }`}
+              title={`${shortcut.title} - ${shortcut.sub}`}
+            >
+              <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
+                {renderShortcutIcon(shortcut.iconName)}
+              </div>
+              <span className="text-[11px] font-medium text-slate-100 line-clamp-2 leading-tight drop-shadow-md">
+                {shortcut.title}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* User-created Desktop Files & Dropped Items */}
+        {desktopFiles.map((file) => {
+          const isSelected = selectedIconId === file.id;
+          return (
+            <div
+              key={file.id}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedIconId(file.id);
+              }}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                if (file.type === 'folder') {
+                  onOpenApp('explorer', { path: file.path });
+                } else {
+                  onOpenFile(file);
+                }
+              }}
+              onContextMenu={(e) => handleIconContextMenu(e, file)}
+              className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
+                isSelected
+                  ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
+                  : 'hover:bg-white/5 border border-transparent'
+              }`}
+              title={file.name}
+            >
+              <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
+                {file.type === 'folder' ? (
+                  <Folder className="w-8 h-8 text-amber-400 drop-shadow-md" />
+                ) : file.name.endsWith('.rocket') ? (
+                  <FileCode className="w-8 h-8 text-sky-400 drop-shadow-md" />
+                ) : file.name.endsWith('.rnote') ? (
+                  <FileText className="w-8 h-8 text-emerald-400 drop-shadow-md" />
+                ) : file.name.endsWith('.rpaint') || file.name.endsWith('.png') || file.name.endsWith('.jpg') ? (
+                  <ImageIcon className="w-8 h-8 text-purple-400 drop-shadow-md" />
+                ) : (
+                  <FileText className="w-8 h-8 text-slate-300 drop-shadow-md" />
+                )}
+              </div>
+              <span className="text-[11px] font-medium text-slate-100 truncate w-full leading-tight drop-shadow-md">
+                {file.name}
+              </span>
+            </div>
+          );
+        })}
+      </div>
 
       {/* Context Menu (Liquid Glass Aesthetic) */}
       {contextMenu && (

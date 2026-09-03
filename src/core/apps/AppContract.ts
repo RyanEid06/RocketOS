@@ -96,6 +96,13 @@ export class AppContract {
       'clipboard.write',
       'notifications',
     ],
+    gallery: [
+      'filesystem.read',
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+      'system.info',
+    ],
     notes: [
       'filesystem.read',
       'filesystem.write',
