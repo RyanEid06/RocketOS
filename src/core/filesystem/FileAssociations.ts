@@ -85,10 +85,26 @@ export class FileAssociations {
     },
   ];
 
+  public static getAllAssociations() {
+    return this.ASSOCIATIONS;
+  }
+
   public static getDefaultApp(extension: string): AppId {
     const cleanExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
     const found = this.ASSOCIATIONS.find((a) => a.extension === cleanExt);
     return (found?.defaultAppId as AppId) || 'editor';
+  }
+
+  public static getDefaultAppId(fileNameOrExt: string): AppId {
+    if (fileNameOrExt.includes('.')) {
+      const ext = '.' + fileNameOrExt.split('.').pop()!.toLowerCase();
+      return this.getDefaultApp(ext);
+    }
+    return this.getDefaultApp(fileNameOrExt);
+  }
+
+  public static getDefaultAppForFilename(filename: string): AppId {
+    return this.getDefaultAppId(filename);
   }
 
   public static getAssociatedApps(extension: string): AppId[] {

@@ -37,6 +37,8 @@ import { AppRegistry } from './core/apps/AppRegistry';
 import { soundEngine } from './utils/audio';
 import { ProcessManager } from './core/process/ProcessManager';
 import { ServiceManager } from './core/services/ServiceManager';
+import { AppErrorBoundary } from './components/common/AppErrorBoundary';
+import { FileAssociations } from './core/filesystem/FileAssociations';
 
 export default function App() {
   const [isBooted, setIsBooted] = useState<boolean>(true);
@@ -436,8 +438,21 @@ export default function App() {
     soundEngine.playOpen();
   };
 
-  // Open file in Text Editor
+  // Open file based on FileAssociations
   const handleOpenFile = (file: FSItem) => {
+    const targetAppId = FileAssociations.getDefaultAppId(file.name);
+    if (targetAppId === 'paint') {
+      openApp('paint', { file, path: file.path });
+      return;
+    }
+    if (targetAppId === 'notes') {
+      openApp('notes', { file, path: file.path });
+      return;
+    }
+    if (targetAppId === 'graphics') {
+      openApp('graphics', { file, path: file.path });
+      return;
+    }
     setActiveEditorFile(file);
     const existingEditor = windows.find((w) => w.appId === 'editor');
     if (existingEditor) {
@@ -648,6 +663,7 @@ export default function App() {
             currentPath={win.extraData?.path || '/Desktop'}
             trashItems={trashItems}
             onOpenFile={handleOpenFile}
+            onOpenWith={(file, appId) => openApp(appId as any, { file, path: file.path })}
             onOpenTerminalAtPath={(path) => openApp('terminal', { cwd: path })}
             onCreateItem={handleCreateItem}
             onDeleteItem={handleDeleteItem}
@@ -660,13 +676,19 @@ export default function App() {
           />
         );
       case 'taskmanager':
-        return <TaskManagerApp windows={windows} onCloseWindow={closeWindow} />;
+        return (
+          <TaskManagerApp
+            windows={windows}
+            onCloseWindow={closeWindow}
+            onLaunchApp={(appId) => openApp(appId as any)}
+          />
+        );
       case 'paint':
         return <PaintApp />;
       case 'notes':
         return <NotesApp />;
       case 'rocket-studio':
-        return <RocketStudio />;
+        return <RocketStudio onLaunchApp={(appId, data) => openApp(appId as any, data)} />;
       case 'terminal':
         return (
           <TerminalApp
@@ -693,7 +715,7 @@ export default function App() {
           />
         );
       case 'graphics':
-        return <RaylibCanvasApp />;
+        return <RaylibCanvasApp initialFilePath={win.extraData?.path} />;
       default:
         return <div className="p-4 text-slate-300">App content</div>;
     }
@@ -750,7 +772,13 @@ export default function App() {
           onUpdateBounds={(w, h, x, y, snap) => updateWindowBounds(win.id, w, h, x, y, snap)}
           onMoveToWorkspace={(wsId) => handleMoveWindowToWorkspace(win.id, wsId)}
         >
-          {renderWindowContent(win)}
+          <AppErrorBoundary
+            appId={win.appId}
+            windowId={win.id}
+            onCloseWindow={() => closeWindow(win.id)}
+          >
+            {renderWindowContent(win)}
+          </AppErrorBoundary>
         </WindowFrame>
       ))}
 

@@ -1,0 +1,107 @@
+# RocketOS Language Diagnostics Engine & Compiler Linter
+# Real grammar rules based on Rocket 2.1 specification from RyanEid06/Rocket
+
+import std.string
+import std.collections
+
+struct DiagnosticItem:
+    rule_id: String
+    line_number: Int
+    column: Int
+    message: String
+    severity: String
+
+struct DiagnosticSummary:
+    error_count: Int
+    warning_count: Int
+    info_count: Int
+    is_valid: Bool
+    diagnostics: Array[DiagnosticItem]
+
+fn create_diagnostic(rule: String, line: Int, col: Int, msg: String, sev: String) -> DiagnosticItem:
+    return DiagnosticItem(
+        rule_id: rule,
+        line_number: line,
+        column: col,
+        message: msg,
+        severity: sev
+    )
+
+fn analyze_rocket_source(source: String) -> DiagnosticSummary:
+    let lines = string.split(source, "\n")
+    var errors = 0
+    var warnings = 0
+    var items: Array[DiagnosticItem] = []
+
+    # Check rule R1001: Entry point fn main() -> Int:
+    if not string.contains(source, "fn main() -> Int:"):
+        warnings = warnings + 1
+        let d = create_diagnostic(
+            "R1001",
+            1,
+            1,
+            "Missing canonical entry point 'fn main() -> Int:'",
+            "warning"
+        )
+        items = collections.append(items, d)
+
+    var line_num = 0
+    for line in lines:
+        line_num = line_num + 1
+
+        # Check rule R1002: Tabs are forbidden (tabs are not allowed; use spaces)
+        if string.contains(line, "\t"):
+            errors = errors + 1
+            let d = create_diagnostic(
+                "R1002",
+                line_num,
+                1,
+                "Tabs are not allowed; use 4 spaces for indentation",
+                "error"
+            )
+            items = collections.append(items, d)
+
+        # Check rule R1003: No null keyword in Rocket (use Option[T] instead)
+        if string.contains(line, " null ") or string.contains(line, "= null") or string.contains(line, "null;"):
+            errors = errors + 1
+            let d = create_diagnostic(
+                "R1003",
+                line_num,
+                1,
+                "'null' does not exist in Rocket; use Option[T] (Some / None)",
+                "error"
+            )
+            items = collections.append(items, d)
+
+        # Check rule R1004: No exceptions / throw / try / catch in Rocket
+        if string.contains(line, "throw ") or string.contains(line, "catch ") or string.contains(line, "try:"):
+            errors = errors + 1
+            let d = create_diagnostic(
+                "R1004",
+                line_num,
+                1,
+                "Exceptions are forbidden in Rocket; use Result[T, E] (Ok / Err)",
+                "error"
+            )
+            items = collections.append(items, d)
+
+        # Check rule R1005: Obsolete C/Rust types like i32 or u32 in top-level definitions
+        if string.contains(line, "-> i32") or string.contains(line, "-> u32"):
+            warnings = warnings + 1
+            let d = create_diagnostic(
+                "R1005",
+                line_num,
+                1,
+                "Primitive integer type in Rocket 2.1 is 'Int' (64-bit signed)",
+                "warning"
+            )
+            items = collections.append(items, d)
+
+    let is_valid = (errors == 0)
+    return DiagnosticSummary(
+        error_count: errors,
+        warning_count: warnings,
+        info_count: 0,
+        is_valid: is_valid,
+        diagnostics: items
+    )

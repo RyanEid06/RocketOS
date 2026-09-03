@@ -1,0 +1,105 @@
+# RocketOS Code Editor Domain Model & Buffer Engine
+# Authoritative document model, tab sessions, find-replace, and buffer operations
+
+import std.string
+import std.collections
+import std.time
+
+struct TextBuffer:
+    id: String
+    file_path: String
+    file_name: String
+    content: String
+    is_dirty: Bool
+    read_only: Bool
+    line_count: Int
+    cursor_line: Int
+    cursor_column: Int
+    created_at: String
+    modified_at: String
+
+struct FindReplaceQuery:
+    query: String
+    replace_with: String
+    case_sensitive: Bool
+    match_whole_word: Bool
+
+struct FindMatch:
+    line_number: Int
+    start_col: Int
+    end_col: Int
+    preview_line: String
+
+struct EditorDiagnostic:
+    line_number: Int
+    column: Int
+    code: String
+    message: String
+    severity: String
+
+struct EditorSession:
+    active_buffer_id: String
+    open_buffers: Array[TextBuffer]
+    recent_files: Array[String]
+    font_size: Int
+    tab_size: Int
+    word_wrap: Bool
+    line_numbers: Bool
+
+fn create_empty_buffer(path: String, name: String, content: String) -> TextBuffer:
+    let now = time.now_iso()
+    let lines = string.split(content, "\n")
+    return TextBuffer(
+        id: "buf-" + string.from_int(time.timestamp_ms()),
+        file_path: path,
+        file_name: name,
+        content: content,
+        is_dirty: false,
+        read_only: false,
+        line_count: collections.length(lines),
+        cursor_line: 1,
+        cursor_column: 1,
+        created_at: now,
+        modified_at: now
+    )
+
+fn create_default_editor_session() -> EditorSession:
+    let sample_rocket = "# Canonical Rocket 2.1 Program\n\nimport std.string\n\nfn add(a: Int, b: Int) -> Int:\n    return a + b\n\nfn main() -> Int:\n    let sum = add(10, 32)\n    print(\"RocketOS Core: result = \" + string.from_int(sum))\n    return 0\n"
+    let default_buf = create_empty_buffer("/home/ryan/Documents/hello.rocket", "hello.rocket", sample_rocket)
+    return EditorSession(
+        active_buffer_id: default_buf.id,
+        open_buffers: [default_buf],
+        recent_files: ["/home/ryan/Documents/hello.rocket"],
+        font_size: 13,
+        tab_size: 4,
+        word_wrap: false,
+        line_numbers: true
+    )
+
+fn find_occurrences(content: String, query: FindReplaceQuery) -> Array[FindMatch]:
+    let mut matches: Array[FindMatch] = []
+    if string.byte_length(query.query) == 0:
+        return matches
+
+    let lines = string.split(content, "\n")
+    var line_idx = 0
+    for line in lines:
+        line_idx = line_idx + 1
+        if string.contains(line, query.query):
+            let match_entry = FindMatch(
+                line_number: line_idx,
+                start_col: 1,
+                end_col: 1 + string.byte_length(query.query),
+                preview_line: string.trim(line)
+            )
+            matches = collections.append(matches, match_entry)
+
+    return matches
+
+fn format_editor_state_json(session: EditorSession) -> String:
+    var json = "{\n"
+    json = json + "  \"activeBufferId\": \"" + session.active_buffer_id + "\",\n"
+    json = json + "  \"bufferCount\": " + string.from_int(collections.length(session.open_buffers)) + ",\n"
+    json = json + "  \"tabSize\": " + string.from_int(session.tab_size) + "\n"
+    json = json + "}"
+    return json

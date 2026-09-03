@@ -1,7 +1,13 @@
-import React, { useState } from 'react';
-import { SystemSettings, WallpaperId, AccentColor, SystemLanguage } from '../../types';
+import React, { useState, useEffect } from 'react';
+import { SystemSettings, WallpaperId, AccentColor, SystemLanguage, AppId } from '../../types';
 import { REPO_METADATA } from '../../data/languageAnalysis';
 import { TRANSLATIONS } from '../../utils/localization';
+import { AppRegistry } from '../../core/apps/AppRegistry';
+import { AppSecurityManager } from '../../core/apps/AppSecurityManager';
+import { FileAssociations } from '../../core/filesystem/FileAssociations';
+import { RocketFS } from '../../core/filesystem/RocketFS';
+import { CrashRecoveryService } from '../../core/recovery/CrashRecoveryService';
+import { UserManager } from '../../core/users/UserManager';
 import {
   Palette,
   Monitor,
@@ -17,7 +23,11 @@ import {
   Layers,
   HardDrive,
   Clock,
-  Globe
+  Globe,
+  Database,
+  Trash2,
+  Save,
+  CheckCircle2,
 } from 'lucide-react';
 
 interface SettingsAppProps {
@@ -31,7 +41,33 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
   onUpdateSettings,
   onReboot,
 }) => {
-  const [activeTab, setActiveTab] = useState<'personalization' | 'display' | 'time' | 'network' | 'system'>('personalization');
+  const [activeTab, setActiveTab] = useState<'personalization' | 'display' | 'time' | 'network' | 'apps' | 'storage' | 'system'>('personalization');
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
+  const [fsStats, setFsStats] = useState<{ totalInodes: number; totalBytes: number; trashCount: number }>({
+    totalInodes: 0,
+    totalBytes: 0,
+    trashCount: 0,
+  });
+
+  useEffect(() => {
+    const updateStats = () => {
+      try {
+        const rfs = RocketFS.getInstance();
+        const snap = rfs.snapshot();
+        const inodesList = Object.values(snap.inodes);
+        const bytes = inodesList.reduce((sum, n) => sum + (n.sizeBytes || 0), 0);
+        const trashRecords = rfs.getTrashSubsystem().listTrash();
+        setFsStats({
+          totalInodes: inodesList.length,
+          totalBytes: bytes,
+          trashCount: trashRecords.length,
+        });
+      } catch {
+        // ignore
+      }
+    };
+    updateStats();
+  }, [activeTab]);
 
   const wallpapers: { id: WallpaperId; name: string; desc: string; previewClass: string }[] = [
     {
@@ -156,6 +192,30 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
           >
             <Wifi className="w-4 h-4 text-sky-400" />
             <span>Network & Devices</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('apps')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
+              activeTab === 'apps'
+                ? 'bg-sky-600/30 text-white font-semibold border border-sky-500/50'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+            }`}
+          >
+            <Layers className="w-4 h-4 text-pink-400" />
+            <span>Apps & Sandbox</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('storage')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
+              activeTab === 'storage'
+                ? 'bg-sky-600/30 text-white font-semibold border border-sky-500/50'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+            }`}
+          >
+            <HardDrive className="w-4 h-4 text-cyan-400" />
+            <span>Storage & VFS</span>
           </button>
 
           <button
@@ -491,7 +551,176 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
           </div>
         )}
 
-        {/* 5. SYSTEM TELEMETRY TAB */}
+        {/* 5. APPS & SANDBOX TAB */}
+        {activeTab === 'apps' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <Layers className="w-5 h-5 text-pink-400" />
+                <span>Installed Applications & Security Sandbox</span>
+              </h2>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Authoritative RocketOS AppContract registrations, file associations, and sandboxed capabilities.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {AppRegistry.getAllApps().map((app) => {
+                const secContext = AppSecurityManager.getInstance().getContext(app.id as AppId);
+                const drafts = CrashRecoveryService.getInstance().getRecoverableDrafts(app.id as AppId);
+                const exts = FileAssociations.getAllAssociations().filter((a) =>
+                  a.associatedAppIds.includes(app.id as AppId)
+                ).map((a) => a.extension);
+
+                return (
+                  <div key={app.id} className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-bold text-white text-sm">{app.displayName}</div>
+                        <div className="text-[10px] text-slate-400 font-mono">id: {app.id} • {app.category}</div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-pink-950 text-pink-300 border border-pink-800">
+                        Sandboxed
+                      </span>
+                    </div>
+
+                    <p className="text-slate-300 text-xs line-clamp-2">{app.description}</p>
+
+                    <div className="space-y-1.5 pt-2 border-t border-slate-800/80 text-[11px]">
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">File Associations:</span>
+                        <span className="font-mono text-sky-300">
+                          {exts.length > 0 ? exts.join(', ') : 'None'}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">Permissions Granted:</span>
+                        <span className="font-mono text-emerald-400">
+                          {secContext.grantedCapabilities.length} capabilities
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-500">Crash Recovery State:</span>
+                        <span className="font-mono text-slate-300">
+                          {drafts.length > 0 ? `${drafts.length} draft(s) protected` : 'Clean'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* 6. STORAGE & VFS TAB */}
+        {activeTab === 'storage' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-base font-bold text-white flex items-center gap-2">
+                <HardDrive className="w-5 h-5 text-cyan-400" />
+                <span>RocketOS Virtual Filesystem (VFS)</span>
+              </h2>
+              <p className="text-slate-400 text-xs mt-0.5">
+                Live POSIX-compliant virtual filesystem telemetry, directory hierarchy, and trash management.
+              </p>
+            </div>
+
+            {syncStatus && (
+              <div className="p-3 bg-emerald-950/80 border border-emerald-800 rounded-xl text-emerald-300 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4" />
+                <span>{syncStatus}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="text-slate-500 text-[11px] font-semibold">Total Inodes</div>
+                <div className="text-2xl font-bold font-mono text-cyan-300 mt-1">{fsStats.totalInodes}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Hierarchical tree nodes</div>
+              </div>
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="text-slate-500 text-[11px] font-semibold">Virtual Storage Used</div>
+                <div className="text-2xl font-bold font-mono text-white mt-1">
+                  {(fsStats.totalBytes / 1024).toFixed(1)} KB
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">POSIX data payload</div>
+              </div>
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                <div className="text-slate-500 text-[11px] font-semibold">Trash Subsystem</div>
+                <div className="text-2xl font-bold font-mono text-amber-300 mt-1">{fsStats.trashCount}</div>
+                <div className="text-[10px] text-slate-400 mt-1">Tombstoned items</div>
+              </div>
+            </div>
+
+            {/* Mount Points Overview */}
+            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+              <div className="font-bold text-white text-sm">System Mount Hierarchy</div>
+              <div className="divide-y divide-slate-800/80 text-xs font-mono">
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-sky-400">/home/ryan</span>
+                  <span className="text-slate-400">User Home Directory (rwx)</span>
+                  <span className="text-emerald-400">vfs_disk</span>
+                </div>
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-sky-400">/usr/share/rocket</span>
+                  <span className="text-slate-400">Rocket Standard Library & Examples</span>
+                  <span className="text-emerald-400">vfs_disk</span>
+                </div>
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-sky-400">/proc</span>
+                  <span className="text-slate-400">Virtual Process State (/proc/&lt;pid&gt;)</span>
+                  <span className="text-purple-400">procfs</span>
+                </div>
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-sky-400">/sys/devices</span>
+                  <span className="text-slate-400">Kernel Hardware & Screen Abstractions</span>
+                  <span className="text-purple-400">sysfs</span>
+                </div>
+                <div className="py-2 flex items-center justify-between">
+                  <span className="text-sky-400">/dev</span>
+                  <span className="text-slate-400">Virtual Character Nodes (null, zero, random)</span>
+                  <span className="text-purple-400">devfs</span>
+                </div>
+              </div>
+            </div>
+
+            {/* VFS Maintenance Actions */}
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => {
+                  try {
+                    const snap = RocketFS.getInstance().snapshot();
+                    localStorage.setItem('rocketos_vfs_snapshot', JSON.stringify(snap));
+                    setSyncStatus('Authoritative VFS snapshot written to persistent storage.');
+                    setTimeout(() => setSyncStatus(null), 3500);
+                  } catch (e: any) {
+                    setSyncStatus(`Sync failed: ${e?.message || 'Storage error'}`);
+                  }
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-cyan-950/70 hover:bg-cyan-900 border border-cyan-800 text-cyan-200 rounded-xl font-medium cursor-pointer transition-colors"
+              >
+                <Save className="w-4 h-4 text-cyan-400" />
+                <span>Save VFS Snapshot</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  RocketFS.getInstance().getTrashSubsystem().emptyTrash();
+                  setFsStats((prev) => ({ ...prev, trashCount: 0 }));
+                  setSyncStatus('Trash subsystem emptied successfully.');
+                  setTimeout(() => setSyncStatus(null), 3500);
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-950/70 hover:bg-amber-900 border border-amber-800 text-amber-200 rounded-xl font-medium cursor-pointer transition-colors"
+              >
+                <Trash2 className="w-4 h-4 text-amber-400" />
+                <span>Empty Trash</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 7. SYSTEM TELEMETRY TAB */}
         {activeTab === 'system' && (
           <div className="space-y-6">
             <div>

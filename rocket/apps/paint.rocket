@@ -1,5 +1,5 @@
-// RocketOS Paint Domain Model & .rpaint Vector/Raster Engine
-// Authoritative definitions for strokes, shapes, layers, and document serialization
+# RocketOS Paint Domain Model & .rpaint Vector/Raster Engine
+# Authoritative definitions for strokes, shapes, canvas presets, and document serialization
 
 import std.string
 import std.collections
@@ -28,7 +28,7 @@ struct StrokeRecord:
     tool: PaintTool
     color: String
     brush_size: Int
-    points: List[Point2D]
+    points: Array[Point2D]
     start_point: Point2D
     end_point: Point2D
     timestamp: String
@@ -38,7 +38,7 @@ struct PaintDocument:
     title: String
     dimensions: CanvasDimensions
     background_color: String
-    strokes: List[StrokeRecord]
+    strokes: Array[StrokeRecord]
     created_at: String
     modified_at: String
     file_path: String
@@ -47,25 +47,31 @@ struct PaintDocument:
 
 fn tool_to_string(tool: PaintTool) -> String:
     match tool:
-        case PaintTool.Brush: return "brush"
-        case PaintTool.Eraser: return "eraser"
-        case PaintTool.Line: return "line"
-        case PaintTool.Rectangle: return "rectangle"
-        case PaintTool.FilledRectangle: return "filled_rectangle"
-        case PaintTool.Circle: return "circle"
-        case PaintTool.FilledCircle: return "filled_circle"
-        case PaintTool.Picker: return "picker"
+        case Brush: return "brush"
+        case Eraser: return "eraser"
+        case Line: return "line"
+        case Rectangle: return "rectangle"
+        case FilledRectangle: return "filled_rectangle"
+        case Circle: return "circle"
+        case FilledCircle: return "filled_circle"
+        case Picker: return "picker"
 
 fn tool_from_string(raw: String) -> PaintTool:
-    match raw.to_lowercase():
-        case "eraser": return PaintTool.Eraser
-        case "line": return PaintTool.Line
-        case "rectangle": return PaintTool.Rectangle
-        case "filled_rectangle": return PaintTool.FilledRectangle
-        case "circle": return PaintTool.Circle
-        case "filled_circle": return PaintTool.FilledCircle
-        case "picker": return PaintTool.Picker
-        case _: return PaintTool.Brush
+    if raw == "eraser":
+        return Eraser
+    if raw == "line":
+        return Line
+    if raw == "rectangle":
+        return Rectangle
+    if raw == "filled_rectangle":
+        return FilledRectangle
+    if raw == "circle":
+        return Circle
+    if raw == "filled_circle":
+        return FilledCircle
+    if raw == "picker":
+        return Picker
+    return Brush
 
 fn create_default_paint_document(title: String, w: Int, h: Int) -> PaintDocument:
     let now = time.now_iso()
@@ -83,7 +89,7 @@ fn create_default_paint_document(title: String, w: Int, h: Int) -> PaintDocument
     )
 
 fn format_rpaint_json(doc: PaintDocument) -> String:
-    let mut json = "{\n"
+    var json = "{\n"
     json = json + "  \"format\": \"rocket-paint-v1\",\n"
     json = json + "  \"id\": \"" + doc.id + "\",\n"
     json = json + "  \"title\": \"" + doc.title + "\",\n"
@@ -92,7 +98,7 @@ fn format_rpaint_json(doc: PaintDocument) -> String:
     json = json + "  \"backgroundColor\": \"" + doc.background_color + "\",\n"
     json = json + "  \"createdAt\": \"" + doc.created_at + "\",\n"
     json = json + "  \"modifiedAt\": \"" + doc.modified_at + "\",\n"
-    json = json + "  \"totalStrokes\": " + string.from_int(doc.strokes.len()) + "\n"
+    json = json + "  \"totalStrokes\": " + string.from_int(collections.length(doc.strokes)) + "\n"
     json = json + "}"
     return json
 
@@ -102,10 +108,11 @@ struct CanvasPreset:
     height: Int
     description: String
 
-fn get_standard_presets() -> List[CanvasPreset]:
+fn get_standard_presets() -> Array[CanvasPreset]:
     return [
         CanvasPreset(name: "VGA Retro", width: 640, height: 480, description: "Classic 4:3 CRT resolution"),
         CanvasPreset(name: "HD Compact", width: 800, height: 600, description: "Balanced workstation ratio"),
+        CanvasPreset(name: "Widescreen", width: 900, height: 560, description: "RocketOS default canvas"),
         CanvasPreset(name: "720p Canvas", width: 1280, height: 720, description: "16:9 widescreen artwork"),
         CanvasPreset(name: "Square Icon", width: 512, height: 512, description: "1:1 App icon or texture asset")
     ]

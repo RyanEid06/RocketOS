@@ -13,11 +13,14 @@ import {
   Wifi,
   Square,
   Play,
+  Pause,
+  Plus,
   RotateCw,
   ShieldAlert,
   ShieldCheck,
   Info,
   Clock,
+  X,
 } from 'lucide-react';
 import { ProcessManager } from '../../core/process/ProcessManager';
 import { ProcessRecord, ProcessState } from '../../core/process/ProcessTypes';
@@ -27,17 +30,21 @@ import { SessionManager } from '../../core/sessions/SessionManager';
 import { UserSessionRecord } from '../../core/sessions/SessionTypes';
 import { TelemetryProvider } from '../../core/telemetry/TelemetryProvider';
 import { MetricProvenance, TelemetrySnapshot } from '../../core/telemetry/TelemetryTypes';
-import { WindowState } from '../../types';
+import { AppRegistry } from '../../core/apps/AppRegistry';
+import { AppId, WindowState } from '../../types';
 
 interface TaskManagerAppProps {
   windows: WindowState[];
   onCloseWindow?: (id: string) => void;
+  onLaunchApp?: (appId: AppId) => void;
 }
 
-export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onCloseWindow }) => {
+export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onCloseWindow, onLaunchApp }) => {
   const [activeTab, setActiveTab] = useState<'processes' | 'services' | 'sessions' | 'telemetry'>('processes');
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState<boolean>(false);
+  const [newTaskAppId, setNewTaskAppId] = useState<AppId>('editor');
 
   const procMgr = ProcessManager.getInstance();
   const svcMgr = ServiceManager.getInstance();
@@ -74,6 +81,28 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
     }
     procMgr.kill(selectedPid, 15);
     setSelectedPid(null);
+  };
+
+  const handleSuspendProcess = () => {
+    if (!selectedPid || selectedPid === 1) return;
+    procMgr.suspend(selectedPid);
+  };
+
+  const handleResumeProcess = () => {
+    if (!selectedPid) return;
+    procMgr.resume(selectedPid);
+  };
+
+  const handleStartNewTask = () => {
+    if (onLaunchApp) {
+      onLaunchApp(newTaskAppId);
+    } else {
+      procMgr.spawnProcess({
+        appId: newTaskAppId,
+        workspaceId: 1,
+      });
+    }
+    setIsNewTaskModalOpen(false);
   };
 
   const handleServiceAction = (action: 'start' | 'stop' | 'restart') => {
@@ -162,20 +191,48 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
           </button>
         </div>
 
-        {/* Global Action Button */}
+        {/* Process Actions Bar */}
         {activeTab === 'processes' && (
-          <button
-            onClick={handleEndProcess}
-            disabled={!selectedPid || selectedPid === 1}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              selectedPid && selectedPid !== 1
-                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 cursor-pointer'
-                : 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
-            }`}
-          >
-            <Square className="w-3 h-3 fill-current" />
-            <span>End Task</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsNewTaskModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-sky-500/20 text-sky-300 border border-sky-500/40 hover:bg-sky-500/30 transition-all cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Start New Task</span>
+            </button>
+
+            <button
+              onClick={handleSuspendProcess}
+              disabled={!selectedPid || selectedPid === 1 || selectedProcess?.state === 'STOPPED'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            >
+              <Pause className="w-3.5 h-3.5" />
+              <span>Suspend</span>
+            </button>
+
+            <button
+              onClick={handleResumeProcess}
+              disabled={!selectedPid || selectedProcess?.state !== 'STOPPED'}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            >
+              <Play className="w-3.5 h-3.5" />
+              <span>Resume</span>
+            </button>
+
+            <button
+              onClick={handleEndProcess}
+              disabled={!selectedPid || selectedPid === 1}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                selectedPid && selectedPid !== 1
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 cursor-pointer'
+                  : 'bg-slate-800/40 text-slate-600 border border-slate-800 cursor-not-allowed'
+              }`}
+            >
+              <Square className="w-3 h-3 fill-current" />
+              <span>Kill</span>
+            </button>
+          </div>
         )}
 
         {activeTab === 'services' && selectedService && (
@@ -217,6 +274,7 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                     <th className="py-2.5 px-3">Name / Command</th>
                     <th className="py-2.5 px-3">Type</th>
                     <th className="py-2.5 px-3">State</th>
+                    <th className="py-2.5 px-3">Workspace</th>
                     <th className="py-2.5 px-3">UID</th>
                     <th className="py-2.5 px-3 text-right">CPU</th>
                     <th className="py-2.5 px-3 text-right">Memory RSS</th>
@@ -249,6 +307,7 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                           {proc.isBackgroundDaemon ? 'Daemon' : 'GUI App'}
                         </td>
                         <td className="py-2 px-3">{getStateBadge(proc.state)}</td>
+                        <td className="py-2 px-3 font-mono text-sky-300">WS {proc.workspaceId || 1}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{proc.uid}</td>
                         <td className="py-2 px-3 text-right font-mono">{cpuPercent}%</td>
                         <td className="py-2 px-3 text-right font-mono">{memMb} MB</td>
@@ -436,6 +495,61 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
           </div>
         )}
       </div>
+
+      {/* Start New Task Modal */}
+      {isNewTaskModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="w-full max-w-sm bg-slate-900 border border-white/20 rounded-2xl shadow-2xl p-4 text-slate-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
+              <div className="flex items-center gap-2 font-bold text-sm">
+                <Plus className="w-4 h-4 text-sky-400" />
+                <span>Create / Spawn Process</span>
+              </div>
+              <button
+                onClick={() => setIsNewTaskModalOpen(false)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400 font-medium">Select Registered Application</label>
+              <select
+                value={newTaskAppId}
+                onChange={(e) => setNewTaskAppId(e.target.value as AppId)}
+                className="w-full px-3 py-2 rounded-xl bg-slate-950 border border-white/15 text-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-sky-500"
+              >
+                {AppRegistry.getAllApps().map((app) => (
+                  <option key={app.id} value={app.id}>
+                    {app.displayName} ({app.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="text-[11px] text-slate-400 bg-slate-950/60 p-2.5 rounded-xl border border-white/5 space-y-1">
+              <div>• Spawns child process under PID {procMgr.getAllProcesses().length + 1}</div>
+              <div>• Assigns default sandbox memory budget and security contract</div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsNewTaskModalOpen(false)}
+                className="px-3 py-1.5 rounded-xl text-xs font-semibold hover:bg-white/10 text-slate-300"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleStartNewTask}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white shadow-md shadow-sky-500/20"
+              >
+                Launch Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

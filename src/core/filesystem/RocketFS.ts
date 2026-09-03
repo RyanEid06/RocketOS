@@ -296,7 +296,41 @@ export class RocketFS {
       0o644,
       undefined,
       'text/x-rocket',
-      '// RocketOS Boot Handoff Routine\nimport kernel.arch.x86_64\n\nfn handoff_to_user_space() -> Void:\n    print("[KERNEL] Switching to ring 3 user mode...")\n'
+      '# RocketOS Boot Handoff Routine\nimport kernel.arch.x86_64\n\nfn handoff_to_user_space() -> Unit:\n    print("[KERNEL] Switching to ring 3 user mode...")\n    return\n'
+    );
+
+    // /usr/share/rocket/examples hierarchy
+    this.createRawInode('/usr/share/rocket', 'directory', 0, 0, 0o755);
+    this.createRawInode('/usr/share/rocket/examples', 'directory', 0, 0, 0o755);
+    this.createRawInode(
+      '/usr/share/rocket/examples/graphics.rocket',
+      'file',
+      0,
+      0,
+      0o644,
+      undefined,
+      'text/x-rocket',
+      '# Rocket Raylib 2D Graphics Demo\nimport rocket.raylib\nimport rocket.motion\nimport std.string\n\nfn main() -> Int:\n    raylib.init_window(800, 600, "Rocket 2.1 Demo")\n    return 0\n'
+    );
+    this.createRawInode(
+      '/usr/share/rocket/examples/collections.rocket',
+      'file',
+      0,
+      0,
+      0o644,
+      undefined,
+      'text/x-rocket',
+      '# Rocket Standard Collections Demo\nimport std.collections\nimport std.string\n\nfn main() -> Int:\n    let items = [10, 20, 30]\n    print(collections.length(items))\n    return 0\n'
+    );
+    this.createRawInode(
+      '/usr/share/rocket/examples/concurrency.rocket',
+      'file',
+      0,
+      0,
+      0o644,
+      undefined,
+      'text/x-rocket',
+      '# Rocket Concurrency & Task Demo\nimport std.task\nimport std.sync\n\nasync fn worker() -> Result[Int, String]:\n    return Ok(42)\n\nfn main() -> Int:\n    let t = worker()\n    return 0\n'
     );
 
     // 7. /var and logging

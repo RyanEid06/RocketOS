@@ -8,13 +8,13 @@ export interface GlassPanelProps extends React.HTMLAttributes<HTMLDivElement> {
   blur?: 'sm' | 'md' | 'lg';
 }
 
-export const GlassPanel: React.FC<GlassPanelProps> = ({
+export const GlassPanel = React.forwardRef<HTMLDivElement, GlassPanelProps>(({
   children,
   elevation = 'raised',
   blur = 'md',
   className = '',
   ...props
-}) => {
+}, ref) => {
   const elevationClasses = {
     flat: 'bg-slate-900/60 border border-white/10 shadow-sm',
     raised: 'bg-slate-900/80 border border-white/15 shadow-xl',
@@ -29,10 +29,12 @@ export const GlassPanel: React.FC<GlassPanelProps> = ({
 
   return (
     <div
+      ref={ref}
       {...props}
       className={`rounded-2xl ${elevationClasses} ${blurClasses} text-slate-100 ${className}`}
     >
       {children}
     </div>
   );
-};
+});
+GlassPanel.displayName = 'GlassPanel';

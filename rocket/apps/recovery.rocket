@@ -1,0 +1,81 @@
+# RocketOS Crash Isolation, Recovery & Dirty Document Journal
+# Authoritative models for per-app recovery, crash classification, and session restoring
+
+import std.string
+import std.collections
+import std.time
+
+enum CrashSeverity:
+    AppCrash
+    ServiceFailure
+    KernelPanic
+
+struct DirtyDocumentSnapshot:
+    id: String
+    app_id: String
+    document_type: String
+    file_path: String
+    payload_content: String
+    snapshot_timestamp: String
+    auto_recovered: Bool
+
+struct CrashLogEntry:
+    id: String
+    timestamp: String
+    app_id: String
+    window_id: String
+    severity: CrashSeverity
+    error_message: String
+    stack_trace: String
+    recovered_documents: Array[DirtyDocumentSnapshot]
+
+struct RecoverySessionDescriptor:
+    last_boot_clean: Bool
+    unhandled_crashes: Array[CrashLogEntry]
+    active_recovery_snapshots: Array[DirtyDocumentSnapshot]
+
+fn severity_to_string(sev: CrashSeverity) -> String:
+    match sev:
+        case AppCrash:
+            return "APP_CRASH"
+        case ServiceFailure:
+            return "SERVICE_FAILURE"
+        case KernelPanic:
+            return "KERNEL_PANIC"
+
+fn create_crash_entry(
+    app_id: String,
+    window_id: String,
+    sev: CrashSeverity,
+    msg: String,
+    trace: String,
+    docs: Array[DirtyDocumentSnapshot]
+) -> CrashLogEntry:
+    let now = time.now_iso()
+    return CrashLogEntry(
+        id: "crash-" + string.from_int(time.timestamp_ms()),
+        timestamp: now,
+        app_id: app_id,
+        window_id: window_id,
+        severity: sev,
+        error_message: msg,
+        stack_trace: trace,
+        recovered_documents: docs
+    )
+
+fn create_dirty_snapshot(
+    app_id: String,
+    doc_type: String,
+    path: String,
+    content: String
+) -> DirtyDocumentSnapshot:
+    let now = time.now_iso()
+    return DirtyDocumentSnapshot(
+        id: "snap-" + string.from_int(time.timestamp_ms()),
+        app_id: app_id,
+        document_type: doc_type,
+        file_path: path,
+        payload_content: content,
+        snapshot_timestamp: now,
+        auto_recovered: false
+    )

@@ -249,7 +249,16 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({
         const fullPath = PathEngine.resolve(activeTab.cwd, target);
         const lookup = rfs.lookup(fullPath, currentUser);
         if (lookup.success && lookup.data.nodeType === 'file') {
-          onOpenFile(lookup.data);
+          const fsItem: FSItem = {
+            id: `file-${lookup.data.inode}`,
+            name: lookup.data.name,
+            type: 'file',
+            path: fullPath,
+            size: `${lookup.data.sizeBytes} B`,
+            updatedAt: lookup.data.modifiedAt,
+            content: lookup.data.content,
+          };
+          onOpenFile(fsItem);
         }
       }
     }

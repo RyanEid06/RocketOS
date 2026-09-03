@@ -1,5 +1,5 @@
-// RocketOS Application Contract & Capability System
-// Formal application isolation, capability declarations, and sandbox enforcement
+# RocketOS Application Contract & Capability System
+# Formal application isolation, capability declarations, and sandbox enforcement
 
 import std.string
 import std.collections
@@ -20,31 +20,31 @@ struct AppSecurityContext:
     app_id: String
     display_name: String
     is_system_app: Bool
-    granted_capabilities: List[AppCapability]
+    granted_capabilities: Array[AppCapability]
     max_memory_mb: Int
     sandbox_path_root: String
 
 fn capability_name(cap: AppCapability) -> String:
     match cap:
-        case AppCapability.FilesystemRead:
+        case FilesystemRead:
             return "filesystem.read"
-        case AppCapability.FilesystemWrite:
+        case FilesystemWrite:
             return "filesystem.write"
-        case AppCapability.Notifications:
+        case Notifications:
             return "notifications"
-        case AppCapability.ClipboardRead:
+        case ClipboardRead:
             return "clipboard.read"
-        case AppCapability.ClipboardWrite:
+        case ClipboardWrite:
             return "clipboard.write"
-        case AppCapability.Network:
+        case Network:
             return "network"
-        case AppCapability.SystemInfo:
+        case SystemInfo:
             return "system.info"
-        case AppCapability.ProcessManage:
+        case ProcessManage:
             return "process.manage"
-        case AppCapability.ServiceManage:
+        case ServiceManage:
             return "service.manage"
-        case AppCapability.UsersManage:
+        case UsersManage:
             return "users.manage"
 
 fn has_capability(ctx: AppSecurityContext, required: AppCapability) -> Bool:
@@ -70,15 +70,15 @@ fn validate_filesystem_access(
     if not has_capability(ctx, req_cap):
         return SecurityValidationResult.DeniedCapability(capability_name(req_cap))
 
-    // System applications have access across full VFS hierarchy
+    # System applications have access across full VFS hierarchy
     if ctx.is_system_app:
         return SecurityValidationResult.Granted
 
-    // Normal applications are sandboxed to user home, /tmp, or designated documents
-    let is_safe = target_path.starts_with("/home/") or
-                  target_path.starts_with("/tmp") or
-                  target_path.starts_with("/usr/share/rocket/examples") or
-                  target_path.starts_with(ctx.sandbox_path_root)
+    # Normal applications are sandboxed to user home, /tmp, or designated documents
+    let is_safe = string.starts_with(target_path, "/home/") or
+                  string.starts_with(target_path, "/tmp") or
+                  string.starts_with(target_path, "/usr/share/rocket/examples") or
+                  string.starts_with(target_path, ctx.sandbox_path_root)
 
     if not is_safe and write_op:
         return SecurityValidationResult.PathEscapeAttempt(target_path)
@@ -88,7 +88,8 @@ fn validate_filesystem_access(
 struct AppManifestContract:
     app_id: String
     version: String
-    required_capabilities: List[AppCapability]
-    supported_extensions: List[String]
+    required_capabilities: Array[AppCapability]
+    supported_extensions: Array[String]
     singleton_instance: Bool
     requires_root: Bool
+

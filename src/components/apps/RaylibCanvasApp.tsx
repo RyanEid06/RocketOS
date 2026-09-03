@@ -1,26 +1,99 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, RotateCcw, Sparkles, Rocket, Cpu, Eye, Code, Layers } from 'lucide-react';
+import { Play, Pause, RotateCcw, Sparkles, Rocket, Cpu, Eye, Code, Layers, Save, CheckCircle2, AlertCircle } from 'lucide-react';
+import { RocketFS } from '../../core/filesystem/RocketFS';
+import { RocketDiagnosticEngine } from '../../core/apps/RocketDiagnosticEngine';
+
+export type GraphicsBuildState =
+  | 'SOURCE_LOADED'
+  | 'BUILD_REQUESTED'
+  | 'COMPILER_AVAILABLE'
+  | 'BUILD_SUCCEEDED'
+  | 'RUNTIME_ACTIVE';
 
 type DemoMode = 'rocket-flight' | 'particle-vortex' | 'boids-swarm' | 'custom-script';
 
-export const RaylibCanvasApp: React.FC = () => {
-  const [activeMode, setActiveMode] = useState<DemoMode>('rocket-flight');
+interface RaylibCanvasAppProps {
+  initialFilePath?: string;
+}
+
+export const RaylibCanvasApp: React.FC<RaylibCanvasAppProps> = ({ initialFilePath }) => {
+  const [activeMode, setActiveMode] = useState<DemoMode>(initialFilePath ? 'custom-script' : 'rocket-flight');
   const [isRunning, setIsRunning] = useState<boolean>(true);
   const [fps, setFps] = useState<number>(60);
-  const [particleCount, setParticleCount] = useState<number>(120);
+  const [buildState, setBuildState] = useState<GraphicsBuildState>('RUNTIME_ACTIVE');
+  const [buildLogs, setBuildLogs] = useState<string[]>(['[kernel] raylib 6.0 context initialized', '[runtime] swapchain buffer ready']);
+  const [currentFilePath, setCurrentFilePath] = useState<string>(initialFilePath || '/usr/share/rocket/examples/graphics.rocket');
 
-  // Script editor state for 'custom-script'
-  const [scriptCode, setScriptCode] = useState<string>(`// Rocket Raylib 2D Graphics Demo
-InitWindow(640, 360, "Rocket Bare-Metal Graphics");
-SetTargetFPS(60);
+  // Script editor state for 'custom-script' with canonical Rocket 2.1 syntax
+  const [scriptCode, setScriptCode] = useState<string>(() => {
+    if (initialFilePath) {
+      const readRes = RocketFS.getInstance().readFile(initialFilePath);
+      if (readRes.success && readRes.data) return readRes.data;
+    }
+    return `# Rocket Raylib 2D Graphics Demo (Rocket 2.1 ABI v1)
+import rocket.raylib
+import rocket.motion
+import std.string
 
-while (!WindowShouldClose()) {
-    BeginDrawing();
-    ClearBackground(RAYWHITE);
-    DrawCircle(GetMouseX(), GetMouseY(), 24, SKYBLUE);
-    DrawText("Rocket 3.0 Raylib Engine Active", 20, 20, 18, DARKBLUE);
-    EndDrawing();
-}`);
+struct Particle:
+    x: Float
+    y: Float
+    vx: Float
+    vy: Float
+
+fn main() -> Int:
+    raylib.init_window(640, 360, "Rocket Bare-Metal Graphics")
+    raylib.set_target_fps(60)
+
+    let mouse_x = raylib.get_mouse_x()
+    let mouse_y = raylib.get_mouse_y()
+
+    while not raylib.window_should_close():
+        raylib.begin_drawing()
+        raylib.clear_background(raylib.COLOR_RAYWHITE)
+        raylib.draw_circle(mouse_x, mouse_y, 24, raylib.COLOR_SKYBLUE)
+        raylib.draw_text("Rocket 2.1 Raylib Engine Active", 20, 20, 18, raylib.COLOR_DARKBLUE)
+        raylib.end_drawing()
+    return 0
+`;
+  });
+
+  const handleBuildAndRun = () => {
+    setBuildState('BUILD_REQUESTED');
+    setBuildLogs((prev) => [...prev, `[build] rocketc --target x86_64-pc-windows-msvc -O3 ${currentFilePath}`]);
+
+    setTimeout(() => {
+      setBuildState('COMPILER_AVAILABLE');
+      setBuildLogs((prev) => [...prev, '[llvm] LLVM 22.1.6 code generation in progress...']);
+
+      setTimeout(() => {
+        const summary = RocketDiagnosticEngine.analyze(scriptCode);
+        const hasErrors = summary.errorCount > 0;
+        if (hasErrors) {
+          setBuildState('SOURCE_LOADED');
+          setBuildLogs((prev) => [...prev, `[error] Compilation halted with ${summary.errorCount} diagnostic error(s)`]);
+          return;
+        }
+
+        setBuildState('BUILD_SUCCEEDED');
+        setBuildLogs((prev) => [...prev, '[linker] Linking with raylib.lib, kernel32.lib -> graphics.exe']);
+
+        setTimeout(() => {
+          setBuildState('RUNTIME_ACTIVE');
+          setIsRunning(true);
+          setBuildLogs((prev) => [...prev, '[process] Spawning PID graphics (WS 1) -> active render loop']);
+        }, 300);
+      }, 400);
+    }, 300);
+  };
+
+  const handleSaveToRocketFS = () => {
+    const fs = RocketFS.getInstance();
+    const savePath = currentFilePath.startsWith('/usr') ? '/home/ryan/Documents/raylib_demo.rocket' : currentFilePath;
+    fs.writeFile(savePath, scriptCode);
+    setCurrentFilePath(savePath);
+    setBuildLogs((prev) => [...prev, `[vfs] Saved script to ${savePath}`]);
+  };
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animFrameRef = useRef<number | null>(null);
@@ -398,8 +471,32 @@ while (!WindowShouldClose()) {
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        {/* Action Controls & Build Pipeline States */}
+        <div className="flex items-center gap-3">
+          {/* Explicit Build/Run States Indicator */}
+          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-950 border border-white/10 text-[10px] font-mono">
+            <span className={buildState === 'SOURCE_LOADED' ? 'text-sky-400 font-bold' : 'text-slate-500'}>
+              Source
+            </span>
+            <span className="text-slate-600">→</span>
+            <span className={buildState === 'BUILD_REQUESTED' ? 'text-amber-400 font-bold' : 'text-slate-500'}>
+              Build
+            </span>
+            <span className="text-slate-600">→</span>
+            <span className={buildState === 'COMPILER_AVAILABLE' ? 'text-purple-400 font-bold' : 'text-slate-500'}>
+              LLVM
+            </span>
+            <span className="text-slate-600">→</span>
+            <span className={buildState === 'BUILD_SUCCEEDED' ? 'text-emerald-400 font-bold' : 'text-slate-500'}>
+              Binary
+            </span>
+            <span className="text-slate-600">→</span>
+            <span className={buildState === 'RUNTIME_ACTIVE' ? 'text-emerald-300 font-bold flex items-center gap-1' : 'text-slate-500'}>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping inline-block" />
+              Active
+            </span>
+          </div>
+
           <button
             onClick={() => setIsRunning(!isRunning)}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
@@ -505,6 +602,45 @@ while (!WindowShouldClose()) {
             <div>• Mouse: Attractor target</div>
           </div>
         </div>
+
+        {/* Custom Script Editor Pane (when active) */}
+        {activeMode === 'custom-script' && (
+          <div className="w-80 lg:w-96 bg-slate-950 border-r border-white/10 flex flex-col shrink-0">
+            <div className="px-3 py-2 bg-slate-900/80 border-b border-white/10 flex items-center justify-between text-xs">
+              <span className="font-mono text-[11px] text-sky-300 truncate max-w-[180px]">{currentFilePath}</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleSaveToRocketFS}
+                  className="p-1 rounded hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+                  title="Save to RocketFS"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={handleBuildAndRun}
+                  className="px-2.5 py-1 rounded bg-sky-500 hover:bg-sky-400 text-white text-[11px] font-bold transition-all shadow-sm cursor-pointer"
+                >
+                  Build & Run
+                </button>
+              </div>
+            </div>
+            <textarea
+              value={scriptCode}
+              onChange={(e) => setScriptCode(e.target.value)}
+              spellCheck={false}
+              className="flex-1 w-full p-3 bg-slate-950 text-sky-200 font-mono text-xs resize-none focus:outline-none leading-relaxed select-text"
+            />
+            {/* Build Log Terminal Output */}
+            <div className="h-28 bg-black/90 border-t border-white/10 p-2 overflow-y-auto font-mono text-[10px] space-y-0.5 text-slate-400 select-text">
+              <div className="text-slate-500 font-bold uppercase text-[9px]">rocketc Build Terminal:</div>
+              {buildLogs.map((log, idx) => (
+                <div key={idx} className={log.includes('[error]') ? 'text-rose-400 font-bold' : log.includes('[process]') ? 'text-emerald-400' : 'text-slate-300'}>
+                  {log}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Canvas Display Viewport */}
         <div className="flex-1 flex flex-col items-center justify-center p-4 bg-black/40 overflow-hidden">

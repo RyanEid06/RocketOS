@@ -27,6 +27,7 @@ interface FileExplorerProps {
   trashItems?: TrashItem[];
   copiedItem?: FSItem | null;
   onOpenFile: (file: FSItem) => void;
+  onOpenWith?: (file: FSItem, appId: string) => void;
   onOpenTerminalAtPath?: (path: string) => void;
   onCreateItem: (parentPath: string, name: string, type: 'file' | 'folder', content?: string) => void;
   onDeleteItem?: (item: FSItem) => void;
@@ -44,6 +45,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   trashItems = [],
   copiedItem = null,
   onOpenFile,
+  onOpenWith,
   onOpenTerminalAtPath,
   onCreateItem,
   onDeleteItem,
@@ -547,6 +549,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
               onOpenFile(item);
             }
           }}
+          onOpenWith={onOpenWith}
           onCopy={(item) => {
             clipboardService.copyItem(item);
             onCopyItem?.(item);

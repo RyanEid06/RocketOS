@@ -275,7 +275,7 @@ export const StartMenu: React.FC<StartMenuProps> = ({
       <div>
         <div className="flex items-center justify-between mb-2 px-1">
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-            {t.allApps || 'All Applications'}
+            {(t as any).allApps || 'All Applications'}
           </span>
           <input
             type="text"

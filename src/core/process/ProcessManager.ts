@@ -203,6 +203,24 @@ export class ProcessManager {
     return this.terminateProcess(pid, 128 + signal);
   }
 
+  public suspend(pid: number): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || pid === 1 || proc.state === 'ZOMBIE') return false;
+    proc.state = 'STOPPED';
+    this.logger.logProcess('state_change', pid, proc.name, 'suspended (SIGSTOP)');
+    this.notify();
+    return true;
+  }
+
+  public resume(pid: number): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.state !== 'STOPPED') return false;
+    proc.state = 'RUNNING';
+    this.logger.logProcess('state_change', pid, proc.name, 'resumed (SIGCONT)');
+    this.notify();
+    return true;
+  }
+
   // Called by WindowManager when a window is closed
   public onWindowClosed(windowId: string): void {
     for (const proc of this.processes.values()) {

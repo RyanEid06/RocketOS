@@ -24,12 +24,41 @@ import {
   Palette,
   Terminal,
   Clock,
-  CheckSquare
+  CheckSquare,
+  FolderTree,
+  Package,
+  Settings,
+  Rocket
 } from 'lucide-react';
+import { RocketFS } from '../../core/filesystem/RocketFS';
 
-export const RocketStudio: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'weaknesses' | 'syntax' | 'checker' | 'architecture'>('overview');
+interface RocketStudioProps {
+  onLaunchApp?: (appId: string, extraData?: any) => void;
+}
+
+export const RocketStudio: React.FC<RocketStudioProps> = ({ onLaunchApp }) => {
+  const [activeTab, setActiveTab] = useState<'workspace' | 'overview' | 'weaknesses' | 'syntax' | 'checker' | 'architecture'>('workspace');
   const [selectedWeakness, setSelectedWeakness] = useState<LanguageWeakness>(LANGUAGE_WEAKNESSES[0]);
+
+  // Project workspace state
+  const [selectedWorkspaceFile, setSelectedWorkspaceFile] = useState<string>('/usr/share/rocket/examples/graphics.rocket');
+  const [packageToml, setPackageToml] = useState<string>(`[package]
+name = "rocket_app"
+version = "2.1.0"
+authors = ["Ryan Eid <ryan@rocket-lang.org>"]
+edition = "2026"
+abi = "v1"
+
+[dependencies]
+std = "2.1.0"
+"rocket.raylib" = "6.0"
+"rocket.motion" = "1.0"
+
+[build]
+opt_level = 3
+target = "x86_64-pc-windows-msvc"
+lto = true
+`);
 
   // Checker code state
   const [codeToAnalyze, setCodeToAnalyze] = useState<string>(`import std.collections
@@ -178,9 +207,12 @@ fn main() -> Int:
           </div>
           <div>
             <div className="font-bold text-sm text-slate-100 flex items-center gap-2">
-              <span>Rocket Language Studio</span>
+              <span>Rocket Studio</span>
               <span className="px-1.5 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800/80 text-[10px] font-mono">
                 {REPO_METADATA.latestRelease}
+              </span>
+              <span className="px-2 py-0.5 rounded-full bg-sky-900/60 border border-sky-500/40 text-[10px] text-sky-300 font-semibold tracking-wide">
+                PROJECT & WORKSPACE IDE
               </span>
               <a
                 href={REPO_METADATA.repoUrl}
@@ -193,13 +225,24 @@ fn main() -> Int:
               </a>
             </div>
             <div className="text-[11px] text-slate-400">
-              &quot;{REPO_METADATA.tagline}&quot; • LLVM 22.1.6 Backend • ABI v1 Runtime • raylib 6.0
+              Workspace & Multi-File Projects • Build Pipelines • Package Settings • raylib 6.0 Launcher
             </div>
           </div>
         </div>
 
         {/* Tab Controls */}
         <div className="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+          <button
+            onClick={() => setActiveTab('workspace')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
+              activeTab === 'workspace'
+                ? 'bg-sky-600 text-white font-medium shadow-sm'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FolderTree className="w-3.5 h-3.5" />
+            <span>Project & Workspace</span>
+          </button>
           <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
@@ -263,6 +306,130 @@ fn main() -> Int:
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden">
+        {/* WORKSPACE & PROJECTS TAB */}
+        {activeTab === 'workspace' && (
+          <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-900/50">
+            {/* Left Column: Project Multi-File Explorer & Packages */}
+            <div className="w-full md:w-64 bg-slate-950 border-r border-slate-800 p-3 flex flex-col gap-3 shrink-0">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-300 px-1 uppercase tracking-wider">
+                <span className="flex items-center gap-1.5 text-sky-400">
+                  <FolderTree className="w-4 h-4" />
+                  <span>Workspace Files</span>
+                </span>
+                <span className="text-[10px] text-slate-500 font-mono">RocketFS</span>
+              </div>
+
+              {/* File list from RocketFS */}
+              <div className="space-y-1 overflow-y-auto flex-1">
+                {[
+                  { path: '/usr/share/rocket/examples/graphics.rocket', name: 'graphics.rocket', tag: 'raylib' },
+                  { path: '/usr/share/rocket/examples/collections.rocket', name: 'collections.rocket', tag: 'std' },
+                  { path: '/usr/share/rocket/examples/concurrency.rocket', name: 'concurrency.rocket', tag: 'tasks' },
+                  { path: '/home/ryan/Documents/notes.rocket', name: 'notes.rocket', tag: 'doc' },
+                  { path: '/home/ryan/Documents/raylib_demo.rocket', name: 'raylib_demo.rocket', tag: 'demo' },
+                ].map((f) => (
+                  <button
+                    key={f.path}
+                    onClick={() => setSelectedWorkspaceFile(f.path)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left ${
+                      selectedWorkspaceFile === f.path
+                        ? 'bg-sky-600/30 text-sky-200 border border-sky-500/40 font-semibold'
+                        : 'text-slate-300 hover:bg-white/5 border border-transparent'
+                    }`}
+                  >
+                    <span className="truncate">{f.name}</span>
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-400 font-mono">
+                      {f.tag}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Launch Raylib Demo Button */}
+              <div className="pt-2 border-t border-slate-800/80 space-y-2">
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                  Hardware Graphics
+                </div>
+                <button
+                  onClick={() => onLaunchApp?.('graphics', { path: selectedWorkspaceFile })}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:from-sky-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md cursor-pointer transition-all"
+                >
+                  <Rocket className="w-4 h-4" />
+                  <span>Launch Raylib Preview</span>
+                </button>
+              </div>
+
+              {/* Build Pipeline Status */}
+              <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-[10px] text-slate-400 space-y-1">
+                <div className="font-bold text-sky-400 uppercase">Target Pipeline</div>
+                <div>• Compiler: <span className="text-white">rocketc 2.1</span></div>
+                <div>• Backend: <span className="text-white">LLVM 22.1.6 (O3)</span></div>
+                <div>• Triple: <span className="text-white font-mono">x86_64-pc-windows-msvc</span></div>
+              </div>
+            </div>
+
+            {/* Center: Selected File Viewer / Editor */}
+            <div className="flex-1 flex flex-col overflow-hidden bg-slate-950">
+              <div className="px-4 py-2 bg-slate-900/80 border-b border-slate-800 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sky-300 font-bold">{selectedWorkspaceFile}</span>
+                  <span className="text-[10px] text-slate-500">• Rocket 2.1 ABI v1</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => onLaunchApp?.('editor', { path: selectedWorkspaceFile })}
+                    className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition-colors"
+                  >
+                    Open in Text Editor
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (selectedWorkspaceFile.includes('graphics') || selectedWorkspaceFile.includes('raylib')) {
+                        onLaunchApp?.('graphics', { path: selectedWorkspaceFile });
+                      } else {
+                        setActiveTab('checker');
+                      }
+                    }}
+                    className="px-3 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white text-[11px] font-bold shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Play className="w-3 h-3" />
+                    <span>Run Project</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
+                {/* File Content Preview */}
+                <div className="flex-1 p-4 overflow-y-auto font-mono text-xs text-sky-200 bg-slate-950/70 border-r border-slate-800 leading-relaxed select-text">
+                  <pre>
+                    {(() => {
+                      const res = RocketFS.getInstance().readFile(selectedWorkspaceFile);
+                      return res.success && res.data ? res.data : '# Empty file or created at runtime';
+                    })()}
+                  </pre>
+                </div>
+
+                {/* Right Sub-pane: rocket.toml Package Settings */}
+                <div className="w-full lg:w-72 bg-slate-900/60 p-3 flex flex-col border-t lg:border-t-0 border-slate-800 shrink-0">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-purple-400" />
+                      <span>rocket.toml</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">Package Spec</span>
+                  </div>
+                  <textarea
+                    value={packageToml}
+                    onChange={(e) => setPackageToml(e.target.value)}
+                    spellCheck={false}
+                    className="flex-1 w-full p-2 bg-slate-950 text-slate-300 font-mono text-[11px] rounded-lg border border-slate-800 resize-none focus:outline-none focus:border-sky-500/50"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* OVERVIEW & ROADMAP TAB */}
         {activeTab === 'overview' && (
           <div className="h-full overflow-y-auto p-6 space-y-6 bg-slate-900/50">

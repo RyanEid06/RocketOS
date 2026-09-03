@@ -1,5 +1,5 @@
-// RocketOS Notes Domain Model & .rnote Document Engine
-// Authoritative document model, tasks structure, and serialization
+# RocketOS Notes Domain Model & .rnote Document Engine
+# Authoritative document model, tasks structure, and serialization
 
 import std.string
 import std.collections
@@ -24,7 +24,7 @@ struct NoteDocument:
     content: String
     category: NoteCategory
     color: String
-    tasks: List[TodoItem]
+    tasks: Array[TodoItem]
     created_at: String
     modified_at: String
     file_path: String
@@ -37,7 +37,7 @@ fn create_default_note(title: String, initial_content: String) -> NoteDocument:
         id: "note-" + string.from_int(time.timestamp_ms()),
         title: title,
         content: initial_content,
-        category: NoteCategory.Notes,
+        category: Notes,
         color: "sky",
         tasks: [],
         created_at: now,
@@ -49,26 +49,27 @@ fn create_default_note(title: String, initial_content: String) -> NoteDocument:
 
 fn category_to_string(cat: NoteCategory) -> String:
     match cat:
-        case NoteCategory.All: return "all"
-        case NoteCategory.Todo: return "todo"
-        case NoteCategory.Notes: return "notes"
-        case NoteCategory.Ideas: return "ideas"
-        case NoteCategory.Archived: return "archived"
+        case All: return "all"
+        case Todo: return "todo"
+        case Notes: return "notes"
+        case Ideas: return "ideas"
+        case Archived: return "archived"
 
 fn category_from_string(raw: String) -> NoteCategory:
-    match raw.to_lowercase():
-        case "todo": return NoteCategory.Todo
-        case "notes": return NoteCategory.Notes
-        case "ideas": return NoteCategory.Ideas
-        case "archived": return NoteCategory.Archived
-        case _: return NoteCategory.Notes
+    if raw == "todo":
+        return Todo
+    if raw == "ideas":
+        return Ideas
+    if raw == "archived":
+        return Archived
+    return Notes
 
 fn export_note_to_markdown(note: NoteDocument) -> String:
-    let mut out = "# " + note.title + "\n\n"
+    var out = "# " + note.title + "\n\n"
     out = out + "> Category: " + category_to_string(note.category) + " | Modified: " + note.modified_at + "\n\n"
     out = out + note.content + "\n\n"
 
-    if note.tasks.len() > 0:
+    if collections.length(note.tasks) > 0:
         out = out + "## Tasks\n\n"
         for task in note.tasks:
             let box = if task.completed: "[x]" else: "[ ]"
@@ -77,11 +78,11 @@ fn export_note_to_markdown(note: NoteDocument) -> String:
     return out
 
 fn export_note_to_plain_text(note: NoteDocument) -> String:
-    let mut out = note.title.to_uppercase() + "\n"
+    var out = note.title + "\n"
     out = out + "========================================\n\n"
     out = out + note.content + "\n\n"
 
-    if note.tasks.len() > 0:
+    if collections.length(note.tasks) > 0:
         out = out + "TASKS / CHECKLIST:\n"
         for task in note.tasks:
             let mark = if task.completed: "[DONE]" else: "[TODO]"
@@ -90,8 +91,8 @@ fn export_note_to_plain_text(note: NoteDocument) -> String:
     return out
 
 fn format_rnote_json(note: NoteDocument) -> String:
-    // Standard .rnote serialization envelope
-    let mut json = "{\n"
+    # Standard .rnote serialization envelope
+    var json = "{\n"
     json = json + "  \"format\": \"rocket-note-v1\",\n"
     json = json + "  \"id\": \"" + note.id + "\",\n"
     json = json + "  \"title\": \"" + note.title + "\",\n"
@@ -102,9 +103,10 @@ fn format_rnote_json(note: NoteDocument) -> String:
     json = json + "  \"content\": \"" + note.content + "\",\n"
     json = json + "  \"pinned\": " + (if note.pinned: "true" else: "false") + ",\n"
     json = json + "  \"tasks\": [\n"
-    let mut first = true
+    var first = true
     for task in note.tasks:
-        if not first: json = json + ",\n"
+        if not first:
+            json = json + ",\n"
         json = json + "    {\"id\": \"" + task.id + "\", \"text\": \"" + task.text + "\", \"completed\": " + (if task.completed: "true" else: "false") + "}"
         first = false
     json = json + "\n  ]\n"
