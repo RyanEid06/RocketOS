@@ -1,0 +1,81 @@
+// RocketOS Universal Search Service
+// Searches applications, recursive VFS directories, files, and system settings actions
+
+import std.string
+import std.collections
+
+enum SearchCategory:
+    All
+    Apps
+    Files
+    Folders
+    Settings
+
+struct SearchResultItem:
+    id: String
+    title: String
+    subtitle: String
+    category: SearchCategory
+    path_or_action: String
+    icon_glyph: String
+    score: Int
+
+struct AppSearchMetadata:
+    id: String
+    title: String
+    description: String
+    category: String
+    keywords: List[String]
+    glyph: String
+
+fn calculate_match_score(query: String, target: String, is_exact_prefix: Bool) -> Int:
+    let q = query.to_lower()
+    let t = target.to_lower()
+
+    if t == q:
+        return 100
+    if t.starts_with(q):
+        return if is_exact_prefix: 80 else: 60
+    if t.contains(q):
+        return 40
+    return 0
+
+fn search_applications(query: String, apps: List[AppSearchMetadata]) -> List[SearchResultItem]:
+    var results: List[SearchResultItem] = []
+    let q = query.to_lower().trim()
+
+    for app in apps:
+        var max_score = 0
+        let title_score = calculate_match_score(q, app.title, true)
+        if title_score > max_score:
+            max_score = title_score
+
+        let desc_score = calculate_match_score(q, app.description, false)
+        if desc_score > max_score:
+            max_score = desc_score
+
+        let id_score = calculate_match_score(q, app.id, true)
+        if id_score > max_score:
+            max_score = id_score
+
+        for kw in app.keywords:
+            let kw_score = calculate_match_score(q, kw, true)
+            if kw_score > max_score:
+                max_score = kw_score
+
+        if max_score > 0:
+            results.append(SearchResultItem(
+                id: "app-" + app.id,
+                title: app.title,
+                subtitle: app.description,
+                category: SearchCategory.Apps,
+                path_or_action: app.id,
+                icon_glyph: app.glyph,
+                score: max_score + 10 // App priority boost
+            ))
+
+    return results
+
+fn main() -> Int:
+    print("RocketOS Universal Search Ready")
+    return 0

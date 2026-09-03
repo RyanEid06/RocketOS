@@ -1,0 +1,129 @@
+// RocketOS Filesystem Types & Inode Specifications
+// Authoritative definitions for nodes, permissions, errors, and backends
+
+import std.string
+import std.collections
+
+enum NodeType:
+    File
+    Directory
+    Symlink
+    Device
+    Virtual
+
+enum StorageBackend:
+    VfsDisk
+    ProcFs
+    SysFs
+    DevFs
+    TrashFs
+
+enum VFSErrorCode:
+    NotFound
+    AlreadyExists
+    PermissionDenied
+    NotADirectory
+    IsADirectory
+    DirectoryNotEmpty
+    InvalidPath
+    ReadOnly
+    NoSpace
+    InvalidOperation
+
+struct Permissions:
+    owner_read: Bool
+    owner_write: Bool
+    owner_exec: Bool
+    group_read: Bool
+    group_write: Bool
+    group_exec: Bool
+    other_read: Bool
+    other_write: Bool
+    other_exec: Bool
+    raw_mode: Int
+
+fn mode_from_octal(octal: Int) -> Permissions:
+    let u_r = (octal & 0o400) != 0
+    let u_w = (octal & 0o200) != 0
+    let u_x = (octal & 0o100) != 0
+    let g_r = (octal & 0o040) != 0
+    let g_w = (octal & 0o020) != 0
+    let g_x = (octal & 0o010) != 0
+    let o_r = (octal & 0o004) != 0
+    let o_w = (octal & 0o002) != 0
+    let o_x = (octal & 0o001) != 0
+
+    return Permissions(
+        owner_read: u_r,
+        owner_write: u_w,
+        owner_exec: u_x,
+        group_read: g_r,
+        group_write: g_w,
+        group_exec: g_x,
+        other_read: o_r,
+        other_write: o_w,
+        other_exec: o_x,
+        raw_mode: octal
+    )
+
+fn format_permissions(perms: Permissions, is_dir: Bool) -> String:
+    let prefix = if is_dir: "d" else: "-"
+    let ur = if perms.owner_read: "r" else: "-"
+    let uw = if perms.owner_write: "w" else: "-"
+    let ux = if perms.owner_exec: "x" else: "-"
+    let gr = if perms.group_read: "r" else: "-"
+    let gw = if perms.group_write: "w" else: "-"
+    let gx = if perms.group_exec: "x" else: "-"
+    let or_ = if perms.other_read: "r" else: "-"
+    let ow = if perms.other_write: "w" else: "-"
+    let ox = if perms.other_exec: "x" else: "-"
+    return prefix + ur + uw + ux + gr + gw + gx + or_ + ow + ox
+
+struct InodeMetadata:
+    inode: Int
+    name: String
+    canonical_path: String
+    parent_inode: Int
+    node_type: NodeType
+    uid: Int
+    gid: Int
+    mode: Int
+    size_bytes: Int
+    mime_type: String
+    created_at: String
+    modified_at: String
+    accessed_at: String
+    flags: Int
+    backend: StorageBackend
+
+struct TrashRecord:
+    trash_id: String
+    inode_id: Int
+    original_path: String
+    deleted_at: String
+    original_uid: Int
+    original_gid: Int
+    original_mode: Int
+
+fn error_to_string(err: VFSErrorCode) -> String:
+    match err:
+        case VFSErrorCode.NotFound:
+            return "NOT_FOUND: Path or resource does not exist"
+        case VFSErrorCode.AlreadyExists:
+            return "ALREADY_EXISTS: Resource already exists at target"
+        case VFSErrorCode.PermissionDenied:
+            return "PERMISSION_DENIED: User lacks required permissions"
+        case VFSErrorCode.NotADirectory:
+            return "NOT_A_DIRECTORY: Operation expects a directory"
+        case VFSErrorCode.IsADirectory:
+            return "IS_A_DIRECTORY: Operation requires a regular file"
+        case VFSErrorCode.DirectoryNotEmpty:
+            return "DIRECTORY_NOT_EMPTY: Directory contains child nodes"
+        case VFSErrorCode.InvalidPath:
+            return "INVALID_PATH: Malformed or unresolvable path"
+        case VFSErrorCode.ReadOnly:
+            return "READ_ONLY: Target filesystem or node is read-only"
+        case VFSErrorCode.NoSpace:
+            return "NO_SPACE: Storage quota exceeded"
+        case VFSErrorCode.InvalidOperation:
+            return "INVALID_OPERATION: Requested operation is not supported"

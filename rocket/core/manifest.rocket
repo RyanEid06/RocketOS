@@ -1,0 +1,56 @@
+// RocketOS System Manifest
+// Single source of truth for operating system identity and hardware specifications
+
+struct HardwareSpec:
+    cpu_model: String
+    logical_cores: Int
+    base_clock_ghz: Float
+    total_memory_mb: Int
+    storage_capacity_gb: Int
+    storage_type: String
+    gpu_renderer: String
+    paging_mode: String
+
+struct SystemVersion:
+    os_name: String
+    os_version: String
+    build_number: Int
+    build_channel: String
+    rocket_compiler_version: String
+    kernel_architecture: String
+    platform_target: String
+    boot_mode: String
+
+fn get_system_version() -> SystemVersion:
+    return SystemVersion(
+        os_name: "RocketOS",
+        os_version: "2.1.0-LTS",
+        build_number: 4096,
+        build_channel: "Release",
+        rocket_compiler_version: "3.0.0-WP14",
+        kernel_architecture: "x86_64",
+        platform_target: "Browser VFS + LLVM Native Target",
+        boot_mode: "UEFI Long Mode (Ring 0 / Protected)"
+    )
+
+fn get_hardware_spec() -> HardwareSpec:
+    return HardwareSpec(
+        cpu_model: "Rocket Virtual Quantum Core v2 (8-Core SMT)",
+        logical_cores: 8,
+        base_clock_ghz: 3.6,
+        total_memory_mb: 8192,
+        storage_capacity_gb: 256,
+        storage_type: "NVMe Virtual Disk (IndexedDB VFS)",
+        gpu_renderer: "Liquid Glass Compositor (WebGL / Canvas2D)",
+        paging_mode: "PML4 4-Level Paging (48-bit Virtual Addressing)"
+    )
+
+fn get_system_banner() -> String:
+    let ver = get_system_version()
+    let hw = get_hardware_spec()
+    return ver.os_name + " " + ver.os_version + " (" + ver.kernel_architecture + ") on " + hw.cpu_model
+
+fn main() -> Int:
+    let banner = get_system_banner()
+    print(banner)
+    return 0

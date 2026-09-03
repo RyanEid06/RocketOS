@@ -1,0 +1,115 @@
+import React from 'react';
+import { Folder, Copy, Scissors, Trash2, Edit2, Shield } from 'lucide-react';
+import { FSItem } from '../../../types';
+
+interface FileExplorerContextMenuProps {
+  x: number;
+  y: number;
+  item: FSItem;
+  onOpen: (item: FSItem) => void;
+  onCopy: (item: FSItem) => void;
+  onCut: (item: FSItem) => void;
+  onRename: (item: FSItem) => void;
+  onDelete: (item: FSItem) => void;
+  onProperties?: (item: FSItem) => void;
+  onClose: () => void;
+}
+
+export const FileExplorerContextMenu: React.FC<FileExplorerContextMenuProps> = ({
+  x,
+  y,
+  item,
+  onOpen,
+  onCopy,
+  onCut,
+  onRename,
+  onDelete,
+  onProperties,
+  onClose,
+}) => {
+  return (
+    <div
+      style={{ top: `${y}px`, left: `${x}px` }}
+      onClick={(e) => e.stopPropagation()}
+      className="fixed z-50 w-48 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-2xl p-1.5 text-slate-200 text-xs space-y-1 select-none"
+    >
+      <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-400 truncate">
+        {item.name}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          onOpen(item);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+      >
+        <Folder className="w-3.5 h-3.5 text-sky-400" />
+        <span>Open</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          onCopy(item);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+      >
+        <Copy className="w-3.5 h-3.5 text-slate-300" />
+        <span>Copy (Ctrl+C)</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          onCut(item);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+      >
+        <Scissors className="w-3.5 h-3.5 text-amber-400" />
+        <span>Cut (Ctrl+X)</span>
+      </button>
+
+      <button
+        type="button"
+        onClick={() => {
+          onRename(item);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+      >
+        <Edit2 className="w-3.5 h-3.5 text-blue-400" />
+        <span>Rename</span>
+      </button>
+
+      {onProperties && (
+        <button
+          type="button"
+          onClick={() => {
+            onProperties(item);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+        >
+          <Shield className="w-3.5 h-3.5 text-sky-400" />
+          <span>Properties & Permissions</span>
+        </button>
+      )}
+
+      <button
+        type="button"
+        onClick={() => {
+          onDelete(item);
+          onClose();
+        }}
+        className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-rose-500/20 text-rose-300 text-left cursor-pointer transition-colors border-t border-white/5 pt-1.5"
+      >
+        <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+        <span>Move to Recycle Bin (Del)</span>
+      </button>
+    </div>
+  );
+};

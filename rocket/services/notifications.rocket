@@ -1,0 +1,68 @@
+// RocketOS Notification Subsystem
+// Notification events, severity routing, auto-dismiss policies, and unread queue
+
+import std.string
+import std.collections
+
+enum NotificationSeverity:
+    Info
+    Success
+    Warning
+    Error
+
+struct NotificationAction:
+    action_id: String
+    label: String
+    app_id: Option[String]
+
+struct NotificationItem:
+    id: String
+    source_app_id: String
+    title: String
+    body: String
+    timestamp_ms: Int
+    severity: NotificationSeverity
+    is_read: Bool
+    action: Option[NotificationAction]
+
+struct NotificationQueue:
+    items: List[NotificationItem]
+    max_history: Int
+
+fn create_notification(id: String, source_app: String, title: String, body: String, severity: NotificationSeverity, timestamp_ms: Int) -> NotificationItem:
+    return NotificationItem(
+        id: id,
+        source_app_id: source_app,
+        title: title,
+        body: body,
+        timestamp_ms: timestamp_ms,
+        severity: severity,
+        is_read: false,
+        action: None
+    )
+
+fn count_unread(queue: NotificationQueue) -> Int:
+    var count = 0
+    for item in queue.items:
+        if not item.is_read:
+            count = count + 1
+    return count
+
+fn mark_all_read(queue: NotificationQueue) -> NotificationQueue:
+    var updated: List[NotificationItem] = []
+    for item in queue.items:
+        updated.append(NotificationItem(
+            id: item.id,
+            source_app_id: item.source_app_id,
+            title: item.title,
+            body: item.body,
+            timestamp_ms: item.timestamp_ms,
+            severity: item.severity,
+            is_read: true,
+            action: item.action
+        ))
+    return NotificationQueue(items: updated, max_history: queue.max_history)
+
+fn main() -> Int:
+    print("RocketOS Notifications Domain Logic Ready")
+    return 0

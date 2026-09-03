@@ -1,0 +1,86 @@
+// RocketOS Permissions Subsystem
+// Enforces Unix-style permission bits (owner, group, other) and formatting
+
+import std.string
+import std.collections
+import rocket.filesystem.types
+
+struct AccessRequirement:
+    need_read: Bool
+    need_write: Bool
+    need_exec: Bool
+
+fn requirement_from_mode(mode: Int) -> AccessRequirement:
+    return AccessRequirement(
+        need_read: (mode & 4) != 0,
+        need_write: (mode & 2) != 0,
+        need_exec: (mode & 1) != 0
+    )
+
+fn check_permission(
+    inode_uid: Int,
+    inode_gid: Int,
+    inode_mode: Int,
+    user_uid: Int,
+    user_primary_gid: Int,
+    user_groups: List[Int],
+    req: AccessRequirement
+) -> Bool:
+    // Root bypass: UID 0 has superuser privilege
+    if user_uid == 0:
+        return true
+
+    let perms = mode_from_octal(inode_mode)
+
+    // 1. Owner check
+    if user_uid == inode_uid:
+        if req.need_read and not perms.owner_read:
+            return false
+        if req.need_write and not perms.owner_write:
+            return false
+        if req.need_exec and not perms.owner_exec:
+            return false
+        return true
+
+    // 2. Group check
+    var in_group = (user_primary_gid == inode_gid)
+    if not in_group:
+        for gid in user_groups:
+            if gid == inode_gid:
+                in_group = true
+                break
+
+    if in_group:
+        if req.need_read and not perms.group_read:
+            return false
+        if req.need_write and not perms.group_write:
+            return false
+        if req.need_exec and not perms.group_exec:
+            return false
+        return true
+
+    // 3. Other check
+    if req.need_read and not perms.other_read:
+        return false
+    if req.need_write and not perms.other_write:
+        return false
+    if req.need_exec and not perms.other_exec:
+        return false
+
+    return true
+
+fn default_file_mode() -> Int:
+    // 0o644 = rw-r--r--
+    return 0o644
+
+fn default_dir_mode() -> Int:
+    // 0o755 = rwxr-xr-x
+    return 0o755
+
+fn default_secure_dir_mode() -> Int:
+    // 0o700 = rwx------ (used for /root)
+    return 0o700
+
+fn default_private_dir_mode() -> Int:
+    // 0o750 = rwxr-x--- (used for /home/ryan)
+    return 0o750

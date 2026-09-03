@@ -1,0 +1,49 @@
+// RocketOS Filesystem Migration (Schema v1 to Schema v2)
+// Converts legacy nested FSItem structures into canonical RocketFS Inodes
+
+import std.string
+import std.collections
+import rocket.filesystem.types
+import rocket.filesystem.path
+
+struct LegacyFSItem:
+    id: String
+    name: String
+    item_type: String // "file" | "folder"
+    path: String
+    content: Option[String]
+    size_str: Option[String]
+    updated_at: String
+    children: List[LegacyFSItem]
+
+fn migrate_legacy_path(legacy_path: String) -> String:
+    // Migrate old root folders to modern Unix hierarchy
+    if legacy_path == "/Desktop" or legacy_path.starts_with("/Desktop/"):
+        return "/home/ryan" + legacy_path
+    if legacy_path == "/Documents" or legacy_path.starts_with("/Documents/"):
+        return "/home/ryan" + legacy_path
+    if legacy_path == "/Downloads" or legacy_path.starts_with("/Downloads/"):
+        return "/home/ryan" + legacy_path
+    if legacy_path == "/src" or legacy_path.starts_with("/src/"):
+        return "/home/ryan/Projects/Rocket" + legacy_path.substring(4, legacy_path.length)
+    if legacy_path == "/kernel" or legacy_path.starts_with("/kernel/"):
+        return "/usr/src/rocketos" + legacy_path
+    if legacy_path == "/drivers" or legacy_path.starts_with("/drivers/"):
+        return "/etc/rocketos" + legacy_path
+
+    return legacy_path
+
+fn calculate_legacy_mode(migrated_path: String) -> Int:
+    // If inside /root, mode 0o700
+    if migrated_path.starts_with("/root"):
+        return 0o700
+    // If inside /home/ryan, mode 0o755 or 0o644
+    if migrated_path.starts_with("/home/ryan"):
+        return 0o644
+    // If system config in /etc, mode 0o644 owned by root
+    return 0o644
+
+fn calculate_legacy_uid(migrated_path: String) -> Int:
+    if migrated_path.starts_with("/home/ryan"):
+        return 1000 // ryan
+    return 0 // root

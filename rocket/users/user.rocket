@@ -1,0 +1,70 @@
+// RocketOS User & Group Subsystem
+// User identity, groups, home directories, and administrator privilege definitions
+
+import std.string
+import std.collections
+
+struct User:
+    uid: Int
+    username: String
+    display_name: String
+    home_directory: String
+    primary_gid: Int
+    supplementary_gids: List[Int]
+    shell: String
+    is_administrator: Bool
+
+struct Group:
+    gid: Int
+    name: String
+    description: String
+
+struct UserRegistry:
+    users: List[User]
+    groups: List[Group]
+
+fn get_system_groups() -> List[Group]:
+    return [
+        Group(gid: 0, name: "root", description: "Superuser administrative group"),
+        Group(gid: 10, name: "admin", description: "System elevation and sudo privileges"),
+        Group(gid: 29, name: "audio", description: "Procedural sound engine direct access"),
+        Group(gid: 100, name: "users", description: "Standard unprivileged interactive users"),
+        Group(gid: 101, name: "network", description: "Network stack control"),
+        Group(gid: 102, name: "storage", description: "Block storage and virtual NVMe operations"),
+        Group(gid: 1000, name: "developers", description: "Rocket language toolchain and debug access")
+    ]
+
+fn get_root_user() -> User:
+    return User(
+        uid: 0,
+        username: "root",
+        display_name: "System Administrator",
+        home_directory: "/root",
+        primary_gid: 0,
+        supplementary_gids: [0, 10, 100],
+        shell: "/usr/bin/rsh",
+        is_administrator: true
+    )
+
+fn get_default_interactive_user() -> User:
+    return User(
+        uid: 1000,
+        username: "ryan",
+        display_name: "Ryan Eid",
+        home_directory: "/home/ryan",
+        primary_gid: 100,
+        supplementary_gids: [100, 10, 29, 1000],
+        shell: "/usr/bin/rsh",
+        is_administrator: true
+    )
+
+fn can_elevate(user: User) -> Bool:
+    if user.uid == 0:
+        return true
+    if not user.is_administrator:
+        return false
+
+    for gid in user.supplementary_gids:
+        if gid == 10: // admin group
+            return true
+    return false

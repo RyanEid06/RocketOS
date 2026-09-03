@@ -1,0 +1,91 @@
+// RocketOS Virtual File System (RocketFS Core Domain Engine)
+// Authoritative domain operations for Inode tables, mutations, permissions enforcement, and trash lifecycle
+
+import std.string
+import std.collections
+import rocket.filesystem.types
+import rocket.filesystem.path
+import rocket.filesystem.permissions
+import rocket.users.user
+
+struct RocketFSState:
+    next_inode: Int
+    inodes_by_id: Map[Int, InodeMetadata]
+    inodes_by_path: Map[String, Int]
+    children_map: Map[Int, List[Int]]
+    content_map: Map[Int, String]
+    trash_records: Map[String, TrashRecord]
+
+fn create_empty_fs() -> RocketFSState:
+    return RocketFSState(
+        next_inode: 1,
+        inodes_by_id: map.new(),
+        inodes_by_path: map.new(),
+        children_map: map.new(),
+        content_map: map.new(),
+        trash_records: map.new()
+    )
+
+// Look up inode by canonical path
+fn lookup_path(fs: RocketFSState, path: String) -> Result[InodeMetadata, VFSErrorCode]:
+    match canonicalize(path):
+        case Ok(canonical):
+            if fs.inodes_by_path.contains(canonical):
+                let inode_id = fs.inodes_by_path.get(canonical)
+                return Ok(fs.inodes_by_id.get(inode_id))
+            return Err(VFSErrorCode.NotFound)
+        case Err(_):
+            return Err(VFSErrorCode.InvalidPath)
+
+// Check if user has permission to perform operation on target inode
+fn verify_node_access(inode: InodeMetadata, user: User, mode: Int) -> Result[Bool, VFSErrorCode]:
+    let req = requirement_from_mode(mode)
+    let allowed = check_permission(
+        inode.uid,
+        inode.gid,
+        inode.mode,
+        user.uid,
+        user.primary_gid,
+        user.supplementary_gids,
+        req
+    )
+    if allowed:
+        return Ok(true)
+    return Err(VFSErrorCode.PermissionDenied)
+
+// Calculate total recursive directory size in bytes
+fn calculate_directory_size(fs: RocketFSState, dir_inode_id: Int) -> Int:
+    var total_bytes = 0
+    if not fs.children_map.contains(dir_inode_id):
+        return 0
+
+    let children = fs.children_map.get(dir_inode_id)
+    for child_id in children:
+        if fs.inodes_by_id.contains(child_id):
+            let node = fs.inodes_by_id.get(child_id)
+            if node.node_type == NodeType.File:
+                total_bytes = total_bytes + node.size_bytes
+            else if node.node_type == NodeType.Directory:
+                total_bytes = total_bytes + calculate_directory_size(fs, child_id)
+
+    return total_bytes
+
+// Resolve conflict-safe name when restoring from trash
+fn generate_conflict_safe_path(existing_paths: List[String], desired_path: String) -> String:
+    if not existing_paths.contains(desired_path):
+        return desired_path
+
+    let parent = get_parent_path(desired_path)
+    let base = get_basename(desired_path)
+    let ext = get_extension(base)
+    let name_without_ext = if ext.length > 0: base.substring(0, base.length - ext.length) else: base
+
+    var counter = 1
+    while counter < 100:
+        let candidate_name = name_without_ext + " (" + string.from_int(counter) + ")" + ext
+        let candidate_path = if parent == "/": "/" + candidate_name else: parent + "/" + candidate_name
+        if not existing_paths.contains(candidate_path):
+            return candidate_path
+        counter = counter + 1
+
+    return desired_path + ".restored"

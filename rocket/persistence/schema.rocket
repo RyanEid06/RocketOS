@@ -1,0 +1,44 @@
+// RocketOS Persistence Schema Specification
+// Version control, payload validation, and backward-compatible migration paths
+
+import std.string
+import std.collections
+
+// Current authoritative schema version
+let ROCKET_DATA_SCHEMA_VERSION: Int = 1
+
+struct SchemaMetadata:
+    version: Int
+    created_at_iso: String
+    last_migrated_iso: String
+    compatible_min_version: Int
+
+struct PersistenceManifest:
+    schema_version: Int
+    has_vfs: Bool
+    has_trash: Bool
+    has_notes: Bool
+    has_paint: Bool
+    has_settings: Bool
+    has_pinned_apps: Bool
+    has_workspaces: Bool
+
+fn get_current_schema_metadata(timestamp_iso: String) -> SchemaMetadata:
+    return SchemaMetadata(
+        version: ROCKET_DATA_SCHEMA_VERSION,
+        created_at_iso: timestamp_iso,
+        last_migrated_iso: timestamp_iso,
+        compatible_min_version: 1
+    )
+
+fn check_needs_migration(stored_version: Int) -> Bool:
+    return stored_version < ROCKET_DATA_SCHEMA_VERSION
+
+fn describe_migration_step(from_version: Int, to_version: Int) -> String:
+    if from_version == 0 and to_version == 1:
+        return "Migrate legacy memory store to IndexedDB RocketDataSchemaVersion 1"
+    return "No migration path required"
+
+fn main() -> Int:
+    print("RocketOS Schema Version: " + string.from_int(ROCKET_DATA_SCHEMA_VERSION))
+    return 0

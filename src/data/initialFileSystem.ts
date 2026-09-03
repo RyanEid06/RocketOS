@@ -338,6 +338,59 @@ Key Architectural Boundaries:
         ]
       },
       {
+        id: 'drivers-subsystem',
+        name: 'drivers',
+        type: 'folder',
+        path: '/drivers',
+        updatedAt: '2026-09-03',
+        children: [
+          {
+            id: 'driver-nvme',
+            name: 'nvme_vfs.sys',
+            type: 'file',
+            path: '/drivers/nvme_vfs.sys',
+            size: '4.2 KB',
+            updatedAt: '2026-09-03',
+            content: `[RocketOS Driver Subsystem]
+Device: Virtual NVMe Block Controller
+Provider: IndexedDB Storage Adapter v1.0
+PCI ID: 0x1B36:0x0010
+Status: ACTIVE / MOUNTED
+Base IO: 0x3F8, IRQ: 14
+Sector Size: 4096 bytes
+`
+          },
+          {
+            id: 'driver-audio',
+            name: 'hdaudio_synth.sys',
+            type: 'file',
+            path: '/drivers/hdaudio_synth.sys',
+            size: '2.8 KB',
+            updatedAt: '2026-09-03',
+            content: `[RocketOS Driver Subsystem]
+Device: Web Audio Procedural Synthesizer
+Sampling Rate: 48000 Hz / Stereo
+Channels: 2 (PCM Waveform Oscillators)
+Status: ACTIVE
+`
+          },
+          {
+            id: 'driver-gpu',
+            name: 'liquid_gpu.sys',
+            type: 'file',
+            path: '/drivers/liquid_gpu.sys',
+            size: '5.1 KB',
+            updatedAt: '2026-09-03',
+            content: `[RocketOS Driver Subsystem]
+Device: Liquid Glass Compositor Pipeline
+Acceleration: WebGL / CSS GPU Layers
+Target Refresh: 60Hz
+Status: ACCELERATED
+`
+          }
+        ]
+      },
+      {
         id: 'kernel-subsystem',
         name: 'kernel',
         type: 'folder',

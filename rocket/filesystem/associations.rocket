@@ -1,0 +1,89 @@
+// RocketOS File Associations Registry
+// Authoritative mapping of file extensions and MIME types to default and alternative applications
+
+import std.string
+import std.collections
+
+struct FileAssociation:
+    extension: String
+    mime_type: String
+    default_app_id: String
+    associated_app_ids: List[String]
+    friendly_name: String
+
+fn get_standard_associations() -> List[FileAssociation]:
+    return [
+        FileAssociation(
+            extension: ".rocket",
+            mime_type: "text/x-rocket",
+            default_app_id: "editor",
+            associated_app_ids: ["editor", "rocket-studio"],
+            friendly_name: "Rocket Source Code"
+        ),
+        FileAssociation(
+            extension: ".txt",
+            mime_type: "text/plain",
+            default_app_id: "notes",
+            associated_app_ids: ["notes", "editor"],
+            friendly_name: "Text Document"
+        ),
+        FileAssociation(
+            extension: ".md",
+            mime_type: "text/markdown",
+            default_app_id: "editor",
+            associated_app_ids: ["editor", "notes"],
+            friendly_name: "Markdown Document"
+        ),
+        FileAssociation(
+            extension: ".png",
+            mime_type: "image/png",
+            default_app_id: "paint",
+            associated_app_ids: ["paint"],
+            friendly_name: "PNG Image"
+        ),
+        FileAssociation(
+            extension: ".rpaint",
+            mime_type: "application/x-rocket-paint",
+            default_app_id: "paint",
+            associated_app_ids: ["paint"],
+            friendly_name: "Rocket Paint Project"
+        ),
+        FileAssociation(
+            extension: ".rnote",
+            mime_type: "application/x-rocket-notes",
+            default_app_id: "notes",
+            associated_app_ids: ["notes", "editor"],
+            friendly_name: "Rocket Notes Archive"
+        ),
+        FileAssociation(
+            extension: ".toml",
+            mime_type: "text/x-toml",
+            default_app_id: "editor",
+            associated_app_ids: ["editor"],
+            friendly_name: "TOML Configuration"
+        ),
+        FileAssociation(
+            extension: ".log",
+            mime_type: "text/plain",
+            default_app_id: "editor",
+            associated_app_ids: ["editor"],
+            friendly_name: "System Log File"
+        ),
+        FileAssociation(
+            extension: ".sys",
+            mime_type: "text/plain",
+            default_app_id: "editor",
+            associated_app_ids: ["editor"],
+            friendly_name: "Kernel Driver Specification"
+        )
+    ]
+
+fn resolve_default_app(ext: String) -> String:
+    let lower_ext = ext.to_lower().trim()
+    let clean_ext = if lower_ext.starts_with("."): lower_ext else: "." + lower_ext
+
+    for assoc in get_standard_associations():
+        if assoc.extension == clean_ext:
+            return assoc.default_app_id
+
+    return "editor" // Safe fallback

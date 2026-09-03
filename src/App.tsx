@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   WindowState,
   AppId,
@@ -12,6 +12,7 @@ import { Desktop } from './components/Desktop';
 import { WindowFrame } from './components/WindowFrame';
 import { Taskbar } from './components/Taskbar';
 import { CarouselDock } from './components/CarouselDock';
+import { WorkspaceSwitchBanner } from './components/desktop/WorkspaceSwitchBanner';
 import { FileExplorer } from './components/apps/FileExplorer';
 import { RocketStudio } from './components/apps/RocketStudio';
 import { TerminalApp } from './components/apps/TerminalApp';
@@ -23,45 +24,37 @@ import { TaskManagerApp } from './components/apps/TaskManagerApp';
 import { PaintApp } from './components/apps/PaintApp';
 import { NotesApp } from './components/apps/NotesApp';
 
+import { browserPersistenceProvider } from './platform/browser/BrowserPersistenceProvider';
+import { settingsService } from './core/settings/SettingsService';
+import { pinningService } from './core/pinning/PinningService';
+import { clipboardService } from './core/clipboard/ClipboardService';
+import { notificationService } from './core/notifications/NotificationService';
+import { FileSystemService } from './core/filesystem/FileSystemService';
+import { RocketFS } from './core/filesystem/RocketFS';
+import { SchemaMigration } from './core/filesystem/SchemaMigration';
+import { AppRegistry } from './core/apps/AppRegistry';
+import { soundEngine } from './utils/audio';
+
 export default function App() {
   const [isBooted, setIsBooted] = useState<boolean>(true);
   const [fileSystem, setFileSystem] = useState<FSItem[]>(INITIAL_FILE_SYSTEM);
-  const [trashItems, setTrashItems] = useState<TrashItem[]>([
-    {
-      id: 'trash-sample-1',
-      originalPath: '/Documents/old_stage2_notes.txt',
-      deletedAt: 'Yesterday, 18:22',
-      item: {
-        id: 'old-notes-item',
-        name: 'old_stage2_notes.txt',
-        type: 'file',
-        path: '/Documents/old_stage2_notes.txt',
-        size: '142 B',
-        updatedAt: '2026-09-02',
-        content: 'Draft notes on 32-bit protected mode transitioning to 64-bit long mode.',
-      },
-    },
-  ]);
-  const [copiedItem, setCopiedItem] = useState<FSItem | null>(null);
-
-  const [activeWindowId, setActiveWindowId] = useState<string | null>('win-1');
-  const [highestZIndex, setHighestZIndex] = useState<number>(10);
+  const [trashItems, setTrashItems] = useState<TrashItem[]>([]);
   const [activeEditorFile, setActiveEditorFile] = useState<FSItem | null>(null);
 
-  // System Settings State
-  const [settings, setSettings] = useState<SystemSettings>({
-    wallpaper: 'liquid-aurora',
-    accentColor: 'sky',
-    nightLight: false,
-    volume: 85,
-    isMuted: false,
-    wifiConnected: true,
-    timeFormat: '12h',
-    showSeconds: true,
-    language: 'en',
-  });
+  // Settings State
+  const [settings, setSettings] = useState<SystemSettings>(() => settingsService.getSettings());
 
-  // Default initial open windows
+  // Virtual Desktops State
+  const [currentWorkspace, setCurrentWorkspace] = useState<number>(1);
+  const [showWorkspaceBanner, setShowWorkspaceBanner] = useState<boolean>(false);
+  const bannerTimerRef = useRef<number | null>(null);
+
+  // Pinned taskbar applications state
+  const [pinnedAppIds, setPinnedAppIds] = useState<AppId[]>(() => pinningService.getPinned());
+
+  // Windows State
+  const [activeWindowId, setActiveWindowId] = useState<string | null>('win-1');
+  const [highestZIndex, setHighestZIndex] = useState<number>(10);
   const [windows, setWindows] = useState<WindowState[]>([
     {
       id: 'win-1',
@@ -73,6 +66,7 @@ export default function App() {
       zIndex: 9,
       position: { x: 90, y: 50 },
       size: { width: 780, height: 500 },
+      workspaceId: 1,
     },
     {
       id: 'win-2',
@@ -84,47 +78,98 @@ export default function App() {
       zIndex: 8,
       position: { x: 180, y: 110 },
       size: { width: 840, height: 520 },
+      workspaceId: 1,
     },
   ]);
-
-  // Pinned taskbar applications state
-  const [pinnedAppIds, setPinnedAppIds] = useState<AppId[]>([
-    'explorer',
-    'terminal',
-    'notes',
-    'paint',
-  ]);
-
-  const togglePin = (appId: AppId) => {
-    setPinnedAppIds((prev) =>
-      prev.includes(appId) ? prev.filter((id) => id !== appId) : [...prev, appId]
-    );
-  };
 
   // Show Desktop state (minimize/restore all)
   const [windowsBeforeShowDesktop, setWindowsBeforeShowDesktop] = useState<string[] | null>(null);
 
-  const toggleShowDesktop = () => {
-    const allMinimized = windows.length > 0 && windows.every((w) => w.isMinimized);
-    if (allMinimized && windowsBeforeShowDesktop) {
-      setWindows((prev) =>
-        prev.map((w) =>
-          windowsBeforeShowDesktop.includes(w.id) ? { ...w, isMinimized: false } : w
-        )
-      );
-      setWindowsBeforeShowDesktop(null);
-    } else {
-      const activeIds = windows.filter((w) => !w.isMinimized).map((w) => w.id);
-      setWindowsBeforeShowDesktop(activeIds);
-      setWindows((prev) => prev.map((w) => ({ ...w, isMinimized: true })));
-      setActiveWindowId(null);
+  // 1. Initial State Restoration from IndexedDB / BrowserPersistenceProvider
+  useEffect(() => {
+    let mounted = true;
+
+    async function restoreSystemState() {
+      try {
+        const saved = await browserPersistenceProvider.loadState();
+        if (!mounted || !saved) return;
+
+        if (saved.settings) {
+          settingsService.updateSettings(saved.settings);
+          setSettings(saved.settings);
+          soundEngine.setMasterSettings(saved.settings.volume, saved.settings.isMuted);
+        }
+
+        if (saved.pinnedAppIds && Array.isArray(saved.pinnedAppIds)) {
+          pinningService.setPinned(saved.pinnedAppIds);
+          setPinnedAppIds(saved.pinnedAppIds);
+        }
+
+        const rfs = RocketFS.getInstance();
+        if (saved.fileSystem) {
+          if (SchemaMigration.isV2Snapshot(saved.fileSystem)) {
+            rfs.loadSnapshot(saved.fileSystem);
+          } else if (Array.isArray(saved.fileSystem) && saved.fileSystem.length > 0) {
+            const v2 = SchemaMigration.migrateV1ToV2(saved.fileSystem);
+            rfs.loadSnapshot(v2);
+          }
+          setFileSystem(rfs.toFSItemTree());
+          setTrashItems(rfs.getTrashSubsystem().listTrash());
+        } else {
+          setFileSystem(rfs.toFSItemTree());
+        }
+
+        if (saved.trashItems && Array.isArray(saved.trashItems)) {
+          setTrashItems(saved.trashItems);
+        }
+
+        if (saved.activeWorkspace) {
+          setCurrentWorkspace(saved.activeWorkspace);
+        }
+      } catch (err) {
+        console.warn('Could not restore persistent state:', err);
+      }
     }
-  };
+
+    restoreSystemState();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // Subscribe to RocketFS changes
+  useEffect(() => {
+    return RocketFS.getInstance().subscribe(() => {
+      const rfs = RocketFS.getInstance();
+      setFileSystem(rfs.toFSItemTree());
+      setTrashItems(rfs.getTrashSubsystem().listTrash());
+    });
+  }, []);
+
+  // 2. Sync Master Audio Settings whenever settings change
+  useEffect(() => {
+    soundEngine.setMasterSettings(settings.volume, settings.isMuted);
+  }, [settings.volume, settings.isMuted]);
+
+  // 3. Debounced Persistent Saving of State Changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const rfs = RocketFS.getInstance();
+      browserPersistenceProvider.saveState({
+        settings,
+        pinnedAppIds,
+        fileSystem: rfs.snapshot(),
+        trashItems: rfs.getTrashSubsystem().listTrash(),
+        activeWorkspace: currentWorkspace,
+      });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [settings, pinnedAppIds, fileSystem, trashItems, currentWorkspace]);
 
   // Global ContextMenu handler to suppress Chrome's default menu across the desktop
   useEffect(() => {
     const handleGlobalContextMenu = (e: MouseEvent) => {
-      // If user right-clicks on an input or textarea, let native selection menu work
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA') return;
       e.preventDefault();
@@ -134,15 +179,67 @@ export default function App() {
     return () => window.removeEventListener('contextmenu', handleGlobalContextMenu);
   }, []);
 
+  // Update Settings handler
+  const handleUpdateSettings = (newSettings: Partial<SystemSettings>) => {
+    const updated = settingsService.updateSettings(newSettings);
+    setSettings({ ...updated });
+  };
+
+  // Toggle Pinned status
+  const handleTogglePin = (appId: AppId) => {
+    const updated = pinningService.togglePin(appId);
+    setPinnedAppIds(updated);
+    soundEngine.playPin();
+  };
+
+  // Virtual Desktops: Switch Workspace
+  const handleChangeWorkspace = (wsId: number) => {
+    if (wsId === currentWorkspace) return;
+    setCurrentWorkspace(wsId);
+    soundEngine.playSnap();
+
+    // Show workspace toast banner
+    setShowWorkspaceBanner(true);
+    if (bannerTimerRef.current) clearTimeout(bannerTimerRef.current);
+    bannerTimerRef.current = window.setTimeout(() => {
+      setShowWorkspaceBanner(false);
+    }, 1800);
+
+    // If currently active window is not in the new workspace, select highest window on new workspace
+    const currentActive = windows.find((w) => w.id === activeWindowId);
+    if (currentActive && currentActive.workspaceId !== wsId && currentActive.workspaceId !== 0) {
+      const windowsInNewWs = windows
+        .filter((w) => (w.workspaceId || 1) === wsId || w.workspaceId === 0)
+        .filter((w) => !w.isMinimized)
+        .sort((a, b) => b.zIndex - a.zIndex);
+
+      if (windowsInNewWs.length > 0) {
+        setActiveWindowId(windowsInNewWs[0].id);
+      } else {
+        setActiveWindowId(null);
+      }
+    }
+  };
+
+  // Move a window to another workspace
+  const handleMoveWindowToWorkspace = (windowId: string, wsId: number) => {
+    setWindows((prev) =>
+      prev.map((w) => (w.id === windowId ? { ...w, workspaceId: wsId } : w))
+    );
+    notificationService.notify(
+      'Window Moved',
+      `Window sent to Desktop ${wsId}`,
+      'info'
+    );
+  };
+
   // Bring window to front
   const focusWindow = (id: string) => {
     setActiveWindowId(id);
     setHighestZIndex((prev) => {
       const nextZ = prev + 1;
       setWindows((wins) =>
-        wins.map((w) =>
-          w.id === id ? { ...w, zIndex: nextZ, isMinimized: false } : w
-        )
+        wins.map((w) => (w.id === id ? { ...w, zIndex: nextZ, isMinimized: false } : w))
       );
       return nextZ;
     });
@@ -150,6 +247,7 @@ export default function App() {
 
   // Close window
   const closeWindow = (id: string) => {
+    soundEngine.playClose();
     setWindows((wins) => wins.filter((w) => w.id !== id));
     if (activeWindowId === id) {
       setActiveWindowId(null);
@@ -158,9 +256,8 @@ export default function App() {
 
   // Minimize window
   const minimizeWindow = (id: string) => {
-    setWindows((wins) =>
-      wins.map((w) => (w.id === id ? { ...w, isMinimized: true } : w))
-    );
+    soundEngine.playMinimize();
+    setWindows((wins) => wins.map((w) => (w.id === id ? { ...w, isMinimized: true } : w)));
     if (activeWindowId === id) {
       setActiveWindowId(null);
     }
@@ -168,6 +265,7 @@ export default function App() {
 
   // Maximize / restore window
   const toggleMaximizeWindow = (id: string) => {
+    soundEngine.playSnap();
     setWindows((wins) =>
       wins.map((w) => (w.id === id ? { ...w, isMaximized: !w.isMaximized } : w))
     );
@@ -205,6 +303,36 @@ export default function App() {
     );
   };
 
+  // Toggle Show Desktop
+  const toggleShowDesktop = () => {
+    const visibleWins = windows.filter(
+      (w) => (w.workspaceId || 1) === currentWorkspace || w.workspaceId === 0
+    );
+    const allMinimized = visibleWins.length > 0 && visibleWins.every((w) => w.isMinimized);
+
+    if (allMinimized && windowsBeforeShowDesktop) {
+      setWindows((prev) =>
+        prev.map((w) =>
+          windowsBeforeShowDesktop.includes(w.id) ? { ...w, isMinimized: false } : w
+        )
+      );
+      setWindowsBeforeShowDesktop(null);
+      soundEngine.playOpen();
+    } else {
+      const activeIds = visibleWins.filter((w) => !w.isMinimized).map((w) => w.id);
+      setWindowsBeforeShowDesktop(activeIds);
+      setWindows((prev) =>
+        prev.map((w) =>
+          (w.workspaceId || 1) === currentWorkspace || w.workspaceId === 0
+            ? { ...w, isMinimized: true }
+            : w
+        )
+      );
+      setActiveWindowId(null);
+      soundEngine.playMinimize();
+    }
+  };
+
   // Launch or bring to front an application
   const openApp = (appId: AppId, extraData?: Record<string, any>) => {
     // If it's ThisPC or Trash, route to explorer with that path
@@ -217,8 +345,13 @@ export default function App() {
       return;
     }
 
-    // Check if an existing window of this app is open (unless it's an explorer navigating to a new path)
-    const existing = windows.find((w) => w.appId === appId);
+    // Check if an existing window of this app is open in current workspace
+    const existing = windows.find(
+      (w) =>
+        w.appId === appId &&
+        ((w.workspaceId || 1) === currentWorkspace || w.workspaceId === 0)
+    );
+
     if (existing && !extraData?.path) {
       if (existing.isMinimized) {
         setWindows((wins) =>
@@ -226,80 +359,29 @@ export default function App() {
         );
       }
       focusWindow(existing.id);
+      soundEngine.playOpen();
       return;
     }
 
+    const appDef = AppRegistry.getApp(appId);
     const newId = `win-${Date.now()}`;
     const nextZ = highestZIndex + 1;
     setHighestZIndex(nextZ);
 
-    let title = 'Application';
-    let icon = '📦';
-    let width = 780;
-    let height = 500;
+    let title = appDef.displayName;
+    let icon = appDef.glyph;
+    let width = appDef.constraints.defaultWidth;
+    let height = appDef.constraints.defaultHeight;
 
-    switch (appId) {
-      case 'explorer':
-        const p = extraData?.path || '/Desktop';
-        title = p === '/ThisPC' ? 'This PC' : p === '/Trash' ? 'Recycle Bin' : `File Explorer - ${p}`;
-        icon = p === '/Trash' ? '🗑️' : '📁';
-        width = 820;
-        height = 510;
-        break;
-      case 'taskmanager':
-        title = 'Task Manager';
-        icon = '📊';
-        width = 800;
-        height = 500;
-        break;
-      case 'paint':
-        title = 'Paint Studio';
-        icon = '🎨';
-        width = 920;
-        height = 580;
-        break;
-      case 'notes':
-        title = 'Notes & To-Do Checklist';
-        icon = '📝';
-        width = 780;
-        height = 500;
-        break;
-      case 'rocket-studio':
-        title = 'Rocket Language Studio';
-        icon = '✨';
-        width = 860;
-        height = 540;
-        break;
-      case 'terminal':
-        title = 'Terminal (rsh v2.0)';
-        icon = '🖥️';
-        width = 700;
-        height = 430;
-        break;
-      case 'editor':
-        title = 'Rocket Code Editor (rEdit)';
-        icon = '📝';
-        width = 740;
-        height = 490;
-        break;
-      case 'monitor':
-        title = 'Hardware & PML4 Monitor';
-        icon = '⚡';
-        width = 680;
-        height = 440;
-        break;
-      case 'settings':
-        title = 'Settings';
-        icon = '⚙️';
-        width = 780;
-        height = 520;
-        break;
-      case 'graphics':
-        title = 'Raylib 2D Engine Canvas';
-        icon = '🚀';
-        width = 850;
-        height = 530;
-        break;
+    if (appId === 'explorer') {
+      const p = extraData?.path || '/Desktop';
+      title =
+        p === '/ThisPC'
+          ? 'This PC'
+          : p === '/Trash'
+          ? 'Recycle Bin'
+          : `File Explorer - ${p}`;
+      icon = p === '/Trash' ? '🗑️' : '📁';
     }
 
     const newWindow: WindowState = {
@@ -315,11 +397,13 @@ export default function App() {
         y: Math.min(window.innerHeight - height - 60, 40 + (windows.length * 25) % 150),
       },
       size: { width, height },
+      workspaceId: currentWorkspace,
       extraData,
     };
 
     setWindows((prev) => [...prev, newWindow]);
     setActiveWindowId(newId);
+    soundEngine.playOpen();
   };
 
   // Open file in Text Editor
@@ -327,6 +411,11 @@ export default function App() {
     setActiveEditorFile(file);
     const existingEditor = windows.find((w) => w.appId === 'editor');
     if (existingEditor) {
+      if (existingEditor.isMinimized) {
+        setWindows((wins) =>
+          wins.map((w) => (w.id === existingEditor.id ? { ...w, isMinimized: false } : w))
+        );
+      }
       focusWindow(existingEditor.id);
     } else {
       openApp('editor', { file });
@@ -335,21 +424,12 @@ export default function App() {
 
   // Save file content in file system
   const handleSaveFileContent = (path: string, newContent: string) => {
-    const updateInTree = (items: FSItem[]): FSItem[] => {
-      return items.map((item) => {
-        if (item.path === path) {
-          return { ...item, content: newContent, size: `${newContent.length} B` };
-        }
-        if (item.children) {
-          return { ...item, children: updateInTree(item.children) };
-        }
-        return item;
-      });
-    };
-    setFileSystem(updateInTree(fileSystem));
+    const updated = FileSystemService.updateFileContent(fileSystem, path, newContent);
+    setFileSystem(updated);
     if (activeEditorFile && activeEditorFile.path === path) {
       setActiveEditorFile({ ...activeEditorFile, content: newContent });
     }
+    notificationService.notify('File Saved', `Saved changes to ${path}`, 'success');
   };
 
   // Create new item in file system
@@ -359,58 +439,47 @@ export default function App() {
     type: 'file' | 'folder',
     content?: string
   ) => {
-    const newItemPath = parentPath === '/' ? `/${name}` : `${parentPath}/${name}`;
-    const newItem: FSItem = {
-      id: `item-${Date.now()}`,
+    const { newTree } = FileSystemService.createItem(
+      fileSystem,
+      parentPath,
       name,
       type,
-      path: newItemPath,
-      size: type === 'file' ? '0 B' : undefined,
-      updatedAt: '2026-09-03',
-      content: content || '',
-      children: type === 'folder' ? [] : undefined,
-    };
+      content
+    );
+    setFileSystem(newTree);
+    soundEngine.playPin();
+  };
 
-    const insertIntoTree = (items: FSItem[]): FSItem[] => {
-      return items.map((item) => {
-        if (item.path === parentPath && item.type === 'folder') {
-          return {
-            ...item,
-            children: [...(item.children || []), newItem],
-          };
-        }
-        if (item.children) {
-          return { ...item, children: insertIntoTree(item.children) };
-        }
-        return item;
-      });
-    };
-
-    setFileSystem(insertIntoTree(fileSystem));
+  // Rename item in file system
+  const handleRenameItem = (itemId: string, newName: string) => {
+    const { newTree } = FileSystemService.renameItem(fileSystem, itemId, newName);
+    setFileSystem(newTree);
+    notificationService.notify('Renamed', `Item renamed to ${newName}`, 'info');
   };
 
   // Delete item from file system and move to Recycle Bin
   const handleDeleteItem = (targetItem: FSItem) => {
-    const removeFromTree = (items: FSItem[]): FSItem[] => {
-      return items
-        .filter((item) => item.id !== targetItem.id && item.path !== targetItem.path)
-        .map((item) => {
-          if (item.children) {
-            return { ...item, children: removeFromTree(item.children) };
-          }
-          return item;
-        });
-    };
+    const { newTree, deletedItem } = FileSystemService.deleteItem(
+      fileSystem,
+      targetItem.id
+    );
+    if (!deletedItem) return;
 
-    setFileSystem(removeFromTree(fileSystem));
+    setFileSystem(newTree);
+    soundEngine.playTrash();
 
     const newTrashItem: TrashItem = {
       id: `trash-${Date.now()}`,
-      item: targetItem,
+      item: deletedItem,
       deletedAt: 'Just now',
-      originalPath: targetItem.path,
+      originalPath: deletedItem.path,
     };
     setTrashItems((prev) => [newTrashItem, ...prev]);
+    notificationService.notify(
+      'Moved to Recycle Bin',
+      `"${deletedItem.name}" was moved to the Recycle Bin`,
+      'info'
+    );
   };
 
   // Restore item from Recycle Bin back into file system
@@ -418,18 +487,15 @@ export default function App() {
     const tItem = trashItems.find((t) => t.id === trashId);
     if (!tItem) return;
 
-    // Determine parent directory path
-    const parts = tItem.originalPath.split('/').filter(Boolean);
-    parts.pop();
-    const parentPath = parts.length === 0 ? '/' : '/' + parts.join('/');
+    const parentPath = FileSystemService.getParentPath(tItem.originalPath);
+    const restoredItem = { ...tItem.item, path: tItem.originalPath };
 
-    // Insert back into tree
     const insertBack = (items: FSItem[]): FSItem[] => {
       return items.map((item) => {
         if (item.path === parentPath && item.type === 'folder') {
           return {
             ...item,
-            children: [...(item.children || []), tItem.item],
+            children: [...(item.children || []), restoredItem],
           };
         }
         if (item.children) {
@@ -441,36 +507,81 @@ export default function App() {
 
     setFileSystem(insertBack(fileSystem));
     setTrashItems((prev) => prev.filter((t) => t.id !== trashId));
+    soundEngine.playOpen();
+    notificationService.notify('Restored', `Restored ${restoredItem.name}`, 'success');
   };
 
   // Empty Recycle Bin
   const handleEmptyRecycleBin = () => {
     setTrashItems([]);
+    soundEngine.playTrash();
+    notificationService.notify('Recycle Bin Emptied', 'All deleted items permanently cleared', 'warning');
   };
 
-  // Copy Item
+  // Clipboard: Copy Item
   const handleCopyItem = (item: FSItem) => {
-    setCopiedItem(item);
+    clipboardService.copyItem(item);
+    notificationService.notify('Copied', `Copied "${item.name}" to clipboard`, 'info');
   };
 
-  // Paste Item
-  const handlePasteItem = (targetDirectoryPath: string) => {
-    if (!copiedItem) return;
-    const extension = copiedItem.name.includes('.')
-      ? '.' + copiedItem.name.split('.').pop()
-      : '';
-    const baseName = copiedItem.name.replace(extension, '');
-    const duplicateName = `${baseName}_copy${extension}`;
+  // Clipboard: Cut Item
+  const handleCutItem = (item: FSItem) => {
+    clipboardService.cutItem(item);
+    notificationService.notify('Cut', `Cut "${item.name}" to clipboard`, 'info');
+  };
 
-    handleCreateItem(
-      targetDirectoryPath,
-      duplicateName,
-      copiedItem.type,
-      copiedItem.content
+  // Clipboard: Paste Item
+  const handlePasteItem = (targetDirectoryPath: string) => {
+    const clip = clipboardService.getClipboard();
+    if (!clip?.item) return;
+
+    const sourceItem = clip.item;
+    const isCut = clip.op === 'cut';
+
+    // Build unique duplicate name if same directory
+    const extension = sourceItem.name.includes('.')
+      ? '.' + sourceItem.name.split('.').pop()
+      : '';
+    const baseName = sourceItem.name.replace(extension, '');
+    const finalName = isCut ? sourceItem.name : `${baseName}_copy${extension}`;
+
+    // Deep clone the item with updated paths recursively
+    const cloned = FileSystemService.deepCloneItem(sourceItem, targetDirectoryPath, finalName);
+
+    // If it's a cut operation, remove original item first
+    let currentTree = fileSystem;
+    if (isCut) {
+      const { newTree } = FileSystemService.deleteItem(currentTree, sourceItem.id);
+      currentTree = newTree;
+      clipboardService.clear();
+    }
+
+    // Insert into target directory
+    const insertIntoTarget = (items: FSItem[]): FSItem[] => {
+      return items.map((item) => {
+        if (item.path === targetDirectoryPath && item.type === 'folder') {
+          return {
+            ...item,
+            children: [...(item.children || []), cloned],
+          };
+        }
+        if (item.children) {
+          return { ...item, children: insertIntoTarget(item.children) };
+        }
+        return item;
+      });
+    };
+
+    setFileSystem(insertIntoTarget(currentTree));
+    soundEngine.playPin();
+    notificationService.notify(
+      'Pasted',
+      `${isCut ? 'Moved' : 'Pasted'} "${finalName}" to ${targetDirectoryPath}`,
+      'success'
     );
   };
 
-  // Create a default rocket file on Desktop
+  // Create default rocket file on Desktop
   const handleCreateDesktopFile = () => {
     handleCreateItem(
       '/Desktop',
@@ -480,7 +591,7 @@ export default function App() {
     );
   };
 
-  // Create a folder on Desktop
+  // Create folder on Desktop
   const handleCreateDesktopFolder = () => {
     handleCreateItem(
       '/Desktop',
@@ -491,7 +602,9 @@ export default function App() {
 
   // Get desktop files for the desktop surface
   const getDesktopItems = (): FSItem[] => {
-    const desktopFolder = fileSystem[0]?.children?.find((c) => c.name === 'Desktop');
+    const desktopFolder =
+      RocketFS.getInstance().findItemByPath('/Desktop') ||
+      fileSystem[0]?.children?.find((c) => c.name === 'Desktop');
     return desktopFolder?.children || [];
   };
 
@@ -504,7 +617,6 @@ export default function App() {
             fileSystem={fileSystem}
             currentPath={win.extraData?.path || '/Desktop'}
             trashItems={trashItems}
-            copiedItem={copiedItem}
             onOpenFile={handleOpenFile}
             onOpenTerminalAtPath={(path) => openApp('terminal', { cwd: path })}
             onCreateItem={handleCreateItem}
@@ -512,7 +624,9 @@ export default function App() {
             onRestoreTrashItem={handleRestoreTrashItem}
             onEmptyTrash={handleEmptyRecycleBin}
             onCopyItem={handleCopyItem}
+            onCutItem={handleCutItem}
             onPasteItem={handlePasteItem}
+            onRenameItem={handleRenameItem}
           />
         );
       case 'taskmanager':
@@ -527,7 +641,7 @@ export default function App() {
         return (
           <TerminalApp
             fileSystem={fileSystem}
-            currentPath={win.extraData?.cwd || '/Desktop'}
+            currentPath={win.extraData?.cwd || '/home/ryan'}
             onReboot={() => setIsBooted(false)}
             onOpenFile={handleOpenFile}
           />
@@ -545,9 +659,7 @@ export default function App() {
         return (
           <SettingsApp
             settings={settings}
-            onUpdateSettings={(newSettings) =>
-              setSettings((prev) => ({ ...prev, ...newSettings }))
-            }
+            onUpdateSettings={handleUpdateSettings}
           />
         );
       case 'graphics':
@@ -561,8 +673,22 @@ export default function App() {
     return <BootSequence onBootComplete={() => setIsBooted(true)} />;
   }
 
+  // Windows filtered for current workspace
+  const visibleWindows = windows.filter(
+    (w) => (w.workspaceId || 1) === currentWorkspace || w.workspaceId === 0
+  );
+
   return (
-    <div id="rocket-os-root" className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none">
+    <div
+      id="rocket-os-root"
+      className="relative w-screen h-screen overflow-hidden bg-slate-950 font-sans select-none"
+    >
+      {/* Workspace Switch Transient Banner */}
+      <WorkspaceSwitchBanner
+        workspaceId={currentWorkspace}
+        visible={showWorkspaceBanner}
+      />
+
       {/* Desktop Surface */}
       <Desktop
         desktopFiles={getDesktopItems()}
@@ -578,43 +704,44 @@ export default function App() {
         onOpenTimeSettings={() => openApp('settings')}
       />
 
-      {/* Floating Windows */}
-      {windows.map((win) => (
+      {/* Floating Windows (Workspace Isolated) */}
+      {visibleWindows.map((win) => (
         <WindowFrame
           key={win.id}
           window={win}
           isActive={activeWindowId === win.id}
           isPinned={pinnedAppIds.includes(win.appId)}
-          onTogglePin={() => togglePin(win.appId)}
+          onTogglePin={() => handleTogglePin(win.appId)}
           onFocus={() => focusWindow(win.id)}
           onClose={() => closeWindow(win.id)}
           onMinimize={() => minimizeWindow(win.id)}
           onToggleMaximize={() => toggleMaximizeWindow(win.id)}
           onUpdatePosition={(x, y) => updateWindowPosition(win.id, x, y)}
           onUpdateBounds={(w, h, x, y, snap) => updateWindowBounds(win.id, w, h, x, y, snap)}
+          onMoveToWorkspace={(wsId) => handleMoveWindowToWorkspace(win.id, wsId)}
         >
           {renderWindowContent(win)}
         </WindowFrame>
       ))}
 
-      {/* 5-App Circular Rotating Carousel Dock (Bottom Middle with Cursor Tracking & Magnification) */}
+      {/* 5-App Circular Rotating Carousel Dock (Preserved aesthetic & track) */}
       <CarouselDock
         settings={settings}
         onOpenApp={openApp}
         trashCount={trashItems.length}
       />
 
-      {/* Bottom Transparent Liquid Glass Taskbar */}
+      {/* Bottom Transparent Liquid Glass Taskbar with Workspace, Pinning, Search, Sound */}
       <Taskbar
         windows={windows}
         activeWindowId={activeWindowId}
         settings={settings}
         fileSystem={fileSystem}
         pinnedAppIds={pinnedAppIds}
-        onTogglePin={togglePin}
-        onUpdateSettings={(newSettings) =>
-          setSettings((prev) => ({ ...prev, ...newSettings }))
-        }
+        currentWorkspace={currentWorkspace}
+        onChangeWorkspace={handleChangeWorkspace}
+        onTogglePin={handleTogglePin}
+        onUpdateSettings={handleUpdateSettings}
         onSelectWindow={(id) => {
           const win = windows.find((w) => w.id === id);
           if (win?.isMinimized) {

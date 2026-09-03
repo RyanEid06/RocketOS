@@ -1,0 +1,73 @@
+// RocketOS Settings Domain Model
+// Preferences, schema validation, and audio/appearance synchronization
+
+import std.string
+import std.collections
+
+enum AccentColor:
+    Sky
+    Emerald
+    Indigo
+    Amber
+    Rose
+
+enum WallpaperTheme:
+    LiquidAurora
+    FrostedTitanium
+    DeepObsidian
+    ClassicBlue
+    CyberAbyss
+    SolarFlare
+    SpaceVoid
+    EmeraldMatrix
+
+enum TimeFormat:
+    TwelveHour
+    TwentyFourHour
+
+enum SystemLanguage:
+    English
+    Spanish
+    French
+    German
+    Japanese
+
+struct SystemSettingsState:
+    wallpaper: WallpaperTheme
+    accent_color: AccentColor
+    night_light: Bool
+    volume: Int
+    is_muted: Bool
+    wifi_connected: Bool
+    time_format: TimeFormat
+    show_seconds: Bool
+    language: SystemLanguage
+
+fn get_default_settings() -> SystemSettingsState:
+    return SystemSettingsState(
+        wallpaper: WallpaperTheme.LiquidAurora,
+        accent_color: AccentColor.Sky,
+        night_light: false,
+        volume: 85,
+        is_muted: false,
+        wifi_connected: true,
+        time_format: TimeFormat.TwelveHour,
+        show_seconds: true,
+        language: SystemLanguage.English
+    )
+
+fn clamp_volume(volume: Int) -> Int:
+    if volume < 0:
+        return 0
+    if volume > 100:
+        return 100
+    return volume
+
+fn is_audio_effectively_silent(settings: SystemSettingsState) -> Bool:
+    return settings.is_muted or settings.volume <= 0
+
+fn main() -> Int:
+    let s = get_default_settings()
+    let silent = is_audio_effectively_silent(s)
+    print("Default volume: " + string.from_int(s.volume) + ", Silent: " + string.from_bool(silent))
+    return 0

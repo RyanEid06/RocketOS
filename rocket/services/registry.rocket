@@ -1,0 +1,189 @@
+// RocketOS Application Registry Specification
+// Central metadata catalog for all installed RocketOS applications
+
+import std.string
+import std.collections
+
+enum AppCategory:
+    System
+    Developer
+    Productivity
+    Graphics
+    Utilities
+
+struct WindowConstraints:
+    default_width: Int
+    default_height: Int
+    min_width: Int
+    min_height: Int
+
+struct AppDescriptor:
+    id: String
+    display_name: String
+    description: String
+    glyph: String
+    category: AppCategory
+    is_singleton: Bool
+    constraints: WindowConstraints
+    supported_extensions: List[String]
+    keywords: List[String]
+    is_system_app: Bool
+
+fn get_registered_apps() -> List[AppDescriptor]:
+    return [
+        AppDescriptor(
+            id: "explorer",
+            display_name: "File Explorer",
+            description: "Browse desktop files, documents, and kernel filesystem",
+            glyph: "📁",
+            category: AppCategory.System,
+            is_singleton: false,
+            constraints: WindowConstraints(820, 510, 500, 360),
+            supported_extensions: [],
+            keywords: ["files", "folders", "explorer", "documents", "downloads", "vfs"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "thispc",
+            display_name: "This PC",
+            description: "Storage drives, RAM disk, and hardware specifications",
+            glyph: "💻",
+            category: AppCategory.System,
+            is_singleton: true,
+            constraints: WindowConstraints(800, 480, 480, 340),
+            supported_extensions: [],
+            keywords: ["hardware", "storage", "disks", "specs", "cpu", "ram"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "trash",
+            display_name: "Recycle Bin",
+            description: "Manage and restore deleted files and directories",
+            glyph: "🗑️",
+            category: AppCategory.System,
+            is_singleton: true,
+            constraints: WindowConstraints(760, 480, 480, 340),
+            supported_extensions: [],
+            keywords: ["trash", "recycle", "delete", "restore", "bin"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "terminal",
+            display_name: "Terminal",
+            description: "Rocket Shell (rsh v2.0) interactive command environment",
+            glyph: "🖥️",
+            category: AppCategory.Developer,
+            is_singleton: false,
+            constraints: WindowConstraints(700, 430, 420, 280),
+            supported_extensions: [".sh", ".rsh"],
+            keywords: ["cli", "terminal", "shell", "bash", "command", "rocketc"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "rocket-studio",
+            display_name: "Rocket Language Studio",
+            description: "Interactive language tour, compiler diagnostics, and AST inspector",
+            glyph: "✨",
+            category: AppCategory.Developer,
+            is_singleton: true,
+            constraints: WindowConstraints(860, 540, 600, 400),
+            supported_extensions: [".rocket"],
+            keywords: ["rocket", "compiler", "studio", "ast", "diagnostics", "ide"],
+            is_system_app: false
+        ),
+        AppDescriptor(
+            id: "editor",
+            display_name: "Rocket Editor",
+            description: "Code and text editor with syntax highlighting and compiler validation",
+            glyph: "📝",
+            category: AppCategory.Developer,
+            is_singleton: false,
+            constraints: WindowConstraints(740, 490, 440, 320),
+            supported_extensions: [".rocket", ".txt", ".md", ".json", ".asm"],
+            keywords: ["code", "text", "edit", "editor", "script", "file"],
+            is_system_app: false
+        ),
+        AppDescriptor(
+            id: "taskmanager",
+            display_name: "Task Manager",
+            description: "Live CPU telemetry, memory utilization, and process controls",
+            glyph: "📊",
+            category: AppCategory.System,
+            is_singleton: true,
+            constraints: WindowConstraints(800, 500, 520, 360),
+            supported_extensions: [],
+            keywords: ["processes", "tasks", "cpu", "memory", "kill", "performance"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "monitor",
+            display_name: "Hardware Monitor",
+            description: "PML4 4-level paging memory map and x86_64 register inspection",
+            glyph: "⚡",
+            category: AppCategory.System,
+            is_singleton: true,
+            constraints: WindowConstraints(680, 440, 460, 320),
+            supported_extensions: [],
+            keywords: ["pml4", "registers", "paging", "hardware", "cpu", "idt"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "settings",
+            display_name: "Settings",
+            description: "Wallpapers, accents, audio levels, time formats, and language",
+            glyph: "⚙️",
+            category: AppCategory.Utilities,
+            is_singleton: true,
+            constraints: WindowConstraints(780, 520, 500, 380),
+            supported_extensions: [],
+            keywords: ["settings", "preferences", "wallpaper", "accent", "volume", "clock"],
+            is_system_app: true
+        ),
+        AppDescriptor(
+            id: "paint",
+            display_name: "Paint Studio",
+            description: "Canvas digital artwork studio with vector shapes and brushes",
+            glyph: "🎨",
+            category: AppCategory.Graphics,
+            is_singleton: false,
+            constraints: WindowConstraints(920, 580, 600, 420),
+            supported_extensions: [".png", ".jpg", ".svg", ".paint"],
+            keywords: ["paint", "draw", "canvas", "brush", "art", "graphic"],
+            is_system_app: false
+        ),
+        AppDescriptor(
+            id: "notes",
+            display_name: "Notes & Checklist",
+            description: "Category-filtered scratchpad and interactive to-do task list",
+            glyph: "📝",
+            category: AppCategory.Productivity,
+            is_singleton: false,
+            constraints: WindowConstraints(780, 500, 480, 340),
+            supported_extensions: [".txt", ".notes"],
+            keywords: ["notes", "todo", "tasks", "checklist", "memo", "scratchpad"],
+            is_system_app: false
+        ),
+        AppDescriptor(
+            id: "graphics",
+            display_name: "Raylib 2D Engine",
+            description: "Rocket-driven 2D physics simulation with orbital mechanics",
+            glyph: "🚀",
+            category: AppCategory.Graphics,
+            is_singleton: true,
+            constraints: WindowConstraints(850, 530, 550, 380),
+            supported_extensions: [],
+            keywords: ["raylib", "physics", "2d", "engine", "graphics", "orbit", "simulation"],
+            is_system_app: false
+        )
+    ]
+
+fn find_app_by_id(apps: List[AppDescriptor], id: String) -> Option[AppDescriptor]:
+    for app in apps:
+        if app.id == id:
+            return Some(app)
+    return None
+
+fn main() -> Int:
+    let apps = get_registered_apps()
+    print("Registered Apps in RocketOS: " + string.from_int(apps.length))
+    return 0

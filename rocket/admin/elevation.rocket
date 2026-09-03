@@ -1,0 +1,68 @@
+// RocketOS Administration & Privilege Elevation Subsystem
+// Governs sudo transitions, administrative auditing, and security logging
+
+import std.string
+import std.collections
+import rocket.users.user
+
+struct AuditLogEntry:
+    timestamp: String
+    uid: Int
+    username: String
+    action: String
+    target_resource: String
+    success: Bool
+    message: String
+
+fn format_audit_log(entry: AuditLogEntry) -> String:
+    let status = if entry.success: "SUCCESS" else: "FAILURE"
+    return "[" + entry.timestamp + "] " +
+           status + " sudo[" + string.from_int(entry.uid) + ":" + entry.username + "]: " +
+           entry.action + " -> " + entry.target_resource + " (" + entry.message + ")"
+
+struct ElevationResult:
+    allowed: Bool
+    effective_user: User
+    audit_entry: AuditLogEntry
+
+fn attempt_elevation(
+    current_user: User,
+    command_or_action: String,
+    target_path: String,
+    timestamp: String
+) -> ElevationResult:
+    if current_user.uid == 0:
+        let entry = AuditLogEntry(
+            timestamp: timestamp,
+            uid: 0,
+            username: "root",
+            action: command_or_action,
+            target_resource: target_path,
+            success: true,
+            message: "Root action authorized"
+        )
+        return ElevationResult(allowed: true, effective_user: current_user, audit_entry: entry)
+
+    if can_elevate(current_user):
+        let root_user = get_root_user()
+        let entry = AuditLogEntry(
+            timestamp: timestamp,
+            uid: current_user.uid,
+            username: current_user.username,
+            action: command_or_action,
+            target_resource: target_path,
+            success: true,
+            message: "Privilege elevated via sudo (admin group membership verified)"
+        )
+        return ElevationResult(allowed: true, effective_user: root_user, audit_entry: entry)
+
+    let denied_entry = AuditLogEntry(
+        timestamp: timestamp,
+        uid: current_user.uid,
+        username: current_user.username,
+        action: command_or_action,
+        target_resource: target_path,
+        success: false,
+        message: "Permission denied: user is not in sudoers/admin group"
+    )
+    return ElevationResult(allowed: false, effective_user: current_user, audit_entry: denied_entry)

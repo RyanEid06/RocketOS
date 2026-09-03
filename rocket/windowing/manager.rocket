@@ -1,0 +1,79 @@
+// RocketOS Window Manager Domain Model
+// Window state machine, bounds clamping, z-index calculation, workspace separation
+
+import std.string
+import std.collections
+
+enum WindowSnapMode:
+    None
+    LeftHalf
+    RightHalf
+    TopHalf
+    Maximize
+
+struct WindowPoint:
+    x: Int
+    y: Int
+
+struct WindowDimension:
+    width: Int
+    height: Int
+
+struct WindowBounds:
+    position: WindowPoint
+    size: WindowDimension
+
+struct WindowRecord:
+    id: String
+    app_id: String
+    title: String
+    icon: String
+    is_minimized: Bool
+    is_maximized: Bool
+    snap_mode: WindowSnapMode
+    workspace_id: Int
+    z_index: Int
+    bounds: WindowBounds
+    restore_bounds: WindowBounds
+
+fn should_window_render_in_workspace(window: WindowRecord, active_workspace_id: Int) -> Bool:
+    if window.is_minimized:
+        return false
+    return window.workspace_id == active_workspace_id or window.workspace_id == 0 // 0 = sticky all workspaces
+
+fn compute_next_z_index(current_highest: Int) -> Int:
+    return current_highest + 1
+
+fn calculate_half_snap(viewport_w: Int, viewport_h: Int, taskbar_h: Int, is_left: Bool) -> WindowBounds:
+    let available_h = viewport_h - taskbar_h
+    let half_w = viewport_w / 2
+    let x = if is_left: 0 else: half_w
+
+    return WindowBounds(
+        position: WindowPoint(x, 0),
+        size: WindowDimension(half_w, available_h)
+    )
+
+fn clamp_window_position(pos: WindowPoint, size: WindowDimension, screen_w: Int, screen_h: Int, taskbar_h: Int) -> WindowPoint:
+    let max_x = screen_w - 60
+    let min_x = 0 - size.width + 60
+    let max_y = screen_h - taskbar_h - 40
+    let min_y = 0
+
+    var clamped_x = pos.x
+    if clamped_x < min_x:
+        clamped_x = min_x
+    if clamped_x > max_x:
+        clamped_x = max_x
+
+    var clamped_y = pos.y
+    if clamped_y < min_y:
+        clamped_y = min_y
+    if clamped_y > max_y:
+        clamped_y = max_y
+
+    return WindowPoint(clamped_x, clamped_y)
+
+fn main() -> Int:
+    print("RocketOS Window Manager Domain Model Ready")
+    return 0

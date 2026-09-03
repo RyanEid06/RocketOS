@@ -3,11 +3,24 @@
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
+  private masterVolume: number = 85;
+  private masterMuted: boolean = false;
+
+  public setMasterSettings(volume: number, isMuted: boolean): void {
+    this.masterVolume = Math.max(0, Math.min(100, volume));
+    this.masterMuted = isMuted;
+  }
+
+  public isMuted(): boolean {
+    return this.masterMuted || this.masterVolume <= 0;
+  }
 
   private initCtx(): AudioContext | null {
     if (typeof window === 'undefined') return null;
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
       }
@@ -18,9 +31,17 @@ class SoundEngine {
     return this.ctx;
   }
 
+  private resolveAudioParams(volume?: number, muted?: boolean): { vol: number; silent: boolean } {
+    const activeMuted = muted !== undefined ? muted : this.masterMuted;
+    const activeVol = volume !== undefined ? volume : this.masterVolume;
+    const isSilent = activeMuted || activeVol <= 0;
+    return { vol: activeVol, silent: isSilent };
+  }
+
   // Soft harmonic chime for opening an application or window
-  playWindowOpen(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playWindowOpen(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -37,7 +58,7 @@ class SoundEngine {
       osc2.frequency.setValueAtTime(720, t);
       osc2.frequency.exponentialRampToValueAtTime(1320, t + 0.14);
 
-      const masterVol = (volume / 100) * 0.12;
+      const masterVol = (vol / 100) * 0.12;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
 
@@ -52,9 +73,15 @@ class SoundEngine {
     } catch {}
   }
 
+  // Alias for opening an app, window, or menu
+  playOpen(volume?: number, muted?: boolean) {
+    this.playWindowOpen(volume, muted);
+  }
+
   // Gentle descending waterdrop pop for window minimize
-  playMinimize(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playMinimize(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -66,7 +93,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(580, t);
       osc.frequency.exponentialRampToValueAtTime(220, t + 0.12);
 
-      const masterVol = (volume / 100) * 0.15;
+      const masterVol = (vol / 100) * 0.15;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
 
@@ -79,8 +106,9 @@ class SoundEngine {
   }
 
   // Gentle ascending pop for window restore
-  playRestore(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playRestore(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -92,7 +120,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(240, t);
       osc.frequency.exponentialRampToValueAtTime(620, t + 0.12);
 
-      const masterVol = (volume / 100) * 0.15;
+      const masterVol = (vol / 100) * 0.15;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
 
@@ -105,8 +133,9 @@ class SoundEngine {
   }
 
   // Crisp metallic latch tap for taskbar pin/unpin
-  playPin(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playPin(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -118,7 +147,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(880, t);
       osc.frequency.setValueAtTime(1240, t + 0.02);
 
-      const masterVol = (volume / 100) * 0.18;
+      const masterVol = (vol / 100) * 0.18;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
 
@@ -131,8 +160,9 @@ class SoundEngine {
   }
 
   // Glass snap click when docking or window edge snapping
-  playSnap(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playSnap(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -144,7 +174,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(540, t);
       osc.frequency.exponentialRampToValueAtTime(980, t + 0.08);
 
-      const masterVol = (volume / 100) * 0.16;
+      const masterVol = (vol / 100) * 0.16;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
 
@@ -157,8 +187,9 @@ class SoundEngine {
   }
 
   // Smooth whoosh sound when switching virtual desktop workspaces
-  playWorkspaceSwitch(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playWorkspaceSwitch(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -170,7 +201,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(320, t);
       osc.frequency.exponentialRampToValueAtTime(560, t + 0.09);
 
-      const masterVol = (volume / 100) * 0.14;
+      const masterVol = (vol / 100) * 0.14;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
 
@@ -183,8 +214,9 @@ class SoundEngine {
   }
 
   // Deletion / Recycle Bin sound
-  playTrash(volume = 50, muted = false) {
-    if (muted || volume <= 0) return;
+  playTrash(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
     try {
       const ctx = this.initCtx();
       if (!ctx) return;
@@ -196,7 +228,7 @@ class SoundEngine {
       osc.frequency.setValueAtTime(320, t);
       osc.frequency.exponentialRampToValueAtTime(140, t + 0.14);
 
-      const masterVol = (volume / 100) * 0.16;
+      const masterVol = (vol / 100) * 0.16;
       gain.gain.setValueAtTime(masterVol, t);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
 
@@ -205,6 +237,33 @@ class SoundEngine {
 
       osc.start(t);
       osc.stop(t + 0.18);
+    } catch {}
+  }
+
+  // Soft dismissal pop for window close
+  playClose(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
+    try {
+      const ctx = this.initCtx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440, t);
+      osc.frequency.exponentialRampToValueAtTime(200, t + 0.1);
+
+      const masterVol = (vol / 100) * 0.12;
+      gain.gain.setValueAtTime(masterVol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start(t);
+      osc.stop(t + 0.13);
     } catch {}
   }
 }

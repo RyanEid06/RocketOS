@@ -1,0 +1,143 @@
+// RocketOS Path Engine (Authoritative Path Resolution & Canonicalization)
+// Reusable domain logic for path validation, canonicalization, relative paths, and traversal
+
+import std.string
+import std.collections
+
+struct PathEngine:
+    default_home: String
+
+fn is_valid_path(raw_path: String) -> Bool:
+    if raw_path.length == 0:
+        return false
+    if raw_path.contains("\0"):
+        return false
+    // Paths cannot contain illegal control characters
+    for i in 0..raw_path.length:
+        let ch = raw_path[i]
+        if ch < ' ' and ch != '\t':
+            return false
+    return true
+
+// Authoritative canonicalization:
+// 1. Expands home directory (~ -> /home/ryan, ~root -> /root)
+// 2. Normalizes redundant slashes
+// 3. Resolves . (current) and .. (parent)
+// 4. Never traverses beyond root /
+fn canonicalize(raw_path: String, home_dir: String = "/home/ryan") -> Result[String, String]:
+    if not is_valid_path(raw_path):
+        return Err("INVALID_PATH: Malformed or unresolvable path")
+
+    var path = raw_path.trim()
+
+    // Handle home directory expansion
+    if path == "~":
+        path = home_dir
+    else if path.starts_with("~/"):
+        path = home_dir + path.substring(1, path.length)
+    else if path == "~root":
+        path = "/root"
+    else if path.starts_with("~root/"):
+        path = "/root" + path.substring(5, path.length)
+
+    // Normalize slashes
+    while path.contains("//"):
+        path = path.replace("//", "/")
+
+    let is_absolute = path.starts_with("/")
+    let raw_segments = path.split("/")
+    var resolved_segments: List[String] = []
+
+    for segment in raw_segments:
+        let s = segment.trim()
+        if s.length == 0 or s == ".":
+            continue
+        if s == "..":
+            if resolved_segments.length > 0:
+                resolved_segments.pop()
+            // If already at root, '..' cannot traverse higher
+        else:
+            resolved_segments.append(s)
+
+    if resolved_segments.length == 0:
+        return Ok("/")
+
+    var result = ""
+    for seg in resolved_segments:
+        result = result + "/" + seg
+
+    return Ok(result)
+
+// Resolve relative or absolute path against current working directory (cwd)
+fn resolve(target_path: String, cwd: String = "/home/ryan") -> Result[String, String]:
+    if not is_valid_path(target_path):
+        return Err("INVALID_PATH: Malformed or unresolvable path")
+
+    let trimmed = target_path.trim()
+    if trimmed.starts_with("/") or trimmed.starts_with("~"):
+        return canonicalize(trimmed)
+
+    let base = if cwd.ends_with("/"): cwd else: cwd + "/"
+    return canonicalize(base + trimmed)
+
+fn get_parent_path(path: String) -> String:
+    match canonicalize(path):
+        case Ok(canonical):
+            if canonical == "/" or canonical == "/ThisPC" or canonical == "/Trash":
+                return "/"
+            let last_slash = canonical.last_index_of("/")
+            if last_slash <= 0:
+                return "/"
+            return canonical.substring(0, last_slash)
+        case Err(_):
+            return "/"
+
+fn get_basename(path: String) -> String:
+    match canonicalize(path):
+        case Ok(canonical):
+            if canonical == "/":
+                return "/"
+            let last_slash = canonical.last_index_of("/")
+            if last_slash < 0:
+                return canonical
+            return canonical.substring(last_slash + 1, canonical.length)
+        case Err(_):
+            return path
+
+fn get_extension(name: String) -> String:
+    let base = get_basename(name)
+    let last_dot = base.last_index_of(".")
+    if last_dot <= 0 or last_dot == base.length - 1:
+        return ""
+    return base.substring(last_dot, base.length)
+
+fn join_paths(part1: String, part2: String) -> Result[String, String]:
+    let p1 = part1.trim()
+    let p2 = part2.trim()
+    if p1.length == 0:
+        return canonicalize(p2)
+    if p2.length == 0:
+        return canonicalize(p1)
+    return canonicalize(p1 + "/" + p2)
+
+fn is_child_of(parent_path: String, child_path: String) -> Bool:
+    let c_parent = canonicalize(parent_path)
+    let c_child = canonicalize(child_path)
+
+    match (c_parent, c_child):
+        case (Ok(p), Ok(c)):
+            if p == "/":
+                return c != "/" and c.starts_with("/")
+            return c.starts_with(p + "/")
+        case _:
+            return false
+
+fn main() -> Int:
+    print("RocketOS Authoritative Path Engine Loaded")
+    let test_res = resolve("../Documents/test.rocket", "/home/ryan/Projects")
+    match test_res:
+        case Ok(path):
+            print("Resolved: " + path)
+        case Err(err):
+            print("Error: " + err)
+    return 0

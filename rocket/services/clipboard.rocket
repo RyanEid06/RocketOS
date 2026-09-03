@@ -1,0 +1,58 @@
+// RocketOS Clipboard Service
+// Data transfer state machine supporting Copy, Cut, Paste for files, directories, and text
+
+import std.string
+import std.collections
+
+enum ClipboardOperation:
+    Copy
+    Cut
+
+enum ClipboardContentType:
+    File
+    Folder
+    Text
+
+struct ClipboardPayload:
+    operation: ClipboardOperation
+    content_type: ClipboardContentType
+    source_path: String
+    item_id: String
+    item_name: String
+    text_content: Option[String]
+    created_at_ms: Int
+
+struct ClipboardState:
+    current_payload: Option[ClipboardPayload]
+
+fn make_clipboard_state() -> ClipboardState:
+    return ClipboardState(current_payload: None)
+
+fn copy_item(source_path: String, item_id: String, item_name: String, is_folder: Bool, text: Option[String], now_ms: Int) -> ClipboardPayload:
+    return ClipboardPayload(
+        operation: ClipboardOperation.Copy,
+        content_type: if is_folder: ClipboardContentType.Folder else: ClipboardContentType.File,
+        source_path: source_path,
+        item_id: item_id,
+        item_name: item_name,
+        text_content: text,
+        created_at_ms: now_ms
+    )
+
+fn cut_item(source_path: String, item_id: String, item_name: String, is_folder: Bool, text: Option[String], now_ms: Int) -> ClipboardPayload:
+    return ClipboardPayload(
+        operation: ClipboardOperation.Cut,
+        content_type: if is_folder: ClipboardContentType.Folder else: ClipboardContentType.File,
+        source_path: source_path,
+        item_id: item_id,
+        item_name: item_name,
+        text_content: text,
+        created_at_ms: now_ms
+    )
+
+fn should_remove_source_after_paste(payload: ClipboardPayload) -> Bool:
+    return payload.operation == ClipboardOperation.Cut
+
+fn main() -> Int:
+    print("RocketOS Clipboard Service Initialized")
+    return 0
