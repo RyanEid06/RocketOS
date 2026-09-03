@@ -1,0 +1,182 @@
+// RocketOS Service Manager Domain Model
+// Daemon lifecycles, startup dependency verification, and system supervisor state
+
+import std.string
+import std.collections
+
+enum ServiceState:
+    Starting
+    Running
+    Stopping
+    Stopped
+    Failed
+
+enum StartupMode:
+    Boot
+    Demand
+    Disabled
+
+struct ServiceDefinition:
+    id: String
+    name: String
+    description: String
+    startup_mode: StartupMode
+    dependencies: List[String]
+    is_critical: Bool
+    assigned_uid: Int
+
+struct ServiceInstance:
+    id: String
+    name: String
+    state: ServiceState
+    startup_mode: StartupMode
+    dependencies: List[String]
+    start_time_epoch_ms: Int
+    restart_count: Int
+    status_message: String
+    capabilities: List[String]
+    process_id: Int
+
+fn format_service_state(state: ServiceState) -> String:
+    match state:
+        case Starting:
+            return "STARTING"
+        case Running:
+            return "RUNNING"
+        case Stopping:
+            return "STOPPING"
+        case Stopped:
+            return "STOPPED"
+        case Failed:
+            return "FAILED"
+
+fn format_startup_mode(mode: StartupMode) -> String:
+    match mode:
+        case Boot:
+            return "boot"
+        case Demand:
+            return "demand"
+        case Disabled:
+            return "disabled"
+
+fn can_service_transition(from_state: ServiceState, to_state: ServiceState) -> Bool:
+    match from_state:
+        case Stopped:
+            return to_state == ServiceState.Starting or to_state == ServiceState.Failed
+        case Starting:
+            return to_state == ServiceState.Running or to_state == ServiceState.Failed or to_state == ServiceState.Stopped
+        case Running:
+            return to_state == ServiceState.Stopping or to_state == ServiceState.Failed or to_state == ServiceState.Stopped
+        case Stopping:
+            return to_state == ServiceState.Stopped or to_state == ServiceState.Failed
+        case Failed:
+            return to_state == ServiceState.Starting or to_state == ServiceState.Stopped
+
+fn are_dependencies_satisfied(dependencies: List[String], running_services: List[String]) -> Bool:
+    for dep in dependencies:
+        var found = false
+        for running in running_services:
+            if dep == running:
+                found = true
+                break
+        if not found:
+            return false
+    return true
+
+fn get_core_service_definitions() -> List[ServiceDefinition]:
+    return [
+        ServiceDefinition(
+            id: "rocket-init",
+            name: "RocketOS System Bootstrap Daemon",
+            description: "PID 1 core orchestrator, hardware abstraction, and lifecycle root",
+            startup_mode: StartupMode.Boot,
+            dependencies: [],
+            is_critical: true,
+            assigned_uid: 0
+        ),
+        ServiceDefinition(
+            id: "rocket-session",
+            name: "User Session & Authorization Service",
+            description: "User context, elevation grants, and multi-user authentication",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-init"],
+            is_critical: true,
+            assigned_uid: 0
+        ),
+        ServiceDefinition(
+            id: "rocket-fs",
+            name: "Rocket Virtual Filesystem Supervisor",
+            description: "VFS inode management, persistence synchronization, and trash daemon",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-init"],
+            is_critical: true,
+            assigned_uid: 0
+        ),
+        ServiceDefinition(
+            id: "rocket-settings",
+            name: "System Settings & Profile Daemon",
+            description: "Desktop atmosphere, wallpaper, audio preferences, and telemetry config",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-fs"],
+            is_critical: false,
+            assigned_uid: 1000
+        ),
+        ServiceDefinition(
+            id: "rocket-notify",
+            name: "RocketOS Notification Bus",
+            description: "System alerts, desktop toasts, and IPC event notifications",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-session"],
+            is_critical: false,
+            assigned_uid: 1000
+        ),
+        ServiceDefinition(
+            id: "rocket-audio",
+            name: "Procedural Audio Synthesizer Daemon",
+            description: "Web Audio synthesis driver, acoustic events, and volume controller",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-settings"],
+            is_critical: false,
+            assigned_uid: 1000
+        ),
+        ServiceDefinition(
+            id: "rocket-network",
+            name: "VirtIO Network State Controller",
+            description: "Host link monitoring, DNS simulation, and socket telemetry",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-init"],
+            is_critical: false,
+            assigned_uid: 0
+        ),
+        ServiceDefinition(
+            id: "rocket-indexer",
+            name: "Universal Desktop Search Indexer",
+            description: "VFS full-text crawler and application metadata indexing engine",
+            startup_mode: StartupMode.Demand,
+            dependencies: ["rocket-fs"],
+            is_critical: false,
+            assigned_uid: 1000
+        ),
+        ServiceDefinition(
+            id: "rocket-compiler",
+            name: "Rocket Language Analysis Daemon",
+            description: "rocketc AST inspector, bytecode verification, and language tools",
+            startup_mode: StartupMode.Demand,
+            dependencies: ["rocket-fs"],
+            is_critical: false,
+            assigned_uid: 1000
+        ),
+        ServiceDefinition(
+            id: "rocket-desktop",
+            name: "Liquid Glass Desktop Compositor",
+            description: "Window manager synchronization, taskbar dock, and virtual workspaces",
+            startup_mode: StartupMode.Boot,
+            dependencies: ["rocket-session", "rocket-settings", "rocket-audio"],
+            is_critical: true,
+            assigned_uid: 1000
+        )
+    ]
+
+fn main() -> Int:
+    print("RocketOS Service Manager Domain Model Active")
+    return 0

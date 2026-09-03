@@ -15,8 +15,9 @@ export interface HardwareSpec {
 export interface SystemVersion {
   osName: string;
   osVersion: string;
+  milestone: string;
   buildNumber: number;
-  buildChannel: 'Release' | 'Beta' | 'Nightly' | 'Developer';
+  buildChannel: 'Release' | 'Beta' | 'Alpha' | 'Nightly' | 'Developer';
   rocketCompilerVersion: string;
   kernelArchitecture: string;
   platformTarget: string;
@@ -26,9 +27,10 @@ export interface SystemVersion {
 export class SystemManifest {
   public static readonly VERSION: SystemVersion = {
     osName: 'RocketOS',
-    osVersion: '2.1.0-LTS',
-    buildNumber: 4096,
-    buildChannel: 'Release',
+    osVersion: '0.1.0-alpha',
+    milestone: 'RocketOS 0.1 Alpha Foundation',
+    buildNumber: 105,
+    buildChannel: 'Alpha',
     rocketCompilerVersion: '3.0.0-WP14',
     kernelArchitecture: 'x86_64',
     platformTarget: 'Browser VFS + LLVM Native Target',

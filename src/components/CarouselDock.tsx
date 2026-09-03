@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { AppId, SystemSettings, FSItem } from '../types';
+import { AppId, SystemSettings, FSItem, WindowState } from '../types';
 import {
   HardDrive,
   Trash2,
@@ -15,6 +15,7 @@ import {
   Code2,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../utils/localization';
+import { soundEngine } from '../utils/audio';
 
 export interface DockAppItem {
   id: string;
@@ -32,6 +33,7 @@ interface CarouselDockProps {
   onOpenFile?: (file: FSItem) => void;
   onDeleteFile?: (item: FSItem) => void;
   trashCount: number;
+  openWindows?: WindowState[];
 }
 
 export const CarouselDock: React.FC<CarouselDockProps> = ({
@@ -40,6 +42,7 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
   onOpenFile,
   onDeleteFile,
   trashCount,
+  openWindows = [],
 }) => {
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
 
@@ -165,23 +168,35 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const lastMouseXRef = useRef<number | null>(null);
 
-  // Smooth physics animation loop with graceful dampening for slower, deliberate glide
-  useEffect(() => {
-    let animId: number;
+  // Optimized physics animation loop: sleeps when rotation delta is tiny
+  const isAnimatingRef = useRef<boolean>(false);
+
+  const startAnimation = useCallback(() => {
+    if (settings.reduceMotion) {
+      setRotation(targetRotationRef.current);
+      return;
+    }
+    if (isAnimatingRef.current) return;
+    isAnimatingRef.current = true;
+
     const updatePhysics = () => {
       setRotation((prev) => {
         const diff = targetRotationRef.current - prev;
-        if (Math.abs(diff) < 0.001) {
+        if (Math.abs(diff) < 0.0006) {
+          isAnimatingRef.current = false;
           return targetRotationRef.current;
         }
-        // Smooth dampening factor (deliberate, elegant slower rotation)
-        return prev + diff * 0.085;
+        requestAnimationFrame(updatePhysics);
+        return prev + diff * 0.12;
       });
-      animId = requestAnimationFrame(updatePhysics);
     };
-    animId = requestAnimationFrame(updatePhysics);
-    return () => cancelAnimationFrame(animId);
-  }, []);
+    requestAnimationFrame(updatePhysics);
+  }, [settings.reduceMotion]);
+
+  // Initial animation
+  useEffect(() => {
+    startAnimation();
+  }, [startAnimation]);
 
   // Handle cursor moving over the floating dock area
   // Rotates circular apps to follow cursor smoothly and at a controlled speed
@@ -193,9 +208,9 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
 
       if (lastMouseXRef.current !== null) {
         const deltaX = currentX - lastMouseXRef.current;
-        // Controlled, slower sensitivity
         const sensitivity = 0.0042;
         targetRotationRef.current += deltaX * sensitivity;
+        startAnimation();
       }
       lastMouseXRef.current = currentX;
 
@@ -206,7 +221,7 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
       const clampedSlot = Math.max(0, Math.min(4, slot));
       setHoveredSlotIndex(clampedSlot);
     },
-    []
+    [startAnimation]
   );
 
   const handleMouseEnter = () => {
@@ -222,6 +237,27 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
   const handleWheel = (e: React.WheelEvent) => {
     const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
     targetRotationRef.current += delta * 0.0025;
+    startAnimation();
+  };
+
+  // Keyboard navigation
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      targetRotationRef.current -= 1;
+      startAnimation();
+      soundEngine.playHover();
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      targetRotationRef.current += 1;
+      startAnimation();
+      soundEngine.playHover();
+    } else if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      const centerInt = Math.round(targetRotationRef.current);
+      const appIndex = ((centerInt % totalApps) + totalApps) % totalApps;
+      dockApps[appIndex].action();
+    }
   };
 
   // Compute the 5 visible slots relative to current rotation
@@ -232,18 +268,24 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
     const rawIndex = centerIntIndex + offset;
     const appIndex = ((rawIndex % totalApps) + totalApps) % totalApps;
     const app = dockApps[appIndex];
+    const appWins = (openWindows || []).filter((w) => w.appId === app.appId);
     return {
       slotIdx, // 0 to 4
       offset, // -2 to +2
       appIndex,
       app,
+      runningCount: appWins.length,
     };
   });
 
   return (
     <div
       id="circular-apps-dock"
-      className="fixed bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-auto select-none"
+      role="toolbar"
+      aria-label="Application Dock"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+      className="fixed bottom-22 left-1/2 -translate-x-1/2 z-20 pointer-events-auto select-none focus:outline-none"
     >
       {/* Completely Transparent Floating Area with Convex Arc Trajectory */}
       <div
@@ -255,7 +297,7 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
         className="relative flex items-end justify-center gap-4 sm:gap-6 px-6 pt-10 pb-2 bg-transparent cursor-pointer"
         style={{ minWidth: '420px', minHeight: '120px' }}
       >
-        {visibleSlots.map(({ slotIdx, offset, app }) => {
+        {visibleSlots.map(({ slotIdx, offset, app, runningCount }) => {
           const isThisHovered = hoveredSlotIndex === slotIdx;
           const distFromHovered =
             hoveredSlotIndex !== null ? Math.abs(hoveredSlotIndex - slotIdx) : null;
@@ -327,7 +369,8 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
               <button
                 id={`arc-app-${app.id}`}
                 className="relative p-1.5 flex items-center justify-center transition-all duration-200 cursor-pointer active:scale-90 bg-transparent border-none outline-none"
-                title={`${app.title} - Click to launch`}
+                title={`${app.title} - ${app.desc}`}
+                aria-label={app.title}
               >
                 <div
                   className={`transition-all duration-200 filter ${
@@ -340,11 +383,21 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
                 </div>
               </button>
 
+              {/* Running indicator dots */}
+              {runningCount > 0 && (
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="w-1.5 h-1.5 rounded-full accent-bg shadow-[0_0_8px_var(--rkt-accent)]" />
+                  {runningCount > 1 && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-white/70" />
+                  )}
+                </div>
+              )}
+
               {/* Clean Title label beneath icon */}
               <span
                 className={`text-[11px] font-semibold tracking-tight mt-1 truncate max-w-[80px] text-center transition-all duration-150 drop-shadow-[0_2px_4px_rgba(0,0,0,0.95)] ${
                   isThisHovered
-                    ? 'text-sky-300 font-bold scale-110'
+                    ? 'accent-text font-bold scale-110'
                     : 'text-slate-200/90 group-hover/app:text-white'
                 }`}
               >

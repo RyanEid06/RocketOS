@@ -1,1 +1,65 @@
 @import "tailwindcss";
+
+:root {
+  --rkt-accent: #38bdf8;
+  --rkt-accent-light: #7dd3fc;
+  --rkt-accent-dark: #0284c7;
+  --rkt-accent-subtle: rgba(56, 189, 248, 0.12);
+  --rkt-accent-border: rgba(56, 189, 248, 0.35);
+  --rkt-accent-ring: rgba(56, 189, 248, 0.5);
+  --rkt-accent-glow: rgba(56, 189, 248, 0.25);
+  --rkt-transition-duration: 200ms;
+}
+
+/* Accent utility helpers */
+.accent-bg {
+  background-color: var(--rkt-accent);
+}
+
+.accent-text {
+  color: var(--rkt-accent);
+}
+
+.accent-border {
+  border-color: var(--rkt-accent-border);
+}
+
+.accent-subtle-bg {
+  background-color: var(--rkt-accent-subtle);
+}
+
+.accent-ring {
+  --tw-ring-color: var(--rkt-accent-ring);
+}
+
+.accent-glow-shadow {
+  box-shadow: 0 0 20px var(--rkt-accent-glow);
+}
+
+/* Clean Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+[data-reduce-motion="true"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+[data-high-contrast="true"] {
+  --rkt-accent-border: rgba(255, 255, 255, 0.6) !important;
+}
+

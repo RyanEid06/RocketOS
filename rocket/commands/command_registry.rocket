@@ -1,0 +1,343 @@
+// RocketOS Command Registry Domain Model
+// Specification, metadata, category classification, and permission constraints for built-in shell commands
+
+import std.string
+import std.collections
+
+struct CommandMetadata:
+    name: String
+    aliases: List[String]
+    usage: String
+    description: String
+    category: String
+    requires_elevation: Bool
+    min_args: Int
+    max_args: Int
+
+fn get_standard_commands() -> List[CommandMetadata]:
+    return [
+        CommandMetadata(
+            name: "pwd",
+            aliases: [],
+            usage: "pwd",
+            description: "Print the current working directory absolute path",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "cd",
+            aliases: [],
+            usage: "cd [path]",
+            description: "Change current directory (~ or blank defaults to home)",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "ls",
+            aliases: ["dir"],
+            usage: "ls [-l] [-a] [path]",
+            description: "List directory contents with permissions, size, and type",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 3
+        ),
+        CommandMetadata(
+            name: "cat",
+            aliases: [],
+            usage: "cat <file...>",
+            description: "Concatenate and print file contents or proc telemetry",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 10
+        ),
+        CommandMetadata(
+            name: "echo",
+            aliases: [],
+            usage: "echo [args...]",
+            description: "Display a line of text to standard output",
+            category: "system",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 100
+        ),
+        CommandMetadata(
+            name: "clear",
+            aliases: ["cls"],
+            usage: "clear",
+            description: "Clear terminal screen and reset buffer view",
+            category: "system",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "mkdir",
+            aliases: [],
+            usage: "mkdir [-p] <directory>",
+            description: "Create new directories in the Rocket filesystem",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 5
+        ),
+        CommandMetadata(
+            name: "touch",
+            aliases: [],
+            usage: "touch <file...>",
+            description: "Create an empty file or update file modification timestamp",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 10
+        ),
+        CommandMetadata(
+            name: "rm",
+            aliases: [],
+            usage: "rm [-r] [-f] <path...>",
+            description: "Remove files or move deleted items to Recycle Bin",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 10
+        ),
+        CommandMetadata(
+            name: "rmdir",
+            aliases: [],
+            usage: "rmdir <directory>",
+            description: "Remove empty directory",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 5
+        ),
+        CommandMetadata(
+            name: "cp",
+            aliases: ["copy"],
+            usage: "cp [-r] <source> <destination>",
+            description: "Copy files or directories with recursive child preservation",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 2,
+            max_args: 4
+        ),
+        CommandMetadata(
+            name: "mv",
+            aliases: ["move"],
+            usage: "mv <source> <destination>",
+            description: "Move or rename files and directories",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 2,
+            max_args: 3
+        ),
+        CommandMetadata(
+            name: "find",
+            aliases: [],
+            usage: "find [path] [-name pattern]",
+            description: "Recursively search for files in the filesystem tree",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 4
+        ),
+        CommandMetadata(
+            name: "grep",
+            aliases: [],
+            usage: "grep [-i] <pattern> [file]",
+            description: "Search for pattern text in standard input or files",
+            category: "text",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 4
+        ),
+        CommandMetadata(
+            name: "head",
+            aliases: [],
+            usage: "head [-n count] [file]",
+            description: "Output the first part of files",
+            category: "text",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 3
+        ),
+        CommandMetadata(
+            name: "tail",
+            aliases: [],
+            usage: "tail [-n count] [file]",
+            description: "Output the last part of files",
+            category: "text",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 3
+        ),
+        CommandMetadata(
+            name: "whoami",
+            aliases: [],
+            usage: "whoami",
+            description: "Print current active user identity",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "id",
+            aliases: [],
+            usage: "id [user]",
+            description: "Print real and effective UID, GID, and supplementary groups",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "env",
+            aliases: ["printenv"],
+            usage: "env",
+            description: "Display active environment variables",
+            category: "system",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "export",
+            aliases: ["set"],
+            usage: "export KEY=VALUE",
+            description: "Set an environment variable in the current shell session",
+            category: "system",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "date",
+            aliases: [],
+            usage: "date",
+            description: "Display current system time and UTC timestamp",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "uptime",
+            aliases: [],
+            usage: "uptime",
+            description: "Show how long the system and current session have been active",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "free",
+            aliases: [],
+            usage: "free [-m] [-h]",
+            description: "Display total, used, and free virtual and physical memory",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "ps",
+            aliases: [],
+            usage: "ps [-a] [-u]",
+            description: "Report snapshot of current active RocketOS processes",
+            category: "process",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 2
+        ),
+        CommandMetadata(
+            name: "kill",
+            aliases: [],
+            usage: "kill [-9] <pid>",
+            description: "Terminate process by process ID",
+            category: "process",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 2
+        ),
+        CommandMetadata(
+            name: "chmod",
+            aliases: [],
+            usage: "chmod <mode> <path>",
+            description: "Change file access permissions (octal or symbolic)",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 2,
+            max_args: 2
+        ),
+        CommandMetadata(
+            name: "chown",
+            aliases: [],
+            usage: "chown <owner[:group]> <path>",
+            description: "Change file owner and group (requires elevation)",
+            category: "filesystem",
+            requires_elevation: true,
+            min_args: 2,
+            max_args: 2
+        ),
+        CommandMetadata(
+            name: "mount-info",
+            aliases: ["df"],
+            usage: "mount-info",
+            description: "Display information on mounted virtual filesystem partitions",
+            category: "filesystem",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        ),
+        CommandMetadata(
+            name: "rocketctl",
+            aliases: ["systemctl"],
+            usage: "rocketctl <status|list|start|stop|restart> [service]",
+            description: "Control and inspect RocketOS background services and daemons",
+            category: "admin",
+            requires_elevation: false,
+            min_args: 1,
+            max_args: 2
+        ),
+        CommandMetadata(
+            name: "help",
+            aliases: ["?"],
+            usage: "help [command]",
+            description: "Display list of commands or detailed manual for a command",
+            category: "info",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "history",
+            aliases: [],
+            usage: "history [-c]",
+            description: "Display or clear shell command history",
+            category: "system",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 1
+        ),
+        CommandMetadata(
+            name: "exit",
+            aliases: ["quit"],
+            usage: "exit",
+            description: "Exit shell session, drop elevation, or close terminal tab",
+            category: "system",
+            requires_elevation: false,
+            min_args: 0,
+            max_args: 0
+        )
+    ]
+
+fn main() -> Int:
+    print("RocketOS Command Registry Domain Model Active")
+    return 0

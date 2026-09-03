@@ -1,0 +1,28 @@
+// RocketOS Notification Engine Domain Model
+// Priority, unread tracking, filtering, and timestamp formatting
+
+enum NotificationSeverity:
+    Info
+    Success
+    Warning
+    Error
+
+struct NotificationItem:
+    id: String
+    title: String
+    message: String
+    severity: NotificationSeverity
+    timestamp_ms: Int
+    is_read: Bool
+    source_app_id: String
+
+struct NotificationBatch:
+    total_count: Int
+    unread_count: Int
+
+fn compute_unread_count(notifications: List[NotificationItem]) -> Int:
+    let mut count = 0
+    for n in notifications:
+        if not n.is_read:
+            count = count + 1
+    return count

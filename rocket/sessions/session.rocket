@@ -1,0 +1,88 @@
+// RocketOS User Session & Elevation Domain Model
+// User logon states, session boundaries, time-limited privilege elevation, and auditing
+
+import std.string
+import std.collections
+
+enum SessionState:
+    Active
+    Locked
+    Terminated
+
+struct ElevationGrant:
+    is_elevated: Bool
+    granted_at_epoch_ms: Int
+    expires_at_epoch_ms: Int
+    granted_by_uid: Int
+    target_uid: Int
+    reason: String
+
+struct UserSessionRecord:
+    session_id: String
+    uid: Int
+    username: String
+    display_name: String
+    home_directory: String
+    shell: String
+    workspace_id: Int
+    start_time_epoch_ms: Int
+    last_active_epoch_ms: Int
+    state: SessionState
+    elevation: ElevationGrant
+    attached_process_count: Int
+
+fn is_elevation_valid(grant: ElevationGrant, current_time_epoch_ms: Int) -> Bool:
+    if not grant.is_elevated:
+        return false
+    if grant.expires_at_epoch_ms == 0:
+        return true // Indefinite root session
+    return current_time_epoch_ms < grant.expires_at_epoch_ms
+
+fn create_standard_session(
+    session_id: String,
+    uid: Int,
+    username: String,
+    display_name: String,
+    home_dir: String,
+    shell: String,
+    now_epoch_ms: Int
+) -> UserSessionRecord:
+    let is_root = uid == 0
+    let elevation = ElevationGrant(
+        is_elevated: is_root,
+        granted_at_epoch_ms: if is_root: now_epoch_ms else: 0,
+        expires_at_epoch_ms: 0,
+        granted_by_uid: if is_root: 0 else: -1,
+        target_uid: 0,
+        reason: if is_root: "Initial Root Session" else: ""
+    )
+    return UserSessionRecord(
+        session_id: session_id,
+        uid: uid,
+        username: username,
+        display_name: display_name,
+        home_directory: home_dir,
+        shell: shell,
+        workspace_id: 1,
+        start_time_epoch_ms: now_epoch_ms,
+        last_active_epoch_ms: now_epoch_ms,
+        state: SessionState.Active,
+        elevation: elevation,
+        attached_process_count: 0
+    )
+
+fn format_session_prompt(username: String, hostname: String, cwd_formatted: String, is_elevated: Bool) -> String:
+    let symbol = if is_elevated: "#" else: "$"
+    return username + "@" + hostname + ":" + cwd_formatted + " " + symbol + " "
+
+fn can_user_elevate(uid: Int, supplementary_gids: List[Int]) -> Bool:
+    if uid == 0:
+        return true
+    for gid in supplementary_gids:
+        if gid == 10: // GID 10 = admin / sudoers
+            return true
+    return false
+
+fn main() -> Int:
+    print("RocketOS Session & Elevation Domain Model Active")
+    return 0

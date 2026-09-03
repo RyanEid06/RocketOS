@@ -213,6 +213,29 @@ class SoundEngine {
     } catch {}
   }
 
+  // Subtle hover tick
+  playHover(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
+    try {
+      const ctx = this.initCtx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(540, t);
+      osc.frequency.exponentialRampToValueAtTime(720, t + 0.04);
+      const masterVol = (vol / 100) * 0.05;
+      gain.gain.setValueAtTime(masterVol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.06);
+    } catch {}
+  }
+
   // Deletion / Recycle Bin sound
   playTrash(volume?: number, muted?: boolean) {
     const { vol, silent } = this.resolveAudioParams(volume, muted);

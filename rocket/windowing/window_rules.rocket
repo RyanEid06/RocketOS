@@ -1,0 +1,45 @@
+// RocketOS Four-Corner Snap & Window Physics Rules
+// Bounds calculation, corner snap quadrants, restore geometry
+
+enum CornerSnapQuadrant:
+    TopLeft
+    TopRight
+    BottomLeft
+    BottomRight
+    LeftHalf
+    RightHalf
+    Maximize
+    Unsnapped
+
+struct ScreenGeometry:
+    width: Int
+    height: Int
+    taskbar_height: Int
+
+struct SnapResult:
+    x: Int
+    y: Int
+    width: Int
+    height: Int
+    quadrant: CornerSnapQuadrant
+
+fn compute_corner_snap(geom: ScreenGeometry, quadrant: CornerSnapQuadrant) -> SnapResult:
+    let avail_h = geom.height - geom.taskbar_height
+    let half_w = geom.width / 2
+    let half_h = avail_h / 2
+
+    if quadrant == CornerSnapQuadrant.TopLeft:
+        return SnapResult(0, 0, half_w, half_h, quadrant)
+    if quadrant == CornerSnapQuadrant.TopRight:
+        return SnapResult(half_w, 0, half_w, half_h, quadrant)
+    if quadrant == CornerSnapQuadrant.BottomLeft:
+        return SnapResult(0, half_h, half_w, half_h, quadrant)
+    if quadrant == CornerSnapQuadrant.BottomRight:
+        return SnapResult(half_w, half_h, half_w, half_h, quadrant)
+    if quadrant == CornerSnapQuadrant.LeftHalf:
+        return SnapResult(0, 0, half_w, avail_h, quadrant)
+    if quadrant == CornerSnapQuadrant.RightHalf:
+        return SnapResult(half_w, 0, half_w, avail_h, quadrant)
+    
+    // Maximize
+    return SnapResult(0, 0, geom.width, avail_h, CornerSnapQuadrant.Maximize)

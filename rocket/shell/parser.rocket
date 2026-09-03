@@ -1,0 +1,84 @@
+// RocketOS Shell Parser Domain Model
+// Lexical tokenizer, quoted string handling, pipelines, redirection, and boolean logic
+
+import std.string
+import std.collections
+
+enum ShellTokenType:
+    Word
+    Pipe
+    RedirectOutOverwrite
+    RedirectOutAppend
+    RedirectIn
+    AndAlso
+    OrElse
+    Semicolon
+    EndOfInput
+
+struct ShellToken:
+    token_type: ShellTokenType
+    value: String
+    raw_position: Int
+
+enum CombinatorType:
+    None
+    Pipe
+    And
+    Or
+    Sequence
+
+struct ParsedCommand:
+    argv: List[String]
+    redirect_stdout: String
+    append_stdout: Bool
+    redirect_stdin: String
+
+struct CommandChainNode:
+    command: ParsedCommand
+    combinator: CombinatorType
+
+struct ShellParseResult:
+    nodes: List[CommandChainNode]
+    has_syntax_error: Bool
+    error_message: String
+
+fn is_whitespace(c: String) -> Bool:
+    return c == " " or c == "\t" or c == "\n" or c == "\r"
+
+fn is_quote(c: String) -> Bool:
+    return c == "\"" or c == "'"
+
+fn expand_env_variable(var_name: String, env_keys: List[String], env_values: List[String]) -> String:
+    var i = 0
+    for k in env_keys:
+        if k == var_name:
+            if i < env_values.length:
+                return env_values[i]
+            return ""
+        i = i + 1
+    return ""
+
+fn parse_simple_command(argv: List[String]) -> ParsedCommand:
+    return ParsedCommand(
+        argv: argv,
+        redirect_stdout: "",
+        append_stdout: false,
+        redirect_stdin: ""
+    )
+
+fn format_command_summary(cmd: ParsedCommand) -> String:
+    var res = ""
+    for arg in cmd.argv:
+        if res != "":
+            res = res + " "
+        res = res + arg
+    if cmd.redirect_stdout != "":
+        let op = if cmd.append_stdout: " >> " else: " > "
+        res = res + op + cmd.redirect_stdout
+    if cmd.redirect_stdin != "":
+        res = res + " < " + cmd.redirect_stdin
+    return res
+
+fn main() -> Int:
+    print("RocketOS Shell Parser Domain Model Active")
+    return 0

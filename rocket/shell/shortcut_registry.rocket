@@ -1,0 +1,29 @@
+// RocketOS Global Shortcut Registry
+// System keybindings for window management, shell invocation, and accessibility
+
+enum ModifierKey:
+    None
+    Ctrl
+    Alt
+    Shift
+    Rocket // Super / Windows key
+
+struct SystemShortcut:
+    id: String
+    key: String
+    modifier: ModifierKey
+    description: String
+    action_type: String
+
+fn get_standard_system_shortcuts() -> List[SystemShortcut]:
+    return [
+        SystemShortcut("alt_tab", "Tab", ModifierKey.Alt, "Cycle open windows with Alt+Tab", "WINDOW_CYCLE"),
+        SystemShortcut("alt_f4", "F4", ModifierKey.Alt, "Close current active window", "WINDOW_CLOSE"),
+        SystemShortcut("snap_left", "ArrowLeft", ModifierKey.Rocket, "Tile window to left half", "WINDOW_SNAP_LEFT"),
+        SystemShortcut("snap_right", "ArrowRight", ModifierKey.Rocket, "Tile window to right half", "WINDOW_SNAP_RIGHT"),
+        SystemShortcut("snap_max", "ArrowUp", ModifierKey.Rocket, "Maximize active window", "WINDOW_MAXIMIZE"),
+        SystemShortcut("snap_restore", "ArrowDown", ModifierKey.Rocket, "Restore or minimize active window", "WINDOW_RESTORE"),
+        SystemShortcut("show_desktop", "d", ModifierKey.Rocket, "Toggle show desktop", "SHOW_DESKTOP"),
+        SystemShortcut("open_explorer", "e", ModifierKey.Rocket, "Launch File Explorer", "LAUNCH_EXPLORER"),
+        SystemShortcut("open_taskmgr", "Escape", ModifierKey.Ctrl, "Launch Task Manager", "LAUNCH_TASK_MANAGER")
+    ]

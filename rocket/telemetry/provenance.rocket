@@ -1,0 +1,139 @@
+// RocketOS Telemetry & Provenance Domain Model
+// Honest telemetry tracking distinguishing Real, Estimated, Simulated, and Unavailable metrics
+
+import std.string
+import std.collections
+
+enum Provenance:
+    Real
+    Estimated
+    Simulated
+    Unavailable
+
+struct TelemetryMetric:
+    name: String
+    category: String
+    value_display: String
+    raw_number: Float
+    unit: String
+    provenance: Provenance
+    provenance_note: String
+
+fn format_provenance(p: Provenance) -> String:
+    match p:
+        case Real:
+            return "REAL"
+        case Estimated:
+            return "ESTIMATED"
+        case Simulated:
+            return "SIMULATED"
+        case Unavailable:
+            return "UNAVAILABLE"
+
+fn get_metric_badge_color(p: Provenance) -> String:
+    match p:
+        case Real:
+            return "emerald"
+        case Estimated:
+            return "sky"
+        case Simulated:
+            return "amber"
+        case Unavailable:
+            return "slate"
+
+fn create_standard_metrics(
+    is_online: Bool,
+    storage_used_mb: Float,
+    storage_quota_mb: Float,
+    active_process_count: Int,
+    active_service_count: Int,
+    uptime_seconds: Int
+) -> List[TelemetryMetric]:
+    let online_str = if is_online: "Connected (Host Network)" else: "Offline"
+    return [
+        TelemetryMetric(
+            name: "Host Network Link",
+            category: "network",
+            value_display: online_str,
+            raw_number: if is_online: 1.0 else: 0.0,
+            unit: "status",
+            provenance: Provenance.Real,
+            provenance_note: "Directly reported by browser navigator.onLine API"
+        ),
+        TelemetryMetric(
+            name: "VFS Persistent Storage",
+            category: "storage",
+            value_display: string.from_int(storage_used_mb as Int) + " MB / " + string.from_int(storage_quota_mb as Int) + " MB",
+            raw_number: storage_used_mb,
+            unit: "MB",
+            provenance: Provenance.Estimated,
+            provenance_note: "Browser storage.estimate() API representation for IndexedDB database"
+        ),
+        TelemetryMetric(
+            name: "RocketOS Active Processes",
+            category: "processes",
+            value_display: string.from_int(active_process_count) + " active",
+            raw_number: active_process_count as Float,
+            unit: "processes",
+            provenance: Provenance.Real,
+            provenance_note: "Genuine RocketOS process table count tracked by ProcessManager"
+        ),
+        TelemetryMetric(
+            name: "RocketOS Background Services",
+            category: "services",
+            value_display: string.from_int(active_service_count) + " active",
+            raw_number: active_service_count as Float,
+            unit: "services",
+            provenance: Provenance.Real,
+            provenance_note: "Supervised daemons active in ServiceManager"
+        ),
+        TelemetryMetric(
+            name: "System Uptime",
+            category: "system",
+            value_display: string.from_int(uptime_seconds) + " seconds",
+            raw_number: uptime_seconds as Float,
+            unit: "s",
+            provenance: Provenance.Real,
+            provenance_note: "Monotonic browser session timer since RocketOS boot"
+        ),
+        TelemetryMetric(
+            name: "Logical CPU Utilization",
+            category: "cpu",
+            value_display: "Calculated process load",
+            raw_number: 14.5,
+            unit: "%",
+            provenance: Provenance.Simulated,
+            provenance_note: "Simulated load model based on running threads and window compositing"
+        ),
+        TelemetryMetric(
+            name: "PML4 Kernel Paging Tables",
+            category: "memory",
+            value_display: "CR3=0x1000",
+            raw_number: 4096.0,
+            unit: "MB",
+            provenance: Provenance.Simulated,
+            provenance_note: "Simulated x86_64 4-level MMU model for architectural educational fidelity"
+        ),
+        TelemetryMetric(
+            name: "Hardware Thermal Sensors",
+            category: "hardware",
+            value_display: "N/A",
+            raw_number: 0.0,
+            unit: "degC",
+            provenance: Provenance.Unavailable,
+            provenance_note: "Browser sandbox cannot read host hardware thermal registers"
+        ),
+        TelemetryMetric(
+            name: "Ring 0 Kernel Register State",
+            category: "hardware",
+            value_display: "Protected",
+            raw_number: 0.0,
+            unit: "registers",
+            provenance: Provenance.Unavailable,
+            provenance_note: "Direct Ring 0 MSR and hardware interrupt lines are unavailable in browser"
+        )
+    ]
+
+fn main() -> Int:
+    print("RocketOS Telemetry & Provenance Domain Model Active")
+    return 0

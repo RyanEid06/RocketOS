@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   WindowState,
+  WindowSnapState,
   AppId,
   FSItem,
   SystemSettings,
@@ -34,6 +35,8 @@ import { RocketFS } from './core/filesystem/RocketFS';
 import { SchemaMigration } from './core/filesystem/SchemaMigration';
 import { AppRegistry } from './core/apps/AppRegistry';
 import { soundEngine } from './utils/audio';
+import { ProcessManager } from './core/process/ProcessManager';
+import { ServiceManager } from './core/services/ServiceManager';
 
 export default function App() {
   const [isBooted, setIsBooted] = useState<boolean>(true);
@@ -88,6 +91,19 @@ export default function App() {
   // 1. Initial State Restoration from IndexedDB / BrowserPersistenceProvider
   useEffect(() => {
     let mounted = true;
+
+    // Boot core RocketOS background services
+    ServiceManager.getInstance().bootCoreServices();
+
+    // Register initial windows into authoritative ProcessManager
+    windows.forEach((win) => {
+      ProcessManager.getInstance().spawnProcess({
+        appId: win.appId,
+        name: win.title,
+        workspaceId: win.workspaceId || 1,
+        windowId: win.id,
+      });
+    });
 
     async function restoreSystemState() {
       try {
@@ -248,6 +264,7 @@ export default function App() {
   // Close window
   const closeWindow = (id: string) => {
     soundEngine.playClose();
+    ProcessManager.getInstance().onWindowClosed(id);
     setWindows((wins) => wins.filter((w) => w.id !== id));
     if (activeWindowId === id) {
       setActiveWindowId(null);
@@ -286,20 +303,24 @@ export default function App() {
     height: number,
     x: number,
     y: number,
-    snapState: 'left' | 'right' | 'none' = 'none'
+    snapState: WindowSnapState = 'none'
   ) => {
     setWindows((wins) =>
-      wins.map((w) =>
-        w.id === id
-          ? {
-              ...w,
-              size: { width, height },
-              position: { x, y },
-              snapState,
-              isMaximized: false,
-            }
-          : w
-      )
+      wins.map((w) => {
+        if (w.id !== id) return w;
+        const currentRestore =
+          w.snapState === 'none' && snapState !== 'none'
+            ? { x: w.position.x, y: w.position.y, width: w.size.width, height: w.size.height }
+            : w.restoreBounds;
+        return {
+          ...w,
+          size: { width, height },
+          position: { x, y },
+          snapState,
+          restoreBounds: currentRestore,
+          isMaximized: false,
+        };
+      })
     );
   };
 
@@ -400,6 +421,15 @@ export default function App() {
       workspaceId: currentWorkspace,
       extraData,
     };
+
+    // Register genuine RocketOS process
+    ProcessManager.getInstance().spawnProcess({
+      appId,
+      name: title,
+      workspaceId: currentWorkspace,
+      windowId: newId,
+      isBackgroundDaemon: false,
+    });
 
     setWindows((prev) => [...prev, newWindow]);
     setActiveWindowId(newId);
@@ -728,7 +758,10 @@ export default function App() {
       <CarouselDock
         settings={settings}
         onOpenApp={openApp}
+        onOpenFile={handleOpenFile}
+        onDeleteFile={handleDeleteItem}
         trashCount={trashItems.length}
+        openWindows={windows}
       />
 
       {/* Bottom Transparent Liquid Glass Taskbar with Workspace, Pinning, Search, Sound */}

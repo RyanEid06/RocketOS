@@ -1,0 +1,59 @@
+// RocketOS Shell Design Tokens
+// Authoritative definitions for spacing, radii, color roles, and motion curves
+
+enum AccentRole:
+    Sky
+    Emerald
+    Indigo
+    Amber
+    Rose
+
+struct ColorToken:
+    hex: String
+    rgb_r: Int
+    rgb_g: Int
+    rgb_b: Int
+    opacity: Float
+
+struct AccentPalette:
+    role: AccentRole
+    name: String
+    primary: String
+    light: String
+    dark: String
+    subtle: String
+    border: String
+
+struct ShellDimensions:
+    taskbar_height: Int
+    dock_icon_size: Int
+    window_border_radius: Int
+    panel_border_radius: Int
+    min_window_width: Int
+    min_window_height: Int
+
+struct MotionTiming:
+    instant_ms: Int
+    fast_ms: Int
+    normal_ms: Int
+    deliberate_ms: Int
+    reduced_motion: Bool
+
+fn get_default_shell_dimensions() -> ShellDimensions:
+    return ShellDimensions(
+        taskbar_height: 48,
+        dock_icon_size: 54,
+        window_border_radius: 16,
+        panel_border_radius: 18,
+        min_window_width: 380,
+        min_window_height: 240
+    )
+
+fn get_motion_duration(timing: MotionTiming, requested_level: String) -> Int:
+    if timing.reduced_motion:
+        return 0
+    if requested_level == "fast":
+        return timing.fast_ms
+    if requested_level == "deliberate":
+        return timing.deliberate_ms
+    return timing.normal_ms

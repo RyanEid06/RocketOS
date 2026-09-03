@@ -1,0 +1,111 @@
+// RocketOS Paint Domain Model & .rpaint Vector/Raster Engine
+// Authoritative definitions for strokes, shapes, layers, and document serialization
+
+import std.string
+import std.collections
+import std.time
+
+enum PaintTool:
+    Brush
+    Eraser
+    Line
+    Rectangle
+    FilledRectangle
+    Circle
+    FilledCircle
+    Picker
+
+struct Point2D:
+    x: Float
+    y: Float
+
+struct CanvasDimensions:
+    width: Int
+    height: Int
+
+struct StrokeRecord:
+    id: String
+    tool: PaintTool
+    color: String
+    brush_size: Int
+    points: List[Point2D]
+    start_point: Point2D
+    end_point: Point2D
+    timestamp: String
+
+struct PaintDocument:
+    id: String
+    title: String
+    dimensions: CanvasDimensions
+    background_color: String
+    strokes: List[StrokeRecord]
+    created_at: String
+    modified_at: String
+    file_path: String
+    is_dirty: Bool
+    zoom_percent: Int
+
+fn tool_to_string(tool: PaintTool) -> String:
+    match tool:
+        case PaintTool.Brush: return "brush"
+        case PaintTool.Eraser: return "eraser"
+        case PaintTool.Line: return "line"
+        case PaintTool.Rectangle: return "rectangle"
+        case PaintTool.FilledRectangle: return "filled_rectangle"
+        case PaintTool.Circle: return "circle"
+        case PaintTool.FilledCircle: return "filled_circle"
+        case PaintTool.Picker: return "picker"
+
+fn tool_from_string(raw: String) -> PaintTool:
+    match raw.to_lowercase():
+        case "eraser": return PaintTool.Eraser
+        case "line": return PaintTool.Line
+        case "rectangle": return PaintTool.Rectangle
+        case "filled_rectangle": return PaintTool.FilledRectangle
+        case "circle": return PaintTool.Circle
+        case "filled_circle": return PaintTool.FilledCircle
+        case "picker": return PaintTool.Picker
+        case _: return PaintTool.Brush
+
+fn create_default_paint_document(title: String, w: Int, h: Int) -> PaintDocument:
+    let now = time.now_iso()
+    return PaintDocument(
+        id: "paint-" + string.from_int(time.timestamp_ms()),
+        title: title,
+        dimensions: CanvasDimensions(width: w, height: h),
+        background_color: "#1e293b",
+        strokes: [],
+        created_at: now,
+        modified_at: now,
+        file_path: "",
+        is_dirty: false,
+        zoom_percent: 100
+    )
+
+fn format_rpaint_json(doc: PaintDocument) -> String:
+    let mut json = "{\n"
+    json = json + "  \"format\": \"rocket-paint-v1\",\n"
+    json = json + "  \"id\": \"" + doc.id + "\",\n"
+    json = json + "  \"title\": \"" + doc.title + "\",\n"
+    json = json + "  \"width\": " + string.from_int(doc.dimensions.width) + ",\n"
+    json = json + "  \"height\": " + string.from_int(doc.dimensions.height) + ",\n"
+    json = json + "  \"backgroundColor\": \"" + doc.background_color + "\",\n"
+    json = json + "  \"createdAt\": \"" + doc.created_at + "\",\n"
+    json = json + "  \"modifiedAt\": \"" + doc.modified_at + "\",\n"
+    json = json + "  \"totalStrokes\": " + string.from_int(doc.strokes.len()) + "\n"
+    json = json + "}"
+    return json
+
+struct CanvasPreset:
+    name: String
+    width: Int
+    height: Int
+    description: String
+
+fn get_standard_presets() -> List[CanvasPreset]:
+    return [
+        CanvasPreset(name: "VGA Retro", width: 640, height: 480, description: "Classic 4:3 CRT resolution"),
+        CanvasPreset(name: "HD Compact", width: 800, height: 600, description: "Balanced workstation ratio"),
+        CanvasPreset(name: "720p Canvas", width: 1280, height: 720, description: "16:9 widescreen artwork"),
+        CanvasPreset(name: "Square Icon", width: 512, height: 512, description: "1:1 App icon or texture asset")
+    ]

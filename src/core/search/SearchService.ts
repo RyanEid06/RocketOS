@@ -55,7 +55,7 @@ export class SearchService {
     // 3. Recursive VFS search for files (including inside content)
     const matchedFiles = FileSystemService.recursiveSearch(fileSystem, q, 'files');
 
-    // 4. Quick settings actions search
+    // 4. Quick settings & system actions search
     const settingItems: SettingSearchResult[] = [
       {
         id: 'set-wallpaper',
@@ -73,9 +73,9 @@ export class SearchService {
       },
       {
         id: 'set-sound',
-        title: 'Audio & Volume',
+        title: 'Audio & Master Volume',
         category: 'Sound',
-        description: 'Adjust master volume slider and mute controls',
+        description: 'Adjust master volume slider, mute controls, and system chimes',
         action: () => onOpenSettings?.(),
       },
       {
@@ -87,9 +87,51 @@ export class SearchService {
       },
       {
         id: 'set-nightlight',
-        title: 'Night Light',
+        title: 'Night Light (Warm Screen Filter)',
         category: 'Display',
-        description: 'Reduce blue light with warm screen filter',
+        description: 'Reduce blue light with warm 3400K display filter',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-motion',
+        title: 'Reduced Motion',
+        category: 'Accessibility',
+        description: 'Minimize window and carousel dock transitions for comfort',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-contrast',
+        title: 'High Contrast Mode',
+        category: 'Accessibility',
+        description: 'Boost window borders and text visibility',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-scale',
+        title: 'Display & UI Scale',
+        category: 'Display',
+        description: 'Scale interface elements between 90%, 100%, 110%, 125%',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-transparency',
+        title: 'Liquid Glass Transparency',
+        category: 'Personalization',
+        description: 'Enable or disable translucent background blur effects',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-processes',
+        title: 'Task Manager / Kill Processes',
+        category: 'Diagnostics',
+        description: 'View active PID processes, CPU usage, and memory',
+        action: () => onOpenSettings?.(),
+      },
+      {
+        id: 'set-developer',
+        title: 'Rocket Language Compiler & AST',
+        category: 'Developer',
+        description: 'Rocket Studio v1.0 syntax inspection and build output',
         action: () => onOpenSettings?.(),
       },
     ];

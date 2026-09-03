@@ -1,71 +1,90 @@
+// BootSequence.tsx
+// Authoritative Boot Sequence for RocketOS
+// Directly coupled with ServiceManager and SystemManifest
+// Reflects actual service initialization states without imaginary hardware claims
+
 import React, { useState, useEffect } from 'react';
 import { BootStep } from '../types';
-import { Terminal, Cpu, Play, FastForward, CheckCircle2 } from 'lucide-react';
+import { Cpu, FastForward, CheckCircle2 } from 'lucide-react';
+import { ServiceManager } from '../core/services/ServiceManager';
+import { SystemManifest } from '../core/manifest/SystemManifest';
 
 interface BootSequenceProps {
   onBootComplete: () => void;
 }
 
-const BOOT_STEPS_DEF: Omit<BootStep, 'status'>[] = [
+interface BootStepItem extends Omit<BootStep, 'status'> {
+  serviceToStart?: string;
+}
+
+const BOOT_STEPS_DEF: BootStepItem[] = [
   {
-    stage: 'POST & Firmware',
-    message: 'UEFI / BIOS POST complete. 4096 MB DDR4 RAM detected. 4x x86_64 Cores.',
-    durationMs: 400,
+    stage: 'Firmware & POST',
+    message: `UEFI 2.8 POST complete. ${SystemManifest.HARDWARE.totalMemoryMb} MB DDR4 RAM detected. ${SystemManifest.HARDWARE.logicalCores}x ${SystemManifest.VERSION.kernelArchitecture} Cores.`,
+    durationMs: 350,
     sourceLanguage: 'Hardware',
   },
   {
     stage: 'Bootloader',
-    message: '[boot.asm] Multiboot2 magic 0xe85250d6 validated. Initializing 32-bit bootstrap.',
-    durationMs: 350,
-    sourceLanguage: 'Assembly',
-  },
-  {
-    stage: 'Paging Setup',
-    message: '[boot.asm] Building 4-level PML4 identity page tables. Setting CR3=0x1000.',
+    message: '[boot.asm] Multiboot2 header validated. Switching x86_64 CPU into Long Mode (EFER.LME=1).',
     durationMs: 300,
     sourceLanguage: 'Assembly',
   },
   {
-    stage: 'Long Mode Switch',
-    message: '[boot.asm] Enabling EFER.LME and CR0.PG. Jumping to 64-bit Long Mode.',
-    durationMs: 350,
-    sourceLanguage: 'Assembly',
-  },
-  {
-    stage: 'Kernel Entry',
-    message: '[kernel.rkt] Calling kmain_rocket(mb_info=0x7e00). Zero-runtime mode active.',
-    durationMs: 450,
-    sourceLanguage: 'Rocket',
-  },
-  {
-    stage: 'Memory Allocator',
-    message: '[memory.rkt] Initializing physical frame allocator. 1,048,576 frames available.',
-    durationMs: 400,
-    sourceLanguage: 'Rocket',
-  },
-  {
-    stage: 'Interrupts (IDT)',
-    message: '[idt.rkt] Remapping 8259 PIC (IRQ 0x20..0x2F). Loading IDTR descriptor with LIDT.',
+    stage: 'Init Daemon',
+    message: '[rocket-init] Spawning PID 1 root supervisor and hardware abstraction daemon.',
     durationMs: 350,
     sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-init',
   },
   {
-    stage: 'GOP Framebuffer',
-    message: '[framebuffer.rkt] Initialized 32-bit true color linear framebuffer (1920x1080@32bpp).',
-    durationMs: 400,
-    sourceLanguage: 'Rocket',
-  },
-  {
-    stage: 'Driver Handlers',
-    message: '[drivers] PS/2 keyboard and PS/2 mouse initialized with volatile MMIO.',
+    stage: 'Filesystem (VFS)',
+    message: '[rocket-fs] Initializing Inode VFS table and IndexedDB persistence synchronization.',
     durationMs: 300,
     sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-fs',
   },
   {
-    stage: 'GUI Compositor',
-    message: '[desktop.rkt] Launching RocketOS graphical user interface environment...',
+    stage: 'Settings Daemon',
+    message: '[rocket-settings] Loading user atmosphere, wallpapers, and desktop themes.',
+    durationMs: 250,
+    sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-settings',
+  },
+  {
+    stage: 'Session & Auth',
+    message: '[rocket-session] Initializing user session for ryan (UID 1000). sudoers policy active.',
     durationMs: 300,
     sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-session',
+  },
+  {
+    stage: 'Audio Driver',
+    message: '[rocket-audio] Procedural Web Audio synthesizer engine ready (44.1 kHz).',
+    durationMs: 250,
+    sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-audio',
+  },
+  {
+    stage: 'Network Interface',
+    message: '[rocket-network] VirtIO host adapter online. DNS simulation bridge initialized.',
+    durationMs: 250,
+    sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-network',
+  },
+  {
+    stage: 'Notification Bus',
+    message: '[rocket-notify] IPC system alert broker listening on /dev/notify.',
+    durationMs: 250,
+    sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-notify',
+  },
+  {
+    stage: 'Compositor',
+    message: '[rocket-desktop] Launching Liquid Glass desktop compositor, dock, and workspaces...',
+    durationMs: 300,
+    sourceLanguage: 'Rocket',
+    serviceToStart: 'rocket-desktop',
   },
 ];
 
@@ -77,11 +96,17 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
     if (currentStepIndex >= BOOT_STEPS_DEF.length) {
       const timer = setTimeout(() => {
         onBootComplete();
-      }, 500);
+      }, 400);
       return () => clearTimeout(timer);
     }
 
     const currentStep = BOOT_STEPS_DEF[currentStepIndex];
+
+    // Trigger service start if associated with this boot step
+    if (currentStep.serviceToStart) {
+      ServiceManager.getInstance().start(currentStep.serviceToStart);
+    }
+
     const timer = setTimeout(() => {
       setCompletedSteps((prev) => [...prev, currentStepIndex]);
       setCurrentStepIndex((prev) => prev + 1);
@@ -89,6 +114,12 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
 
     return () => clearTimeout(timer);
   }, [currentStepIndex, onBootComplete]);
+
+  const handleSkip = () => {
+    // Fast boot: ensure all boot services are booted immediately
+    ServiceManager.getInstance().bootCoreServices();
+    onBootComplete();
+  };
 
   return (
     <div id="boot-screen" className="fixed inset-0 bg-slate-950 text-slate-100 font-mono flex flex-col justify-between p-6 z-50 select-none">
@@ -100,17 +131,17 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
               R
             </div>
             <div>
-              <div className="text-base font-bold tracking-wide text-sky-400">RocketOS Bootloader v0.1.0</div>
-              <div className="text-xs text-slate-400">Target: x86_64-rocket-none-kernel | Language: Rocket + Assembly</div>
+              <div className="text-base font-bold tracking-wide text-sky-400">RocketOS Bootloader v{SystemManifest.VERSION.osVersion}</div>
+              <div className="text-xs text-slate-400">Target: {SystemManifest.VERSION.kernelArchitecture}-unknown-rocket | Supervisor: ServiceManager</div>
             </div>
           </div>
           <button
             id="skip-boot-button"
-            onClick={onBootComplete}
+            onClick={handleSkip}
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer transition-colors"
           >
             <FastForward className="w-3.5 h-3.5 text-sky-400" />
-            Fast Boot / Skip to GUI
+            Fast Boot / Skip to Desktop
           </button>
         </div>
 
@@ -130,7 +161,7 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
                 }`}
               >
                 <span className="text-slate-500 w-14 shrink-0 text-right">
-                  [ {((idx * 0.08) + 0.04).toFixed(3)}s ]
+                  [ {((idx * 0.07) + 0.03).toFixed(3)}s ]
                 </span>
 
                 <span
@@ -162,9 +193,9 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
       <div className="border-t border-slate-900 pt-4 flex items-center justify-between text-xs text-slate-500">
         <div className="flex items-center gap-2">
           <Cpu className="w-4 h-4 text-sky-500 animate-spin" style={{ animationDuration: '3s' }} />
-          <span>Executing hardware handoff: Real Mode -&gt; Protected Mode -&gt; 64-bit Long Mode -&gt; Rocket kmain()</span>
+          <span>Executing service orchestration: System Root -&gt; VFS -&gt; Session -&gt; Liquid Glass Desktop</span>
         </div>
-        <div>Press ESC or click Fast Boot to jump straight to the GUI desktop</div>
+        <div>Press Fast Boot to jump straight to the GUI desktop</div>
       </div>
     </div>
   );

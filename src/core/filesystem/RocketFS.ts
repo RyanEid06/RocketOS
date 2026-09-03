@@ -1213,6 +1213,52 @@ export class RocketFS {
     this.notify();
   }
 
+  public normalizePath(path: string): string {
+    return PathEngine.canonicalize(path);
+  }
+
+  public chmod(
+    path: string,
+    mode: number,
+    user: SystemUser = UserManager.getInstance().getCurrentUser()
+  ): VFSResult<VFSInode> {
+    const res = this.lookup(path, user);
+    if (!res.success) return res;
+
+    const inode = res.data;
+    if (user.uid !== 0 && inode.uid !== user.uid) {
+      AuditLogger.getInstance().logSecurity(user, 'chmod', path, false, 'Only owner or root can change mode');
+      return { success: false, error: 'PERMISSION_DENIED', message: 'Operation not permitted.' };
+    }
+
+    inode.mode = mode;
+    inode.modifiedAt = new Date().toISOString();
+    this.notify();
+    return { success: true, data: inode };
+  }
+
+  public chown(
+    path: string,
+    uid: number,
+    gid: number,
+    user: SystemUser = UserManager.getInstance().getCurrentUser()
+  ): VFSResult<VFSInode> {
+    const res = this.lookup(path, user);
+    if (!res.success) return res;
+
+    const inode = res.data;
+    if (user.uid !== 0) {
+      AuditLogger.getInstance().logSecurity(user, 'chown', path, false, 'Only root can chown');
+      return { success: false, error: 'PERMISSION_DENIED', message: 'Operation not permitted (requires root).' };
+    }
+
+    inode.uid = uid;
+    inode.gid = gid;
+    inode.modifiedAt = new Date().toISOString();
+    this.notify();
+    return { success: true, data: inode };
+  }
+
   public subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);

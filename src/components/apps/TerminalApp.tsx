@@ -1,10 +1,17 @@
+// TerminalApp.tsx
+// High-performance, multi-tab POSIX-compliant terminal frontend for RocketOS rsh v2.0
+// Powered by CommandRegistry, ShellParser, SessionManager, and RocketFS
+
 import React, { useState, useRef, useEffect } from 'react';
+import { Plus, X, Terminal, Copy, Trash2 } from 'lucide-react';
 import { FSItem } from '../../types';
-import { RocketFS } from '../../core/filesystem/RocketFS';
+import { CommandRegistry, CommandContext } from '../../core/commands/CommandRegistry';
 import { PathEngine } from '../../core/filesystem/PathEngine';
-import { PermissionsEngine } from '../../core/filesystem/PermissionsEngine';
+import { RocketFS } from '../../core/filesystem/RocketFS';
+import { SystemManifest } from '../../core/manifest/SystemManifest';
+import { SessionManager } from '../../core/sessions/SessionManager';
+import { ShellEnvironment, TerminalTabSession } from '../../core/shell/types';
 import { UserManager } from '../../core/users/UserManager';
-import { AuditLogger } from '../../core/admin/AuditLogger';
 import { SystemUser } from '../../core/filesystem/types';
 
 interface TerminalAppProps {
@@ -14,60 +21,75 @@ interface TerminalAppProps {
   onOpenFile: (file: FSItem) => void;
 }
 
-interface CommandHistory {
-  command: string;
-  output: string | React.ReactNode;
-  userAtRun: string;
-  cwdAtRun: string;
-}
+const createDefaultEnv = (user: SystemUser, cwd: string): ShellEnvironment => ({
+  USER: user.username,
+  HOME: user.homeDirectory,
+  SHELL: '/bin/rsh',
+  PATH: '/bin:/usr/bin:/usr/local/bin',
+  PWD: cwd,
+  HOSTNAME: 'rocket',
+  TERM: 'xterm-256color',
+  LANG: 'en_US.UTF-8',
+  ROCKETOS_VERSION: SystemManifest.VERSION.osVersion,
+});
 
 export const TerminalApp: React.FC<TerminalAppProps> = ({
   currentPath = '/home/ryan',
   onReboot,
   onOpenFile,
 }) => {
-  const [currentUser, setCurrentUser] = useState<SystemUser>(() =>
-    UserManager.getInstance().getCurrentUser()
-  );
+  const sessionMgr = SessionManager.getInstance();
+  const userMgr = UserManager.getInstance();
+  const cmdRegistry = CommandRegistry.getInstance();
+  const rfs = RocketFS.getInstance();
 
-  const [history, setHistory] = useState<CommandHistory[]>([
+  const [currentUser, setCurrentUser] = useState<SystemUser>(() => userMgr.getCurrentUser());
+  const [isElevated, setIsElevated] = useState<boolean>(() => sessionMgr.isElevated());
+
+  // Terminal tab sessions
+  const [tabs, setTabs] = useState<TerminalTabSession[]>([
     {
-      command: 'sysinfo',
-      output: (
-        <div className="text-slate-300 space-y-1">
-          <div className="text-sky-400 font-bold">RocketOS v2.1.0-native (x86_64-pc-windows-msvc)</div>
-          <div>Compiler: rocketc 2.1 (LLVM 22.1.6 Backend | Stage3 Self-Hosted | ABI v1)</div>
-          <div>Repository: https://github.com/RyanEid06/Rocket</div>
-          <div>Security: RBAC Multi-User Engine (Default Session: ryan [UID 1000])</div>
-          <div>Filesystem: RocketFS Virtual Filesystem with Inodes & Permissions</div>
-          <div className="text-slate-400 mt-2">
-            Type <span className="text-sky-300 font-semibold">&apos;help&apos;</span>, try <span className="text-sky-300 font-semibold">&apos;rocketc run hello.rocket&apos;</span>, or run <span className="text-sky-300 font-semibold">&apos;sudo -i&apos;</span> to elevate.
-          </div>
-        </div>
-      ),
-      userAtRun: 'ryan',
-      cwdAtRun: '~',
+      id: 'tab-1',
+      title: 'rsh: ~',
+      cwd: PathEngine.canonicalize(currentPath),
+      env: createDefaultEnv(userMgr.getCurrentUser(), PathEngine.canonicalize(currentPath)),
+      history: ['sysinfo'],
+      historyIndex: -1,
+      outputLines: [
+        {
+          id: 'banner',
+          type: 'system',
+          text: `RocketOS ${SystemManifest.VERSION.osVersion} (${SystemManifest.VERSION.kernelArchitecture}-unknown-rocket)\nHost: rocket | Shell: rsh v2.0 POSIX compliant\nType 'help' for command list, 'rocketctl list' for services, or 'rocketc run' for compiler.\n`,
+        },
+      ],
     },
   ]);
 
+  const [activeTabId, setActiveTabId] = useState<string>('tab-1');
   const [inputVal, setInputVal] = useState<string>('');
-  const [cwd, setCwd] = useState<string>(() => PathEngine.canonicalize(currentPath));
-  const [pastCommands, setPastCommands] = useState<string[]>(['sysinfo']);
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync user updates
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+
+  // Synchronize session and elevation changes
   useEffect(() => {
-    return UserManager.getInstance().subscribe((u) => {
+    const unsubUser = userMgr.subscribe((u) => {
       setCurrentUser(u);
+      setIsElevated(sessionMgr.isElevated());
     });
-  }, []);
+    const unsubSession = sessionMgr.subscribe(() => {
+      setIsElevated(sessionMgr.isElevated());
+    });
+    return () => {
+      unsubUser();
+      unsubSession();
+    };
+  }, [userMgr, sessionMgr]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [history]);
-
-  const rfs = RocketFS.getInstance();
+  }, [activeTab?.outputLines]);
 
   const formatDisplayCwd = (rawCwd: string, user: SystemUser) => {
     if (rawCwd === user.homeDirectory) return '~';
@@ -77,46 +99,54 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({
     return rawCwd;
   };
 
-  // Tab completion
+  // Tab management
+  const handleAddTab = () => {
+    const newId = `tab-${Date.now()}`;
+    const user = userMgr.getCurrentUser();
+    const newTab: TerminalTabSession = {
+      id: newId,
+      title: 'rsh: ~',
+      cwd: user.homeDirectory,
+      env: createDefaultEnv(user, user.homeDirectory),
+      history: [],
+      historyIndex: -1,
+      outputLines: [
+        {
+          id: `banner-${newId}`,
+          type: 'system',
+          text: `RocketOS Terminal Tab ${tabs.length + 1} initialized. Active session: ${user.username}\n`,
+        },
+      ],
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newId);
+    setInputVal('');
+  };
+
+  const handleCloseTab = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (tabs.length === 1) return; // Keep at least one tab
+    const nextTabs = tabs.filter((t) => t.id !== id);
+    setTabs(nextTabs);
+    if (activeTabId === id) {
+      setActiveTabId(nextTabs[0].id);
+    }
+  };
+
+  // Autocomplete / Tab completion
   const handleTabComplete = () => {
     const trimmed = inputVal.trimStart();
     const parts = trimmed.split(' ');
 
-    const availableCommands = [
-      'help',
-      'ls',
-      'cd',
-      'cat',
-      'edit',
-      'rocketc',
-      'clear',
-      'reboot',
-      'neofetch',
-      'fetch',
-      'top',
-      'matrix',
-      'history',
-      'whoami',
-      'id',
-      'sudo',
-      'su',
-      'exit',
-      'uname',
-      'pwd',
-      'echo',
-      'touch',
-      'mkdir',
-      'rm',
-      'chmod',
-    ];
-
     if (parts.length === 1) {
-      const match = availableCommands.find((c) => c.startsWith(parts[0]));
+      const allCmds = cmdRegistry.getAllCommands().map((c) => c.name);
+      allCmds.push('reboot', 'edit', 'sysinfo', 'neofetch', 'rocketc', 'sudo');
+      const match = allCmds.find((c) => c.startsWith(parts[0]));
       if (match) {
         setInputVal(`${match} `);
       }
     } else {
-      const listRes = rfs.listDirectory(cwd, currentUser);
+      const listRes = rfs.listDirectory(activeTab.cwd, currentUser);
       if (listRes.success) {
         const lastArg = parts[parts.length - 1];
         const match = listRes.data.find((f) =>
@@ -137,506 +167,374 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({
       return;
     }
 
+    if (e.ctrlKey && e.key === 'c') {
+      // Cancel command
+      e.preventDefault();
+      const promptStr = `${currentUser.username}@rocket:${formatDisplayCwd(activeTab.cwd, currentUser)} ${isElevated || currentUser.uid === 0 ? '#' : '$'}`;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? {
+                ...t,
+                outputLines: [
+                  ...t.outputLines,
+                  { id: `c-${Date.now()}`, type: 'input', text: inputVal + ' ^C', prompt: promptStr },
+                ],
+              }
+            : t
+        )
+      );
+      setInputVal('');
+      return;
+    }
+
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (pastCommands.length === 0) return;
-      const nextIdx = historyIndex === -1 ? pastCommands.length - 1 : Math.max(0, historyIndex - 1);
-      setHistoryIndex(nextIdx);
-      setInputVal(pastCommands[nextIdx]);
+      if (activeTab.history.length === 0) return;
+      const nextIdx =
+        activeTab.historyIndex === -1
+          ? activeTab.history.length - 1
+          : Math.max(0, activeTab.historyIndex - 1);
+      setTabs((prev) =>
+        prev.map((t) => (t.id === activeTab.id ? { ...t, historyIndex: nextIdx } : t))
+      );
+      setInputVal(activeTab.history[nextIdx]);
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (historyIndex === -1) return;
-      const nextIdx = historyIndex + 1;
-      if (nextIdx >= pastCommands.length) {
-        setHistoryIndex(-1);
+      if (activeTab.historyIndex === -1) return;
+      const nextIdx = activeTab.historyIndex + 1;
+      if (nextIdx >= activeTab.history.length) {
+        setTabs((prev) =>
+          prev.map((t) => (t.id === activeTab.id ? { ...t, historyIndex: -1 } : t))
+        );
         setInputVal('');
       } else {
-        setHistoryIndex(nextIdx);
-        setInputVal(pastCommands[nextIdx]);
+        setTabs((prev) =>
+          prev.map((t) => (t.id === activeTab.id ? { ...t, historyIndex: nextIdx } : t))
+        );
+        setInputVal(activeTab.history[nextIdx]);
       }
     }
   };
 
-  const executeCommand = (
-    cmdLine: string,
-    actingUser: SystemUser = currentUser
-  ): string | React.ReactNode => {
-    const trimmed = cmdLine.trim();
-    if (!trimmed) return '';
-
-    const parts = trimmed.split(' ').filter(Boolean);
-    const cmd = parts[0].toLowerCase();
-    const args = parts.slice(1);
-
-    switch (cmd) {
-      case 'help':
-        return (
-          <div className="space-y-1 text-slate-300">
-            <div className="font-semibold text-sky-400">RocketOS Shell Commands:</div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-1 text-xs">
-              <div><span className="text-sky-300">ls [-l] [path]</span> - List directory items</div>
-              <div><span className="text-sky-300">cd &lt;dir&gt;</span> - Change directory (~ for home)</div>
-              <div><span className="text-sky-300">cat &lt;file&gt;</span> - Print file text or /proc telemetry</div>
-              <div><span className="text-sky-300">pwd</span> - Print working directory</div>
-              <div><span className="text-sky-300">whoami</span> - Display current user identity</div>
-              <div><span className="text-sky-300">id</span> - Display UID, GID, and group list</div>
-              <div><span className="text-sky-300">sudo &lt;cmd&gt;</span> - Execute with root privileges</div>
-              <div><span className="text-sky-300">su / sudo -i</span> - Elevate interactive shell to root</div>
-              <div><span className="text-sky-300">exit</span> - Drop back from root session</div>
-              <div><span className="text-sky-300">touch &lt;file&gt;</span> - Create empty file</div>
-              <div><span className="text-sky-300">mkdir &lt;dir&gt;</span> - Create directory</div>
-              <div><span className="text-sky-300">rm [-r] &lt;path&gt;</span> - Delete file or directory</div>
-              <div><span className="text-sky-300">edit &lt;file&gt;</span> - Launch in Text Editor</div>
-              <div><span className="text-sky-300">rocketc run &lt;file&gt;</span> - Compile and execute Rocket program</div>
-              <div><span className="text-sky-300">reboot</span> - Restart RocketOS</div>
-              <div><span className="text-sky-300">clear</span> - Clear terminal screen</div>
-            </div>
-          </div>
-        );
-
-      case 'clear':
-        setHistory([]);
-        return null;
-
-      case 'reboot':
-        onReboot();
-        return null;
-
-      case 'pwd':
-        return cwd;
-
-      case 'whoami':
-        return actingUser.username;
-
-      case 'id': {
-        const groupsStr = actingUser.supplementaryGids
-          .map((g) => `${g}(${UserManager.getInstance().getGroup(g)?.name || g})`)
-          .join(',');
-        const primaryGroupName =
-          UserManager.getInstance().getGroup(actingUser.primaryGid)?.name || actingUser.primaryGid;
-        return `uid=${actingUser.uid}(${actingUser.username}) gid=${actingUser.primaryGid}(${primaryGroupName}) groups=${groupsStr}`;
-      }
-
-      case 'exit': {
-        if (actingUser.uid === 0) {
-          UserManager.getInstance().dropToNormalUser();
-          return 'logout (returned to unprivileged session as user ryan)';
-        }
-        return 'rsh: no parent shell to exit';
-      }
-
-      case 'sudo':
-      case 'su': {
-        if (!UserManager.getInstance().canElevate(actingUser)) {
-          AuditLogger.getInstance().logSecurity(
-            actingUser,
-            'sudo',
-            args.join(' '),
-            false,
-            'User is not in admin group'
-          );
-          return `[sudo] ${actingUser.username} is not in the sudoers/admin group. This incident will be reported.`;
-        }
-
-        AuditLogger.getInstance().logSecurity(
-          actingUser,
-          'sudo',
-          args.length > 0 ? args.join(' ') : 'interactive_elevation',
-          true,
-          'Privilege elevation authorized'
-        );
-
-        if (args.length === 0 || args[0] === '-i' || args[0] === 'su') {
-          UserManager.getInstance().elevateToRoot();
-          return '[sudo] session elevated to root (uid 0). Type \'exit\' to drop back.';
-        }
-
-        // Run sub-command as root
-        const rootUser = UserManager.ROOT_USER;
-        return executeCommand(args.join(' '), rootUser);
-      }
-
-      case 'ls': {
-        let isLong = false;
-        let targetArg = '';
-
-        for (const arg of args) {
-          if (arg.startsWith('-') && arg.includes('l')) {
-            isLong = true;
-          } else if (!arg.startsWith('-')) {
-            targetArg = arg;
-          }
-        }
-
-        const resolvedTarget = targetArg ? PathEngine.resolve(targetArg, cwd) : cwd;
-        const listRes = rfs.listDirectory(resolvedTarget, actingUser);
-
-        if (!listRes.success) {
-          if (listRes.error === 'NOT_FOUND') {
-            // Check if it's a file
-            const fileRes = rfs.stat(resolvedTarget, actingUser);
-            if (fileRes.success) {
-              return fileRes.data.name;
-            }
-            return `ls: cannot access '${targetArg || resolvedTarget}': No such file or directory`;
-          }
-          if (listRes.error === 'PERMISSION_DENIED') {
-            return `ls: cannot open directory '${targetArg || resolvedTarget}': Permission denied`;
-          }
-          return `ls: ${listRes.message}`;
-        }
-
-        const items = listRes.data;
-
-        if (isLong) {
-          const totalBlocks = items.reduce((acc, i) => acc + Math.ceil(i.sizeBytes / 1024), 0);
-          return (
-            <div className="font-mono text-xs space-y-0.5">
-              <div className="text-slate-500">total {totalBlocks}</div>
-              {items.map((item) => {
-                const isDir = item.nodeType === 'directory';
-                const modeStr = PermissionsEngine.formatMode(item.mode, isDir);
-                const ownerName = UserManager.getInstance().getUser(item.uid)?.username || item.uid;
-                const groupName = UserManager.getInstance().getGroup(item.gid)?.name || item.gid;
-                const dateStr = item.modifiedAt.slice(5, 16).replace('T', ' ');
-
-                return (
-                  <div key={item.inode} className="flex gap-3">
-                    <span className="text-slate-400">{modeStr}</span>
-                    <span className="text-slate-500 w-12">{ownerName}</span>
-                    <span className="text-slate-500 w-12">{groupName}</span>
-                    <span className="text-slate-300 w-12 text-right">{item.sizeBytes}</span>
-                    <span className="text-slate-400">{dateStr}</span>
-                    <span
-                      className={
-                        isDir
-                          ? 'text-sky-400 font-semibold cursor-pointer hover:underline'
-                          : item.name.endsWith('.rocket')
-                          ? 'text-emerald-300 font-mono cursor-pointer hover:underline'
-                          : 'text-slate-200 cursor-pointer hover:underline'
-                      }
-                      onClick={() => {
-                        if (isDir) {
-                          setCwd(item.canonicalPath);
-                        } else {
-                          const fsItem = rfs.findItemByPath(item.canonicalPath);
-                          if (fsItem) onOpenFile(fsItem);
-                        }
-                      }}
-                    >
-                      {item.name}
-                      {isDir ? '/' : ''}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        }
-
-        return (
-          <div className="flex flex-wrap gap-x-4 gap-y-1">
-            {items.map((item) => {
-              const isDir = item.nodeType === 'directory';
-              return (
-                <span
-                  key={item.inode}
-                  className={
-                    isDir
-                      ? 'text-sky-400 font-semibold cursor-pointer hover:underline'
-                      : item.name.endsWith('.rocket')
-                      ? 'text-emerald-300 font-mono cursor-pointer hover:underline'
-                      : 'text-slate-200 cursor-pointer hover:underline'
-                  }
-                  onClick={() => {
-                    if (isDir) {
-                      setCwd(item.canonicalPath);
-                    } else {
-                      const fsItem = rfs.findItemByPath(item.canonicalPath);
-                      if (fsItem) onOpenFile(fsItem);
-                    }
-                  }}
-                >
-                  {item.name}
-                  {isDir ? '/' : ''}
-                </span>
-              );
-            })}
-          </div>
-        );
-      }
-
-      case 'cd': {
-        const targetRaw = args[0] || actingUser.homeDirectory;
-        const resolved = PathEngine.resolve(targetRaw, cwd);
-        const lookupRes = rfs.lookup(resolved, actingUser);
-
-        if (!lookupRes.success) {
-          if (lookupRes.error === 'PERMISSION_DENIED') {
-            return `cd: ${targetRaw}: Permission denied`;
-          }
-          return `cd: ${targetRaw}: No such file or directory`;
-        }
-
-        if (lookupRes.data.nodeType !== 'directory') {
-          return `cd: ${targetRaw}: Not a directory`;
-        }
-
-        setCwd(lookupRes.data.canonicalPath);
-        return '';
-      }
-
-      case 'cat': {
-        if (!args[0]) return 'cat: missing file operand';
-        const target = PathEngine.resolve(args[0], cwd);
-        const readRes = rfs.readFile(target, actingUser);
-
-        if (!readRes.success) {
-          if (readRes.error === 'PERMISSION_DENIED') {
-            return `cat: ${args[0]}: Permission denied`;
-          }
-          if (readRes.error === 'NOT_FOUND') {
-            return `cat: ${args[0]}: No such file or directory`;
-          }
-          if (readRes.error === 'IS_A_DIRECTORY') {
-            return `cat: ${args[0]}: Is a directory`;
-          }
-          return `cat: ${readRes.message}`;
-        }
-
-        return <pre className="whitespace-pre-wrap font-mono text-xs">{readRes.data}</pre>;
-      }
-
-      case 'touch': {
-        if (!args[0]) return 'touch: missing file operand';
-        const target = PathEngine.resolve(args[0], cwd);
-        const res = rfs.createFile(target, '', actingUser);
-        if (!res.success) {
-          return `touch: cannot touch '${args[0]}': ${res.message}`;
-        }
-        return '';
-      }
-
-      case 'mkdir': {
-        if (!args[0]) return 'mkdir: missing operand';
-        const target = PathEngine.resolve(args[0], cwd);
-        const res = rfs.createDirectory(target, actingUser);
-        if (!res.success) {
-          return `mkdir: cannot create directory '${args[0]}': ${res.message}`;
-        }
-        return '';
-      }
-
-      case 'rm': {
-        let isRecursive = false;
-        let targetArg = '';
-        for (const a of args) {
-          if (a === '-r' || a === '-rf' || a === '-fr') isRecursive = true;
-          else if (!a.startsWith('-')) targetArg = a;
-        }
-        if (!targetArg) return 'rm: missing operand';
-
-        const target = PathEngine.resolve(targetArg, cwd);
-        const res = rfs.delete(target, actingUser, isRecursive);
-        if (!res.success) {
-          return `rm: cannot remove '${targetArg}': ${res.message}`;
-        }
-        return '';
-      }
-
-      case 'chmod': {
-        if (args.length < 2) return 'chmod: missing operand (syntax: chmod <octal_mode> <path>)';
-        const mode = parseInt(args[0], 8);
-        if (isNaN(mode)) return `chmod: invalid mode: '${args[0]}'`;
-
-        const target = PathEngine.resolve(args[1], cwd);
-        const statRes = rfs.lookup(target, actingUser);
-        if (!statRes.success) {
-          return `chmod: cannot access '${args[1]}': ${statRes.message}`;
-        }
-
-        // Only owner or root can change mode
-        if (actingUser.uid !== 0 && actingUser.uid !== statRes.data.uid) {
-          return `chmod: changing permissions of '${args[1]}': Operation not permitted`;
-        }
-
-        statRes.data.mode = mode;
-        statRes.data.modifiedAt = new Date().toISOString();
-        return '';
-      }
-
-      case 'edit': {
-        if (!args[0]) return 'edit: missing file argument';
-        const target = PathEngine.resolve(args[0], cwd);
-        const fsItem = rfs.findItemByPath(target);
-        if (fsItem) {
-          onOpenFile(fsItem);
-          return `Launching ${args[0]} in Rocket Code Editor...`;
-        }
-        return `edit: file not found: ${args[0]}`;
-      }
-
-      case 'rocketc': {
-        const sub = args[0];
-        const targetFileName = args[1] || 'hello.rocket';
-
-        if (!sub || sub === 'help') {
-          return (
-            <div className="space-y-1 text-slate-300 font-mono">
-              <div className="text-sky-400 font-bold">rocketc v2.1.0-native Compiler Sub-commands:</div>
-              <div>  rocketc run &lt;file&gt;      - Compile and execute Rocket program</div>
-              <div>  rocketc check &lt;file&gt;    - Full semantic & concurrency safety check</div>
-              <div>  rocketc emit-ir &lt;file&gt;  - Print optimized LLVM 22 IR</div>
-              <div>  rocketc emit-asm &lt;file&gt; - Output native x86_64 machine assembly</div>
-              <div>  rocketc fmt &lt;file&gt;      - Canonical Rocket indentation formatter</div>
-              <div>  rocketc target            - Show LLVM target triple and CPU features</div>
-              <div>  rocketc --version         - Compiler release and commit ID</div>
-            </div>
-          );
-        }
-
-        if (sub === '--version' || sub === '-v') {
-          return (
-            <div className="text-slate-300 font-mono">
-              <div>rocketc 2.1.0-native (LLVM 22.1.6 O2 Target Pipeline)</div>
-              <div className="text-slate-400 text-[11px]">Commit: 8f4b2a9d (x86_64-pc-windows-msvc)</div>
-            </div>
-          );
-        }
-
-        if (sub === 'run') {
-          return (
-            <div className="space-y-1 text-slate-300 font-mono">
-              <div className="text-sky-400">[rocketc] Compiling {targetFileName} with LLVM 22 O2 pipeline...</div>
-              <div className="text-emerald-400 font-bold">=== Program Output ===</div>
-              <div className="text-white bg-slate-900 p-2 rounded border border-slate-800">
-                Hello from Rocket 2.1 native compiler!
-                <div className="text-slate-500 text-[11px] mt-1">Process exited with code 0</div>
-              </div>
-            </div>
-          );
-        }
-
-        if (sub === 'check') {
-          return (
-            <div className="space-y-1 text-slate-300 font-mono">
-              <div className="text-sky-400 font-bold">[rocketc check] Validating {targetFileName}...</div>
-              <div className="text-emerald-400">✓ Phase 1: Indentation-aware Lexer and Token Stream OK</div>
-              <div className="text-emerald-400">✓ Phase 2: Typed High-Level IR (HIR) resolved</div>
-              <div className="text-emerald-400">✓ Phase 3: Control-flow MIR & Concurrency Send/Share validated</div>
-              <div className="text-sky-300">✓ Phase 4: Thread-confined ARC graphs checked (0 errors, 0 warnings)</div>
-              <div className="text-slate-400 text-[11px]">Time elapsed: 48ms | Memory used: 12.4 MB</div>
-            </div>
-          );
-        }
-
-        return `rocketc: completed sub-command '${sub}'.`;
-      }
-
-      case 'neofetch':
-      case 'fetch': {
-        const v = rfs.lookup('/proc/version', actingUser);
-        const mem = rfs.lookup('/proc/meminfo', actingUser);
-        return (
-          <div className="flex flex-col sm:flex-row gap-4 font-mono text-xs py-1">
-            <div className="text-sky-400 font-bold leading-tight select-none">
-              <pre>{`   ___     ___  
-  / _ \\   / _ \\ 
- | (_) | | (_) |
-  \\___/   \\___/ 
-  | | |   | | | 
-  | | |   | | | 
- / / \\ \\ / / \\ \\`}</pre>
-            </div>
-            <div className="space-y-0.5">
-              <div className="text-sky-300 font-bold">{actingUser.username}@rocket-os</div>
-              <div className="text-slate-500">----------------------</div>
-              <div><span className="text-sky-400">OS:</span> RocketOS 2.1.0-LTS x86_64</div>
-              <div><span className="text-sky-400">Kernel:</span> Long Mode Ring 0 #1 SMP</div>
-              <div><span className="text-sky-400">Compiler:</span> rocketc 2.1 (LLVM 22.1.6)</div>
-              <div><span className="text-sky-400">Shell:</span> rsh 2.1 (POSIX compatible)</div>
-              <div><span className="text-sky-400">Uptime:</span> 42 mins</div>
-              <div><span className="text-sky-400">Memory:</span> 2293MB / 8192MB</div>
-            </div>
-          </div>
-        );
-      }
-
-      case 'uname':
-        return args[0] === '-a' ? 'RocketOS 2.1.0-native #1 SMP PREEMPT x86_64 GNU/Rocket' : 'RocketOS';
-
-      case 'echo':
-        return args.join(' ');
-
-      default:
-        return `rsh: command not found: ${cmd}. Type 'help' for available commands.`;
-    }
-  };
-
-  const handleCommand = (e: React.FormEvent) => {
+  const handleCommand = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = inputVal.trim();
-    if (!trimmed) return;
+    const rawLine = inputVal.trim();
+    if (!rawLine) return;
 
-    const output = executeCommand(trimmed, currentUser);
+    const displayCwd = formatDisplayCwd(activeTab.cwd, currentUser);
+    const promptStr = `${currentUser.username}@rocket:${displayCwd} ${isElevated || currentUser.uid === 0 ? '#' : '$'}`;
 
-    if (output !== null) {
-      const displayCwd = formatDisplayCwd(cwd, currentUser);
-      setHistory((prev) => [
-        ...prev,
-        {
-          command: trimmed,
-          output,
-          userAtRun: currentUser.username,
-          cwdAtRun: displayCwd,
-        },
-      ]);
-      setPastCommands((prev) => [...prev, trimmed]);
+    // Add input entry to output
+    const inputEntry = {
+      id: `in-${Date.now()}`,
+      type: 'input' as const,
+      text: rawLine,
+      prompt: promptStr,
+    };
+
+    // Update history
+    const nextHistory = [...activeTab.history, rawLine];
+    setInputVal('');
+
+    // Handle special built-in UI commands
+    if (rawLine === 'reboot') {
+      onReboot();
+      return;
     }
 
-    setHistoryIndex(-1);
-    setInputVal('');
+    if (rawLine.startsWith('edit ') || rawLine === 'edit') {
+      const target = rawLine.split(' ')[1];
+      if (target) {
+        const fullPath = PathEngine.resolve(activeTab.cwd, target);
+        const lookup = rfs.lookup(fullPath, currentUser);
+        if (lookup.success && lookup.data.nodeType === 'file') {
+          onOpenFile(lookup.data);
+        }
+      }
+    }
+
+    // Special rich visualization commands
+    if (rawLine === 'neofetch' || rawLine === 'fetch') {
+      const neofetchText = `   ___     ___    ${currentUser.username}@rocket
+  / _ \\   / _ \\   ----------------------
+ | (_) | | (_) |  OS: RocketOS ${SystemManifest.VERSION.osVersion} x86_64
+  \\___/   \\___/   Kernel: Long Mode Ring 0 #1 SMP
+  | | |   | | |   Compiler: rocketc 2.1 (LLVM 22.1.6)
+  | | |   | | |   Shell: rsh 2.0 (POSIX Pipelines)
+ / / \\ \\ / / \\ \\  Architecture: AMD64 / UEFI 2.8
+                  Security: RBAC UID=${currentUser.uid} (${currentUser.isAdmin ? 'sudoers' : 'standard'})
+`;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? {
+                ...t,
+                history: nextHistory,
+                historyIndex: -1,
+                outputLines: [
+                  ...t.outputLines,
+                  inputEntry,
+                  { id: `out-${Date.now()}`, type: 'stdout', text: neofetchText },
+                ],
+              }
+            : t
+        )
+      );
+      return;
+    }
+
+    if (rawLine === 'sysinfo') {
+      const sysinfoText = `RocketOS ${SystemManifest.VERSION.osVersion} (${SystemManifest.VERSION.kernelArchitecture}-unknown-rocket)
+Compiler: rocketc 2.1 (LLVM 22.1.6 Backend | Stage3 Self-Hosted | ABI v1)
+Repository: https://github.com/RyanEid06/Rocket
+Security: RBAC Multi-User Engine (Default Session: ${currentUser.username} [UID ${currentUser.uid}])
+Filesystem: RocketFS Virtual Filesystem with Inodes & Permissions
+Memory: ${SystemManifest.HARDWARE.totalMemoryMb} MB System RAM (CR3 Identity Paging)
+
+Type 'help' for shell commands, 'rocketctl status' for service supervision, or 'rocketc run <file>' to test code.
+`;
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTab.id
+            ? {
+                ...t,
+                history: nextHistory,
+                historyIndex: -1,
+                outputLines: [
+                  ...t.outputLines,
+                  inputEntry,
+                  { id: `out-${Date.now()}`, type: 'stdout', text: sysinfoText },
+                ],
+              }
+            : t
+        )
+      );
+      return;
+    }
+
+    // Prepare execution context
+    let updatedCwd = activeTab.cwd;
+    let didClear = false;
+
+    const ctx: CommandContext = {
+      cwd: activeTab.cwd,
+      env: activeTab.env,
+      args: [],
+      onCwdChange: (newCwd) => {
+        updatedCwd = newCwd;
+      },
+      onClear: () => {
+        didClear = true;
+      },
+      onExit: () => {
+        handleCloseTab(activeTab.id);
+      },
+    };
+
+    // Execute via authoritative CommandRegistry
+    const execRes = await cmdRegistry.executeCommandLine(rawLine, ctx);
+
+    setTabs((prev) =>
+      prev.map((t) => {
+        if (t.id !== activeTab.id) return t;
+
+        if (didClear) {
+          return {
+            ...t,
+            history: nextHistory,
+            historyIndex: -1,
+            outputLines: [],
+          };
+        }
+
+        const newLines = [...t.outputLines, inputEntry];
+        if (execRes.stdout) {
+          newLines.push({
+            id: `out-${Date.now()}-out`,
+            type: 'stdout',
+            text: execRes.stdout,
+          });
+        }
+        if (execRes.stderr) {
+          newLines.push({
+            id: `out-${Date.now()}-err`,
+            type: 'stderr',
+            text: execRes.stderr,
+          });
+        }
+
+        // Title update based on current directory
+        const shortName = updatedCwd === '/' ? '/' : updatedCwd.split('/').pop() || '~';
+
+        return {
+          ...t,
+          cwd: updatedCwd,
+          title: `rsh: ${shortName}`,
+          history: nextHistory,
+          historyIndex: -1,
+          outputLines: newLines,
+        };
+      })
+    );
   };
 
-  const promptSymbol = currentUser.uid === 0 ? '#' : '$';
-  const displayCwd = formatDisplayCwd(cwd, currentUser);
+  const handleCopySelection = () => {
+    const text = activeTab.outputLines.map((l) => (l.prompt ? `${l.prompt} ${l.text}` : l.text)).join('\n');
+    navigator.clipboard?.writeText(text);
+  };
+
+  const handleClearCurrent = () => {
+    setTabs((prev) =>
+      prev.map((t) => (t.id === activeTab.id ? { ...t, outputLines: [] } : t))
+    );
+  };
+
+  const promptSymbol = isElevated || currentUser.uid === 0 ? '#' : '$';
+  const displayCwd = formatDisplayCwd(activeTab.cwd, currentUser);
 
   return (
     <div id="terminal-app" className="flex flex-col h-full bg-slate-950 text-slate-200 font-mono text-xs select-text">
+      {/* Tab Bar & Action Controls */}
+      <div className="flex items-center justify-between bg-slate-900 border-b border-slate-800 px-1 pt-1">
+        <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTab.id;
+            return (
+              <div
+                key={tab.id}
+                onClick={() => setActiveTabId(tab.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-t text-xs cursor-pointer select-none transition-colors border-t border-x ${
+                  isActive
+                    ? 'bg-slate-950 text-sky-400 border-slate-700 font-semibold'
+                    : 'bg-slate-900/60 text-slate-400 border-transparent hover:bg-slate-800/80 hover:text-slate-300'
+                }`}
+              >
+                <Terminal className="w-3.5 h-3.5 shrink-0" />
+                <span className="max-w-[120px] truncate">{tab.title}</span>
+                {tabs.length > 1 && (
+                  <button
+                    onClick={(e) => handleCloseTab(tab.id, e)}
+                    className="p-0.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
+                    title="Close session"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          <button
+            onClick={handleAddTab}
+            className="p-1.5 rounded text-slate-400 hover:text-sky-300 hover:bg-slate-800 transition-colors"
+            title="Open new terminal tab"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Quick Toolbar */}
+        <div className="flex items-center gap-1 px-2 pb-1 text-slate-400">
+          <button
+            onClick={handleCopySelection}
+            className="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            title="Copy all output to clipboard"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleClearCurrent}
+            className="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            title="Clear current tab (Ctrl+L)"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
       {/* Scrollable Output Area */}
-      <div className="flex-1 p-3 overflow-y-auto space-y-3">
-        {history.map((h, i) => (
-          <div key={i} className="space-y-1">
-            <div className="flex items-center gap-1.5 text-slate-400">
-              <span className={h.userAtRun === 'root' ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
-                {h.userAtRun}@rocket-os
-              </span>
-              <span>:</span>
-              <span className="text-sky-400 font-semibold">{h.cwdAtRun}</span>
-              <span className="text-slate-400">{h.userAtRun === 'root' ? '#' : '$'}</span>
-              <span className="text-slate-100 font-medium">{h.command}</span>
-            </div>
-            <div className="pl-2 border-l border-slate-800 text-slate-300">{h.output}</div>
-          </div>
-        ))}
+      <div
+        className="flex-1 p-3 overflow-y-auto space-y-2 select-text"
+        onClick={() => inputRef.current?.focus()}
+      >
+        {activeTab.outputLines.map((entry) => {
+          if (entry.type === 'input') {
+            return (
+              <div key={entry.id} className="flex items-start gap-1.5 text-slate-300">
+                <span className="text-emerald-400 font-semibold shrink-0 select-none">
+                  {entry.prompt}
+                </span>
+                <span className="text-white font-medium break-all">{entry.text}</span>
+              </div>
+            );
+          }
+
+          if (entry.type === 'stderr') {
+            return (
+              <pre
+                key={entry.id}
+                className="text-rose-400 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l-2 border-rose-500/40"
+              >
+                {entry.text}
+              </pre>
+            );
+          }
+
+          if (entry.type === 'system') {
+            return (
+              <div
+                key={entry.id}
+                className="text-sky-400/90 whitespace-pre-wrap font-mono leading-relaxed p-2 bg-sky-950/20 rounded border border-sky-900/30"
+              >
+                {entry.text}
+              </div>
+            );
+          }
+
+          // stdout
+          return (
+            <pre
+              key={entry.id}
+              className="text-slate-300 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l border-slate-800"
+            >
+              {entry.text}
+            </pre>
+          );
+        })}
         <div ref={endRef} />
       </div>
 
-      {/* Input Prompt */}
-      <form onSubmit={handleCommand} className="flex items-center gap-1.5 p-2 bg-slate-900 border-t border-slate-800">
-        <span className={currentUser.uid === 0 ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
-          {currentUser.username}@rocket-os
+      {/* Interactive Input Prompt */}
+      <form
+        onSubmit={handleCommand}
+        className="flex items-center gap-1.5 p-2 bg-slate-900/90 border-t border-slate-800 select-none"
+      >
+        <span
+          className={
+            isElevated || currentUser.uid === 0
+              ? 'text-rose-400 font-semibold'
+              : 'text-emerald-400 font-semibold'
+          }
+        >
+          {currentUser.username}@rocket
         </span>
-        <span>:</span>
+        <span className="text-slate-500">:</span>
         <span className="text-sky-400 font-semibold">{displayCwd}</span>
-        <span className="text-slate-400">{promptSymbol}</span>
+        <span
+          className={
+            isElevated || currentUser.uid === 0 ? 'text-rose-400 font-bold' : 'text-slate-400 font-bold'
+          }
+        >
+          {promptSymbol}
+        </span>
         <input
+          ref={inputRef}
           type="text"
           value={inputVal}
           onChange={(e) => setInputVal(e.target.value)}
           onKeyDown={handleKeyDown}
-          className="flex-1 bg-transparent border-none outline-none text-slate-100 font-mono text-xs"
-          placeholder="Type 'help', 'ls -l', 'whoami', 'sudo -i', or 'rocketc run hello.rocket'..."
+          className="flex-1 bg-transparent border-none outline-none text-slate-100 font-mono text-xs select-text"
+          placeholder="Type command ('help', 'ps', 'rocketctl list', 'ls -la', 'sysinfo')..."
           autoFocus
         />
       </form>

@@ -1,0 +1,122 @@
+// RocketOS Notes Domain Model & .rnote Document Engine
+// Authoritative document model, tasks structure, and serialization
+
+import std.string
+import std.collections
+import std.time
+
+enum NoteCategory:
+    All
+    Todo
+    Notes
+    Ideas
+    Archived
+
+struct TodoItem:
+    id: String
+    text: String
+    completed: Bool
+    completed_at: String
+
+struct NoteDocument:
+    id: String
+    title: String
+    content: String
+    category: NoteCategory
+    color: String
+    tasks: List[TodoItem]
+    created_at: String
+    modified_at: String
+    file_path: String
+    is_dirty: Bool
+    pinned: Bool
+
+fn create_default_note(title: String, initial_content: String) -> NoteDocument:
+    let now = time.now_iso()
+    return NoteDocument(
+        id: "note-" + string.from_int(time.timestamp_ms()),
+        title: title,
+        content: initial_content,
+        category: NoteCategory.Notes,
+        color: "sky",
+        tasks: [],
+        created_at: now,
+        modified_at: now,
+        file_path: "",
+        is_dirty: false,
+        pinned: false
+    )
+
+fn category_to_string(cat: NoteCategory) -> String:
+    match cat:
+        case NoteCategory.All: return "all"
+        case NoteCategory.Todo: return "todo"
+        case NoteCategory.Notes: return "notes"
+        case NoteCategory.Ideas: return "ideas"
+        case NoteCategory.Archived: return "archived"
+
+fn category_from_string(raw: String) -> NoteCategory:
+    match raw.to_lowercase():
+        case "todo": return NoteCategory.Todo
+        case "notes": return NoteCategory.Notes
+        case "ideas": return NoteCategory.Ideas
+        case "archived": return NoteCategory.Archived
+        case _: return NoteCategory.Notes
+
+fn export_note_to_markdown(note: NoteDocument) -> String:
+    let mut out = "# " + note.title + "\n\n"
+    out = out + "> Category: " + category_to_string(note.category) + " | Modified: " + note.modified_at + "\n\n"
+    out = out + note.content + "\n\n"
+
+    if note.tasks.len() > 0:
+        out = out + "## Tasks\n\n"
+        for task in note.tasks:
+            let box = if task.completed: "[x]" else: "[ ]"
+            out = out + "- " + box + " " + task.text + "\n"
+
+    return out
+
+fn export_note_to_plain_text(note: NoteDocument) -> String:
+    let mut out = note.title.to_uppercase() + "\n"
+    out = out + "========================================\n\n"
+    out = out + note.content + "\n\n"
+
+    if note.tasks.len() > 0:
+        out = out + "TASKS / CHECKLIST:\n"
+        for task in note.tasks:
+            let mark = if task.completed: "[DONE]" else: "[TODO]"
+            out = out + "  " + mark + " " + task.text + "\n"
+
+    return out
+
+fn format_rnote_json(note: NoteDocument) -> String:
+    // Standard .rnote serialization envelope
+    let mut json = "{\n"
+    json = json + "  \"format\": \"rocket-note-v1\",\n"
+    json = json + "  \"id\": \"" + note.id + "\",\n"
+    json = json + "  \"title\": \"" + note.title + "\",\n"
+    json = json + "  \"category\": \"" + category_to_string(note.category) + "\",\n"
+    json = json + "  \"color\": \"" + note.color + "\",\n"
+    json = json + "  \"createdAt\": \"" + note.created_at + "\",\n"
+    json = json + "  \"modifiedAt\": \"" + note.modified_at + "\",\n"
+    json = json + "  \"content\": \"" + note.content + "\",\n"
+    json = json + "  \"pinned\": " + (if note.pinned: "true" else: "false") + ",\n"
+    json = json + "  \"tasks\": [\n"
+    let mut first = true
+    for task in note.tasks:
+        if not first: json = json + ",\n"
+        json = json + "    {\"id\": \"" + task.id + "\", \"text\": \"" + task.text + "\", \"completed\": " + (if task.completed: "true" else: "false") + "}"
+        first = false
+    json = json + "\n  ]\n"
+    json = json + "}"
+    return json
+
+struct NoteSummary:
+    id: String
+    title: String
+    preview: String
+    category: NoteCategory
+    color: String
+    modified_at: String
+    total_tasks: Int
+    completed_tasks: Int

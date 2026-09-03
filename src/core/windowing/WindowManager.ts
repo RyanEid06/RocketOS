@@ -6,6 +6,7 @@ import { AppRegistry } from '../apps/AppRegistry';
 import { persistenceProvider } from '../../platform/browser/BrowserPersistenceProvider';
 import { PERSISTENCE_KEYS } from '../persistence/PersistenceProvider';
 import { soundEngine } from '../../utils/audio';
+import { ProcessManager } from '../process/ProcessManager';
 
 export type WindowManagerListener = (windows: WindowState[], activeId: string | null, workspace: number) => void;
 
@@ -81,6 +82,7 @@ export class WindowManager {
     }
 
     const appDef = AppRegistry.getApp(appId);
+    const procMgr = ProcessManager.getInstance();
 
     // Singleton check: if already open and no distinct path requested, focus it
     if (appDef.isSingleton || (!extraData?.path && !extraData?.file)) {
@@ -101,6 +103,15 @@ export class WindowManager {
 
     const newId = `win-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const nextZ = ++this.highestZIndex;
+
+    // Register genuine RocketOS process via ProcessManager
+    const proc = procMgr.spawnProcess({
+      appId,
+      name: appDef.displayName,
+      workspaceId: this.currentWorkspace,
+      windowId: newId,
+      isBackgroundDaemon: false,
+    });
 
     let title = appDef.displayName;
     let icon = appDef.glyph;
@@ -155,6 +166,10 @@ export class WindowManager {
 
   public closeWindow(id: string): void {
     this.windows = this.windows.filter((w) => w.id !== id);
+
+    // Notify ProcessManager of window termination
+    ProcessManager.getInstance().onWindowClosed(id);
+
     if (this.activeWindowId === id) {
       // Focus highest remaining window in workspace
       const remainingInWs = this.getVisibleWindowsForWorkspace().filter((w) => !w.isMinimized);

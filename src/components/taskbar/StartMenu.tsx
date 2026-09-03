@@ -223,6 +223,54 @@ export const StartMenu: React.FC<StartMenuProps> = ({
         </div>
       </div>
 
+      {/* Recent / Recommended Files & Tasks */}
+      <div>
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+            Recent & Recommended
+          </span>
+          <span className="text-[10px] text-slate-500 font-mono">Quick Open</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              onOpenApp('notes');
+              onClose();
+            }}
+            className="flex items-center gap-2 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-left transition-all cursor-pointer group"
+          >
+            <div className="w-6 h-6 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+              <ListTodo className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-slate-200 group-hover:text-white truncate">
+                Checklist & Notes
+              </div>
+              <div className="text-[9px] text-slate-400 truncate">Productivity scratchpad</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onOpenApp('editor');
+              onClose();
+            }}
+            className="flex items-center gap-2 p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/10 text-left transition-all cursor-pointer group"
+          >
+            <div className="w-6 h-6 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 shrink-0">
+              <Edit3 className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-medium text-slate-200 group-hover:text-white truncate">
+                Rocket Editor
+              </div>
+              <div className="text-[9px] text-slate-400 truncate">rEdit script workspace</div>
+            </div>
+          </button>
+        </div>
+      </div>
+
       {/* All Applications Quick List */}
       <div>
         <div className="flex items-center justify-between mb-2 px-1">
@@ -234,10 +282,10 @@ export const StartMenu: React.FC<StartMenuProps> = ({
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
             placeholder="Filter..."
-            className="w-24 px-2 py-0.5 bg-black/30 border border-white/10 rounded-lg text-[10px] text-slate-300 placeholder-slate-500 focus:outline-none focus:border-sky-400"
+            className="w-24 px-2 py-0.5 bg-black/30 border border-white/10 rounded-lg text-[10px] text-slate-300 placeholder-slate-500 focus:outline-none focus:border-[var(--rkt-accent)]"
           />
         </div>
-        <div className="max-h-44 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+        <div className="max-h-36 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
           {filteredApps.map((app) => (
             <div
               key={app.id}
@@ -266,7 +314,7 @@ export const StartMenu: React.FC<StartMenuProps> = ({
                 onClick={() => onTogglePin(app.id)}
                 className={`p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer ${
                   pinnedAppIds.includes(app.id)
-                    ? 'text-sky-400 hover:bg-sky-500/20'
+                    ? 'accent-text hover:bg-white/10'
                     : 'text-slate-400 hover:text-white hover:bg-white/10'
                 }`}
                 title={pinnedAppIds.includes(app.id) ? 'Unpin' : 'Pin to Taskbar'}

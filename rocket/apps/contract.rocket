@@ -1,0 +1,94 @@
+// RocketOS Application Contract & Capability System
+// Formal application isolation, capability declarations, and sandbox enforcement
+
+import std.string
+import std.collections
+
+enum AppCapability:
+    FilesystemRead
+    FilesystemWrite
+    Notifications
+    ClipboardRead
+    ClipboardWrite
+    Network
+    SystemInfo
+    ProcessManage
+    ServiceManage
+    UsersManage
+
+struct AppSecurityContext:
+    app_id: String
+    display_name: String
+    is_system_app: Bool
+    granted_capabilities: List[AppCapability]
+    max_memory_mb: Int
+    sandbox_path_root: String
+
+fn capability_name(cap: AppCapability) -> String:
+    match cap:
+        case AppCapability.FilesystemRead:
+            return "filesystem.read"
+        case AppCapability.FilesystemWrite:
+            return "filesystem.write"
+        case AppCapability.Notifications:
+            return "notifications"
+        case AppCapability.ClipboardRead:
+            return "clipboard.read"
+        case AppCapability.ClipboardWrite:
+            return "clipboard.write"
+        case AppCapability.Network:
+            return "network"
+        case AppCapability.SystemInfo:
+            return "system.info"
+        case AppCapability.ProcessManage:
+            return "process.manage"
+        case AppCapability.ServiceManage:
+            return "service.manage"
+        case AppCapability.UsersManage:
+            return "users.manage"
+
+fn has_capability(ctx: AppSecurityContext, required: AppCapability) -> Bool:
+    if ctx.is_system_app:
+        return true
+    for granted in ctx.granted_capabilities:
+        if granted == required:
+            return true
+    return false
+
+enum SecurityValidationResult:
+    Granted
+    DeniedCapability(String)
+    PathEscapeAttempt(String)
+    PrivilegedAccessViolation(String)
+
+fn validate_filesystem_access(
+    ctx: AppSecurityContext,
+    target_path: String,
+    write_op: Bool
+) -> SecurityValidationResult:
+    let req_cap = if write_op: AppCapability.FilesystemWrite else: AppCapability.FilesystemRead
+    if not has_capability(ctx, req_cap):
+        return SecurityValidationResult.DeniedCapability(capability_name(req_cap))
+
+    // System applications have access across full VFS hierarchy
+    if ctx.is_system_app:
+        return SecurityValidationResult.Granted
+
+    // Normal applications are sandboxed to user home, /tmp, or designated documents
+    let is_safe = target_path.starts_with("/home/") or
+                  target_path.starts_with("/tmp") or
+                  target_path.starts_with("/usr/share/rocket/examples") or
+                  target_path.starts_with(ctx.sandbox_path_root)
+
+    if not is_safe and write_op:
+        return SecurityValidationResult.PathEscapeAttempt(target_path)
+
+    return SecurityValidationResult.Granted
+
+struct AppManifestContract:
+    app_id: String
+    version: String
+    required_capabilities: List[AppCapability]
+    supported_extensions: List[String]
+    singleton_instance: Bool
+    requires_root: Bool

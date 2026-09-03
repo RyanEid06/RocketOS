@@ -92,6 +92,24 @@ export const Taskbar: React.FC<TaskbarProps> = ({
     winId?: string;
   } | null>(null);
 
+  // Window hover preview
+  const [hoveredAppId, setHoveredAppId] = useState<AppId | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
+
+  const handleItemMouseEnter = (appId: AppId) => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoveredAppId(appId);
+    }, 200);
+  };
+
+  const handleItemMouseLeave = () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoveredAppId(null);
+    }, 250);
+  };
+
   const taskbarRef = useRef<HTMLDivElement | null>(null);
 
   // Subscribe to notification updates
@@ -345,36 +363,88 @@ export const Taskbar: React.FC<TaskbarProps> = ({
         {displayedTaskbarItems.map((item) => {
           const app = AppRegistry.getApp(item.appId);
           const isRunning = item.runningWindows.length > 0;
-          return (
-            <button
-              key={item.appId}
-              type="button"
-              onClick={() => handleTaskbarItemClick(item)}
-              onContextMenu={(e) =>
-                handleContextMenu(e, item.appId, item.runningWindows[0]?.id)
-              }
-              className={`relative h-9 px-2.5 rounded-2xl flex items-center justify-center transition-all cursor-pointer group ${
-                item.isActive
-                  ? 'bg-white/20 shadow-md backdrop-blur-md scale-105 border border-white/20'
-                  : isRunning
-                  ? 'bg-white/10 hover:bg-white/15'
-                  : 'hover:bg-white/5'
-              }`}
-              title={`${app.displayName}${isRunning ? ' (Running)' : ''}${item.isPinned ? ' (Pinned)' : ''}`}
-            >
-              <div className="w-6 h-6 flex items-center justify-center group-hover:scale-110 transition-transform">
-                {getAppIcon(item.appId)}
-              </div>
+          const isHovered = hoveredAppId === item.appId && isRunning;
 
-              {/* Running indicator pip under icon */}
-              {isRunning && (
+          return (
+            <div
+              key={item.appId}
+              className="relative"
+              onMouseEnter={() => handleItemMouseEnter(item.appId)}
+              onMouseLeave={handleItemMouseLeave}
+            >
+              <button
+                type="button"
+                onClick={() => handleTaskbarItemClick(item)}
+                onContextMenu={(e) =>
+                  handleContextMenu(e, item.appId, item.runningWindows[0]?.id)
+                }
+                className={`relative h-9 px-2.5 rounded-2xl flex items-center justify-center transition-all cursor-pointer group ${
+                  item.isActive
+                    ? 'bg-white/20 shadow-md backdrop-blur-md scale-105 border border-white/25'
+                    : isRunning
+                    ? 'bg-white/10 hover:bg-white/15'
+                    : 'hover:bg-white/5 opacity-80 hover:opacity-100'
+                }`}
+                title={`${app.displayName}${isRunning ? ' (Running)' : ''}${item.isPinned ? ' (Pinned)' : ''}`}
+              >
+                <div className="w-6 h-6 flex items-center justify-center group-hover:scale-110 transition-transform">
+                  {getAppIcon(item.appId)}
+                </div>
+
+                {/* Running indicator pip under icon */}
+                {isRunning && (
+                  <div className="absolute bottom-1 flex items-center gap-0.5">
+                    <div
+                      className={`h-1 rounded-full transition-all ${
+                        item.isActive
+                          ? 'accent-bg w-3 shadow-[0_0_8px_var(--rkt-accent)]'
+                          : 'bg-white/70 w-1.5'
+                      }`}
+                    />
+                    {item.runningWindows.length > 1 && (
+                      <div className="w-1 h-1 rounded-full bg-white/70" />
+                    )}
+                  </div>
+                )}
+              </button>
+
+              {/* Window Hover Preview Thumbnail Flyout */}
+              {isHovered && (
                 <div
-                  className={`absolute bottom-1 w-1.5 h-1.5 rounded-full transition-all ${
-                    item.isActive ? 'bg-sky-400 w-3 shadow-sm shadow-sky-400' : 'bg-slate-400'
-                  }`}
-                />
+                  className="absolute bottom-12 left-1/2 -translate-x-1/2 z-50 flex gap-2 p-2 bg-slate-900/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl animate-in fade-in zoom-in-95 duration-150"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {item.runningWindows.map((rw) => (
+                    <div
+                      key={rw.id}
+                      onClick={() => {
+                        onSelectWindow(rw.id);
+                        setHoveredAppId(null);
+                      }}
+                      className="w-44 p-2.5 rounded-xl bg-white/5 hover:bg-white/15 border border-white/10 hover:border-sky-400/50 cursor-pointer transition-all flex flex-col gap-2 group/win"
+                    >
+                      <div className="flex items-center justify-between text-xs font-semibold text-slate-200 group-hover/win:text-white">
+                        <span className="truncate max-w-[110px]">{rw.title}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCloseWindow(rw.id);
+                          }}
+                          className="w-4 h-4 rounded-full hover:bg-red-500/30 text-slate-400 hover:text-red-400 flex items-center justify-center text-[10px]"
+                          title="Close"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="h-16 rounded-lg bg-black/40 border border-white/5 flex items-center justify-center text-[11px] text-slate-500 font-mono">
+                        {rw.isMinimized ? '(Minimized)' : 'Active Window'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
-            </button>
+            </div>
           );
         })}
       </div>

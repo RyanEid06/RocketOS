@@ -1,0 +1,154 @@
+// RocketOS Process Manager Domain Model
+// Authoritative Process Table, Lifecycle State Machine, and Resource Accounting
+
+import std.string
+import std.collections
+
+enum ProcessState:
+    Running
+    Ready
+    Sleeping
+    Blocked
+    Stopped
+    Zombie
+
+struct ProcessCapabilities:
+    can_elevate: Bool
+    can_access_hardware: Bool
+    can_network: Bool
+    can_spawn: Bool
+    can_ipc: Bool
+
+struct ResourceAccounting:
+    memory_rss_bytes: Int
+    virtual_memory_bytes: Int
+    cpu_percent_tenth: Int
+    io_read_bytes: Int
+    io_write_bytes: Int
+
+struct ProcessRecord:
+    pid: Int
+    ppid: Int
+    uid: Int
+    gid: Int
+    app_id: String
+    name: String
+    state: ProcessState
+    start_time_epoch_ms: Int
+    session_id: String
+    workspace_id: Int
+    accounting: ResourceAccounting
+    exit_status: Int
+    capabilities: ProcessCapabilities
+    window_id: String
+
+fn format_process_state(state: ProcessState) -> String:
+    match state:
+        case Running:
+            return "RUNNING"
+        case Ready:
+            return "READY"
+        case Sleeping:
+            return "SLEEPING"
+        case Blocked:
+            return "BLOCKED"
+        case Stopped:
+            return "STOPPED"
+        case Zombie:
+            return "ZOMBIE"
+
+fn is_process_alive(state: ProcessState) -> Bool:
+    match state:
+        case Running:
+            return true
+        case Ready:
+            return true
+        case Sleeping:
+            return true
+        case Blocked:
+            return true
+        case Stopped:
+            return true
+        case Zombie:
+            return false
+
+fn can_transition_state(current: ProcessState, target: ProcessState) -> Bool:
+    match current:
+        case Ready:
+            return target == ProcessState.Running or target == ProcessState.Stopped or target == ProcessState.Zombie
+        case Running:
+            return target == ProcessState.Sleeping or target == ProcessState.Blocked or target == ProcessState.Stopped or target == ProcessState.Zombie or target == ProcessState.Ready
+        case Sleeping:
+            return target == ProcessState.Ready or target == ProcessState.Running or target == ProcessState.Stopped or target == ProcessState.Zombie
+        case Blocked:
+            return target == ProcessState.Ready or target == ProcessState.Running or target == ProcessState.Stopped or target == ProcessState.Zombie
+        case Stopped:
+            return target == ProcessState.Ready or target == ProcessState.Running or target == ProcessState.Zombie
+        case Zombie:
+            return false
+
+fn default_capabilities_for_user(uid: Int) -> ProcessCapabilities:
+    if uid == 0:
+        return ProcessCapabilities(
+            can_elevate: true,
+            can_access_hardware: true,
+            can_network: true,
+            can_spawn: true,
+            can_ipc: true
+        )
+    return ProcessCapabilities(
+        can_elevate: false,
+        can_access_hardware: false,
+        can_network: true,
+        can_spawn: true,
+        can_ipc: true
+    )
+
+fn create_process_record(
+    pid: Int,
+    ppid: Int,
+    uid: Int,
+    gid: Int,
+    app_id: String,
+    name: String,
+    session_id: String,
+    workspace_id: Int,
+    window_id: String,
+    start_time_epoch_ms: Int
+) -> ProcessRecord:
+    let caps = default_capabilities_for_user(uid)
+    let init_accounting = ResourceAccounting(
+        memory_rss_bytes: 32 * 1024 * 1024,
+        virtual_memory_bytes: 64 * 1024 * 1024,
+        cpu_percent_tenth: 5,
+        io_read_bytes: 0,
+        io_write_bytes: 0
+    )
+    return ProcessRecord(
+        pid: pid,
+        ppid: ppid,
+        uid: uid,
+        gid: gid,
+        app_id: app_id,
+        name: name,
+        state: ProcessState.Ready,
+        start_time_epoch_ms: start_time_epoch_ms,
+        session_id: session_id,
+        workspace_id: workspace_id,
+        accounting: init_accounting,
+        exit_status: 0,
+        capabilities: caps,
+        window_id: window_id
+    )
+
+fn validate_pid_assignment(requested_pid: Int, active_pids: List[Int]) -> Bool:
+    if requested_pid <= 0:
+        return false
+    for pid in active_pids:
+        if pid == requested_pid:
+            return false
+    return true
+
+fn main() -> Int:
+    print("RocketOS Process Manager Domain Model Active")
+    return 0

@@ -70,13 +70,13 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
           onClick={() => onUpdateSettings({ wifiConnected: !settings.wifiConnected })}
           className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center gap-3 ${
             settings.wifiConnected
-              ? 'bg-sky-500/20 border-sky-400/50 text-white shadow-lg shadow-sky-500/10'
+              ? 'bg-[var(--rkt-accent)]/20 border-[var(--rkt-accent)]/50 text-white shadow-lg shadow-[var(--rkt-accent)]/10'
               : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
           }`}
         >
           <div
             className={`p-2 rounded-xl ${
-              settings.wifiConnected ? 'bg-sky-500 text-white' : 'bg-slate-800 text-slate-400'
+              settings.wifiConnected ? 'accent-bg text-white' : 'bg-slate-800 text-slate-400'
             }`}
           >
             <Wifi className="w-4 h-4" />
@@ -144,7 +144,7 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
           onChange={(e) =>
             onUpdateSettings({ volume: parseInt(e.target.value, 10), isMuted: false })
           }
-          className="w-full accent-sky-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+          className="w-full accent-[var(--rkt-accent)] cursor-pointer h-1.5 bg-slate-800 rounded-lg"
         />
       </div>
 
@@ -162,7 +162,7 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
               onClick={() => onUpdateSettings({ language: lang.id })}
               className={`px-2.5 py-1 rounded-xl text-xs transition-colors cursor-pointer ${
                 settings.language === lang.id
-                  ? 'bg-sky-500/20 text-sky-300 font-bold border border-sky-400/40'
+                  ? 'bg-[var(--rkt-accent)]/20 text-white font-bold border border-[var(--rkt-accent)]/40 shadow-sm'
                   : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10 border border-transparent'
               }`}
             >

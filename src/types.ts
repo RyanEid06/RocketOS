@@ -48,6 +48,13 @@ export interface SystemSettings {
   timeFormat: '12h' | '24h';
   showSeconds: boolean;
   language: SystemLanguage;
+  reduceMotion?: boolean;
+  highContrast?: boolean;
+  uiScale?: number; // 100, 110, 125
+  textScale?: number; // 100, 110, 125
+  transparency?: boolean;
+  soundEffects?: boolean;
+  brightness?: number; // 50 - 100
 }
 
 export interface TrashItem {
@@ -73,6 +80,23 @@ export interface NoteItem {
   updatedAt: string;
 }
 
+export type WindowSnapState =
+  | 'left'
+  | 'right'
+  | 'top'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'none';
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface WindowState {
   id: string;
   appId: AppId;
@@ -80,7 +104,8 @@ export interface WindowState {
   icon: string;
   isMinimized: boolean;
   isMaximized: boolean;
-  snapState?: 'left' | 'right' | 'none';
+  snapState?: WindowSnapState;
+  restoreBounds?: WindowBounds;
   workspaceId?: number;
   zIndex: number;
   position: { x: number; y: number };

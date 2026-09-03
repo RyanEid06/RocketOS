@@ -1,0 +1,22 @@
+// RocketOS Search Indexer Domain Model
+// Scoring, category grouping, and ranking algorithms
+
+enum SearchCategory:
+    Application
+    File
+    Folder
+    Setting
+    Action
+
+struct SearchHit:
+    id: String
+    title: String
+    subtitle: String
+    category: SearchCategory
+    relevance_score: Int
+
+fn calculate_match_score(query: String, target: String) -> Int:
+    if query == target:
+        return 100
+    // Prefix match
+    return 50
