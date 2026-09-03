@@ -1,0 +1,35 @@
+{
+  "pathTests": [
+    { "input": "/home/ryan/Documents", "expected": "/home/ryan/Documents" },
+    { "input": "/home/ryan/../ryan/Documents", "expected": "/home/ryan/Documents" },
+    { "input": "///home//ryan///", "expected": "/home/ryan" },
+    { "input": "/home/ryan/.", "expected": "/home/ryan" },
+    { "input": "/home/ryan/../../root", "expected": "/root" },
+    { "input": "/home/ryan/../../../", "expected": "/" },
+    { "input": "/", "expected": "/" },
+    { "input": "/home/ryan/./", "expected": "/home/ryan" }
+  ],
+  "permissionTests": [
+    { "fileUid": 1000, "fileGid": 100, "mode": 420, "callerUid": 1000, "callerGid": 100, "groups": [100], "req": "read", "expected": true },
+    { "fileUid": 1000, "fileGid": 100, "mode": 420, "callerUid": 1000, "callerGid": 100, "groups": [100], "req": "write", "expected": true },
+    { "fileUid": 1000, "fileGid": 100, "mode": 420, "callerUid": 1000, "callerGid": 100, "groups": [100], "req": "execute", "expected": false },
+    { "fileUid": 0, "fileGid": 0, "mode": 448, "callerUid": 1000, "callerGid": 100, "groups": [100], "req": "read", "expected": false },
+    { "fileUid": 0, "fileGid": 0, "mode": 448, "callerUid": 0, "callerGid": 0, "groups": [0], "req": "read", "expected": true },
+    { "fileUid": 0, "fileGid": 0, "mode": 448, "callerUid": 0, "callerGid": 0, "groups": [0], "req": "write", "expected": true }
+  ],
+  "workspaceProfiles": [
+    { "id": 1, "name": "General", "themeAccent": "sky" },
+    { "id": 2, "name": "Developer", "themeAccent": "emerald" },
+    { "id": 3, "name": "Art & Media", "themeAccent": "violet" }
+  ],
+  "fileAssociations": [
+    { "extension": ".rocket", "defaultAppId": "editor" },
+    { "extension": ".txt", "defaultAppId": "notes" },
+    { "extension": ".png", "defaultAppId": "gallery" }
+  ],
+  "shellParsing": [
+    { "commandLine": "ls -la", "expectedNodes": 1, "firstCommand": "ls" },
+    { "commandLine": "cat /etc/os-release | grep VERSION", "expectedNodes": 2, "firstCommand": "cat" },
+    { "commandLine": "echo 'Hello Rocket' > /tmp/out.txt", "expectedNodes": 1, "firstCommand": "echo" }
+  ]
+}

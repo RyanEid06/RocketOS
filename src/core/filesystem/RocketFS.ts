@@ -145,6 +145,17 @@ export class RocketFS {
 
     // Default Desktop files for Ryan
     this.createRawInode(
+      '/home/ryan/Desktop/welcome.rocket',
+      'file',
+      1000,
+      100,
+      0o644,
+      undefined,
+      'text/x-rocket',
+      '// Welcome to RocketOS 2.1\nfn main() -> Int:\n    print("Welcome to RocketOS!")\n    return 0\n'
+    );
+
+    this.createRawInode(
       '/home/ryan/Desktop/hello.rocket',
       'file',
       1000,

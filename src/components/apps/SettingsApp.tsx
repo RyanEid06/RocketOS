@@ -8,6 +8,7 @@ import { FileAssociations } from '../../core/filesystem/FileAssociations';
 import { RocketFS } from '../../core/filesystem/RocketFS';
 import { CrashRecoveryService } from '../../core/recovery/CrashRecoveryService';
 import { UserManager } from '../../core/users/UserManager';
+import { getCoreProvider } from '../../core-api';
 import {
   Palette,
   Monitor,
@@ -734,6 +735,22 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-slate-400 text-xs font-semibold">Active Core Provider</div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-medium ${getCoreProvider().providerType === 'rocket-core' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'}`}>
+                    {getCoreProvider().providerType === 'rocket-core' ? 'NATIVE ROCKET CORE' : 'BROWSER FALLBACK'}
+                  </span>
+                </div>
+                <div className="text-white font-bold text-sm">{getCoreProvider().providerName}</div>
+                <div className="text-[11px] text-slate-400 space-y-1">
+                  <div>• Protocol: RocketOS Core Protocol v1</div>
+                  <div>• Provider Type: <span className="font-mono text-sky-400">{getCoreProvider().providerType}</span></div>
+                  <div>• Security: Localhost Isolated Token Session</div>
+                  <div>• IPC Transport: 127.0.0.1:5180 HTTP/JSON</div>
+                </div>
+              </div>
+
               <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
                 <div className="text-slate-400 text-xs font-semibold">Compiler Architecture</div>
                 <div className="text-white font-bold text-sm">rocketc 2.1.0 Self-Hosted</div>

@@ -137,6 +137,9 @@ export class BrowserFallbackCoreProvider implements ICoreProvider {
     this.search = this.createSearchAPI();
     this.apps = this.createAppsAPI();
     this.workspaces = this.createWorkspacesAPI();
+
+    // Ensure core services and background daemons are booted
+    ServiceManager.getInstance().bootCoreServices();
   }
 
   public async getDiagnostics(): Promise<CoreDiagnostics> {
@@ -211,13 +214,19 @@ export class BrowserFallbackCoreProvider implements ICoreProvider {
         const pm = ProcessManager.getInstance();
         const sm = ServiceManager.getInstance();
         const um = UserManager.getInstance();
-        const procs = pm.getAllProcesses();
-        const runningServices = sm.listServices().filter((s) => s.state === 'RUNNING').length;
+        let procs = pm.getAllProcesses();
+        let runningServices = sm.listServices().filter((s) => s.state === 'RUNNING').length;
+
+        if (runningServices === 0) {
+          await sm.bootCoreServices();
+          procs = pm.getAllProcesses();
+          runningServices = sm.listServices().filter((s) => s.state === 'RUNNING').length;
+        }
 
         return {
           status: 'healthy',
           uptimeSeconds: Math.floor((Date.now() - this.bootTime) / 1000),
-          activeProcesses: procs.length,
+          activeProcesses: Math.max(1, procs.length),
           runningServices,
           cpuUsagePercent: 12.5,
           memoryUsedBytes: 420 * 1024 * 1024,

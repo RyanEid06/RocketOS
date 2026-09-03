@@ -16,6 +16,19 @@ export const INITIAL_FILE_SYSTEM: FSItem[] = [
         updatedAt: '2026-09-03',
         children: [
           {
+            id: 'welcome-rocket',
+            name: 'welcome.rocket',
+            type: 'file',
+            path: '/Desktop/welcome.rocket',
+            size: '85 B',
+            updatedAt: '2026-09-03',
+            content: `fn main() -> Int:
+    let greeting = "Welcome to RocketOS"
+    print(greeting)
+    return 0
+`
+          },
+          {
             id: 'hello-rocket',
             name: 'hello.rocket',
             type: 'file',

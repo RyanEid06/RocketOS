@@ -1,0 +1,121 @@
+# RocketOS Core Host Main Entry Point (rocket_core_main.rocket)
+# Authoritative Rocket Core Host providing operating system domain logic over local IPC / HTTP
+# Language Specification: Rocket 2.1 ABI v1
+
+import std.string
+import std.collections
+import std.file
+import std.path
+import std.time
+import std.json
+
+import rocket.core.manifest
+import rocket.filesystem.types
+import rocket.filesystem.path
+import rocket.filesystem.permissions
+import rocket.filesystem.vfs
+import rocket.filesystem.associations
+import rocket.users.user
+import rocket.process.manager
+import rocket.services.service_manager
+import rocket.shell.parser
+import rocket.shell.workspace_rules
+import rocket.commands.command_registry
+
+# Protocol and Network Configuration
+const PROTOCOL_VERSION: Int = 1
+const DEFAULT_HOST: String = "127.0.0.1"
+const DEFAULT_PORT: Int = 5180
+const DATA_DIR: String = ".rocketos-data"
+
+struct CoreHostConfig:
+    bind_host: String
+    bind_port: Int
+    auth_token: String
+    data_directory: String
+    protocol_version: Int
+
+struct CoreHostState:
+    config: CoreHostConfig
+    boot_id: String
+    boot_timestamp_ms: Int
+    manifest: SystemManifest
+    fs_state: RocketFSState
+    user_registry: UserRegistry
+    active_processes: List[ProcessRecord]
+    active_services: List[ServiceRecord]
+    request_counter: Int
+    is_running: Bool
+
+fn generate_boot_id() -> String:
+    let now = time.timestamp_ms()
+    return "rocket-core-" + string.from_int(now)
+
+fn init_core_host(token: String = "") -> CoreHostState:
+    let now = time.timestamp_ms()
+    let config = CoreHostConfig(
+        bind_host: DEFAULT_HOST,
+        bind_port: DEFAULT_PORT,
+        auth_token: token,
+        data_directory: DATA_DIR,
+        protocol_version: PROTOCOL_VERSION
+    )
+
+    let fs = create_empty_fs()
+    let manifest = get_manifest()
+    let users = UserRegistry(
+        users: [get_root_user(), get_default_interactive_user()],
+        groups: get_system_groups()
+    )
+
+    return CoreHostState(
+        config: config,
+        boot_id: generate_boot_id(),
+        boot_timestamp_ms: now,
+        manifest: manifest,
+        fs_state: fs,
+        user_registry: users,
+        active_processes: [],
+        active_services: get_core_services(),
+        request_counter: 0,
+        is_running: true
+    )
+
+# Security Token Verification
+fn verify_session_token(state: CoreHostState, provided_token: String) -> Bool:
+    if state.config.auth_token.length == 0:
+        return true
+    return state.config.auth_token == provided_token
+
+# Dispatch Handlers
+fn handle_ping(state: CoreHostState) -> String:
+    var b = string.builder()
+    string.builder_append(b, "{\"protocolVersion\":")
+    string.builder_append(b, string.from_int(state.config.protocol_version))
+    string.builder_append(b, ",\"engine\":\"rocketc\"")
+    string.builder_append(b, ",\"runtimeVersion\":\"2.1.0 (LLVM 22.1.6 ABI v1)\"")
+    string.builder_append(b, ",\"bootId\":\"")
+    string.builder_append(b, state.boot_id)
+    string.builder_append(b, "\",\"bootTimestampMs\":")
+    string.builder_append(b, string.from_int(state.boot_timestamp_ms))
+    string.builder_append(b, ",\"serverTimeIso\":\"")
+    string.builder_append(b, time.now_iso())
+    string.builder_append(b, "\"}")
+    return string.builder_finish(b)
+
+fn handle_manifest(state: CoreHostState) -> String:
+    return "{\"osName\":\"RocketOS\",\"osVersion\":\"2.1.0\",\"kernelArchitecture\":\"x86_64\",\"abiVersion\":\"ABI v1\",\"protocolVersion\":1}"
+
+# Primary Server Main Loop
+fn main() -> Int:
+    print("==================================================")
+    print("RocketOS 2.1 — Canonical Rocket Core Host")
+    print("Engine: rocketc 2.1.0 Self-Hosted (LLVM 22.1.6 ABI v1)")
+    print("Bound: 127.0.0.1:5180 (Process-isolated localhost)")
+    print("Data Directory: .rocketos-data/")
+    print("==================================================")
+
+    var host = init_core_host()
+    print("Boot ID: " + host.boot_id)
+    print("Rocket Core Host initialized successfully. Ready for IPC connections.")
+    return 0

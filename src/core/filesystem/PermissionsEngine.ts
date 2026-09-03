@@ -108,4 +108,30 @@ export class PermissionsEngine {
 
     return true;
   }
+
+  public static checkPermission(
+    inodeUid: number,
+    inodeGid: number,
+    inodeMode: number,
+    callerUid: number,
+    callerGid: number,
+    groups: number[],
+    req: 'r' | 'w' | 'x'
+  ): boolean {
+    const reqMode = req === 'r' ? 4 : req === 'w' ? 2 : 1;
+    const user: SystemUser = {
+      uid: callerUid,
+      username: callerUid === 0 ? 'root' : 'ryan',
+      displayName: callerUid === 0 ? 'root' : 'ryan',
+      homeDirectory: callerUid === 0 ? '/root' : '/home/ryan',
+      primaryGid: callerGid,
+      supplementaryGids: groups,
+      shell: '/bin/rsh',
+      isAdmin: callerUid === 0 || groups.includes(10),
+    };
+    return this.checkAccess({ uid: inodeUid, gid: inodeGid, mode: inodeMode }, user, reqMode);
+  }
 }
+
+export const PermissionEngine = PermissionsEngine;
+
