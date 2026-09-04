@@ -75,12 +75,33 @@ export class NotificationService {
   }
 
   public notify(
-    title: string,
-    body: string,
+    titleOrOptions:
+      | string
+      | {
+          title: string;
+          message?: string;
+          body?: string;
+          type?: NotificationSeverity;
+          severity?: NotificationSeverity;
+          appId?: string;
+          sourceAppId?: string;
+          action?: NotificationAction;
+        },
+    body?: string,
     severity: NotificationSeverity = 'info',
     sourceAppId: string = 'system'
   ): string {
-    return this.send({ sourceAppId, title, body, severity });
+    if (typeof titleOrOptions === 'object') {
+      return this.sendNotification({
+        title: titleOrOptions.title,
+        message: titleOrOptions.message,
+        body: titleOrOptions.body,
+        type: titleOrOptions.type || titleOrOptions.severity,
+        sourceAppId: titleOrOptions.appId || titleOrOptions.sourceAppId || 'system',
+        action: titleOrOptions.action,
+      });
+    }
+    return this.send({ sourceAppId, title: titleOrOptions, body: body || '', severity });
   }
 
   public sendNotification(options: {

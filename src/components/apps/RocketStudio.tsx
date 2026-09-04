@@ -28,16 +28,18 @@ import {
   FolderTree,
   Package,
   Settings,
-  Rocket
+  Rocket,
+  Bug
 } from 'lucide-react';
 import { RocketFS } from '../../core/filesystem/RocketFS';
+import { RocketStudioDebugger } from './RocketStudioDebugger';
 
 interface RocketStudioProps {
   onLaunchApp?: (appId: string, extraData?: any) => void;
 }
 
 export const RocketStudio: React.FC<RocketStudioProps> = ({ onLaunchApp }) => {
-  const [activeTab, setActiveTab] = useState<'workspace' | 'overview' | 'weaknesses' | 'syntax' | 'checker' | 'architecture'>('workspace');
+  const [activeTab, setActiveTab] = useState<'workspace' | 'debugger' | 'overview' | 'weaknesses' | 'syntax' | 'checker' | 'architecture'>('workspace');
   const [selectedWeakness, setSelectedWeakness] = useState<LanguageWeakness>(LANGUAGE_WEAKNESSES[0]);
 
   // Project workspace state
@@ -244,6 +246,17 @@ fn main() -> Int:
             <span>Project & Workspace</span>
           </button>
           <button
+            onClick={() => setActiveTab('debugger')}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
+              activeTab === 'debugger'
+                ? 'bg-rose-600 text-white font-medium shadow-sm'
+                : 'text-rose-400 hover:text-rose-200'
+            }`}
+          >
+            <Bug className="w-3.5 h-3.5" />
+            <span>Interactive Debugger</span>
+          </button>
+          <button
             onClick={() => setActiveTab('overview')}
             className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition-colors cursor-pointer ${
               activeTab === 'overview'
@@ -306,6 +319,13 @@ fn main() -> Int:
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-hidden">
+        {/* INTERACTIVE VISUAL DEBUGGER TAB */}
+        {activeTab === 'debugger' && (
+          <div className="h-full">
+            <RocketStudioDebugger />
+          </div>
+        )}
+
         {/* WORKSPACE & PROJECTS TAB */}
         {activeTab === 'workspace' && (
           <div className="h-full flex flex-col md:flex-row overflow-hidden bg-slate-900/50">

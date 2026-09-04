@@ -15,6 +15,7 @@ import {
   X,
   Plus,
   Wifi,
+  Bluetooth,
   Volume2,
   VolumeX,
   Layers,
@@ -36,6 +37,7 @@ import {
   Minimize2,
   Shield,
   FileText,
+  LayoutGrid,
 } from 'lucide-react';
 import { soundEngine } from '../utils/audio';
 import { notificationService, SystemNotification } from '../core/notifications/NotificationService';
@@ -66,6 +68,7 @@ interface TaskbarProps {
   onOpenFile: (file: FSItem) => void;
   onReboot: () => void;
   onOpenExplorerPath: (path: string) => void;
+  onToggleMissionControl?: () => void;
 }
 
 export const Taskbar: React.FC<TaskbarProps> = ({
@@ -86,6 +89,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
   onOpenFile,
   onReboot,
   onOpenExplorerPath,
+  onToggleMissionControl,
 }) => {
   const [startMenuOpen, setStartMenuOpen] = useState(false);
   const [searchFlyoutOpen, setSearchFlyoutOpen] = useState(false);
@@ -410,6 +414,22 @@ export const Taskbar: React.FC<TaskbarProps> = ({
           <span className="font-mono text-[11px]">#{currentWorkspace}</span>
         </button>
 
+        {/* Mission Control Exposé Overview Button */}
+        {onToggleMissionControl && (
+          <button
+            type="button"
+            onClick={() => {
+              closeAllFlyouts();
+              onToggleMissionControl();
+              soundEngine.playOpen();
+            }}
+            className="h-9 px-2 rounded-2xl flex items-center justify-center border transition-all cursor-pointer hover:bg-white/10 border-transparent text-slate-300 hover:text-white"
+            title="Mission Control & Exposé Overview (F3)"
+          >
+            <LayoutGrid className="w-4 h-4 text-orange-400" />
+          </button>
+        )}
+
         {/* Universal Search Button */}
         <button
           type="button"
@@ -652,6 +672,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
         settings={settings}
         onUpdateSettings={onUpdateSettings}
         onOpenSettings={() => onOpenApp('settings')}
+        onOpenApp={onOpenApp}
         onClose={() => setControlCenterOpen(false)}
       />
 
@@ -662,6 +683,10 @@ export const Taskbar: React.FC<TaskbarProps> = ({
         settings={settings}
         onUpdateSettings={onUpdateSettings}
         onOpenSettings={() => onOpenApp('settings')}
+        onOpenCalendar={() => {
+          setCalendarOpen(false);
+          onOpenApp('calendar');
+        }}
       />
 
       <WorkspaceSwitcher

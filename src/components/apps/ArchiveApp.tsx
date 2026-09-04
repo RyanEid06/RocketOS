@@ -66,10 +66,10 @@ export const ArchiveApp: React.FC = () => {
 
       // Write mock extracted files into RocketFS
       try {
-        if (!rocketFS.exists(extractPath)) {
-          rocketFS.createFolder('/home/ryan', 'Downloads');
+        if (!rocketFS.findItemByPath(extractPath)) {
+          rocketFS.createDirectory(extractPath);
         }
-        rocketFS.createFile(extractPath, 'README.md', '# Extracted from ' + currentArchiveName + '\nRocketOS Toolchain ready.');
+        rocketFS.createFile(`${extractPath}/README.md`, '# Extracted from ' + currentArchiveName + '\nRocketOS Toolchain ready.');
       } catch (e) {}
 
       notificationService.sendNotification({
@@ -96,7 +96,7 @@ export const ArchiveApp: React.FC = () => {
       notificationService.sendNotification({
         title: 'Volume Mount Notification',
         body: res.error || `Volume already mounted at ${res.mountPoint}`,
-        severity: 'warn',
+        severity: 'warning',
         sourceAppId: 'archive',
       });
     }

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { soundEngine } from '../../utils/audio';
 import { rocketFS } from '../../core/filesystem/RocketFS';
-import { binaryBlobStore } from '../../core/filesystem/BinaryBlobStore';
+import { binaryBlobStore } from '../../platform/browser/BinaryBlobStore';
 import { notificationService } from '../../core/notifications/NotificationService';
 
 type FilterMode = 'none' | 'mono' | 'cyberpunk' | 'vintage' | 'high-contrast';
@@ -235,14 +235,13 @@ export const CameraApp: React.FC = () => {
 
     // Ensure Pictures directory exists in RocketFS
     try {
-      if (!rocketFS.exists('/home/ryan/Pictures')) {
-        rocketFS.createFolder('/home/ryan', 'Pictures');
+      if (!rocketFS.findItemByPath('/home/ryan/Pictures')) {
+        rocketFS.createDirectory('/home/ryan/Pictures');
       }
       // Save file entry
-      rocketFS.createFile('/home/ryan/Pictures', filename, dataUrl);
+      rocketFS.createFile(fullPath, dataUrl);
       // Store in binary blob store
-      const binData = new TextEncoder().encode(dataUrl);
-      await binaryBlobStore.putBlob(`cam_${timestamp}`, binData, 'image/png');
+      await binaryBlobStore.saveBlob(`cam_${timestamp}`, filename, 'image/png', dataUrl);
     } catch (e) {
       console.error('Failed to save photo into RocketFS:', e);
     }

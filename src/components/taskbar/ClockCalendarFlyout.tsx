@@ -9,6 +9,7 @@ interface ClockCalendarFlyoutProps {
   settings: SystemSettings;
   onUpdateSettings: (newSettings: Partial<SystemSettings>) => void;
   onOpenSettings: () => void;
+  onOpenCalendar?: () => void;
 }
 
 export const ClockCalendarFlyout: React.FC<ClockCalendarFlyoutProps> = ({
@@ -18,6 +19,7 @@ export const ClockCalendarFlyout: React.FC<ClockCalendarFlyoutProps> = ({
   settings,
   onUpdateSettings,
   onOpenSettings,
+  onOpenCalendar,
 }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -113,26 +115,39 @@ export const ClockCalendarFlyout: React.FC<ClockCalendarFlyoutProps> = ({
         })}
       </div>
 
-      {/* Quick Time Toggles */}
+      {/* Quick Time Toggles & Launch Calendar */}
       <div className="pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-        <button
-          type="button"
-          onClick={() =>
-            onUpdateSettings({
-              timeFormat: settings.timeFormat === '12h' ? '24h' : '12h',
-            })
-          }
-          className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-mono text-[11px] transition-colors cursor-pointer"
-        >
-          Format: {settings.timeFormat.toUpperCase()}
-        </button>
-        <button
-          type="button"
-          onClick={() => onUpdateSettings({ showSeconds: !settings.showSeconds })}
-          className="px-2.5 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-mono text-[11px] transition-colors cursor-pointer"
-        >
-          Seconds: {settings.showSeconds ? 'ON' : 'OFF'}
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateSettings({
+                timeFormat: settings.timeFormat === '12h' ? '24h' : '12h',
+              })
+            }
+            className="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-mono text-[10px] transition-colors cursor-pointer"
+          >
+            {settings.timeFormat.toUpperCase()}
+          </button>
+          <button
+            type="button"
+            onClick={() => onUpdateSettings({ showSeconds: !settings.showSeconds })}
+            className="px-2 py-1 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-mono text-[10px] transition-colors cursor-pointer"
+          >
+            Sec: {settings.showSeconds ? 'ON' : 'OFF'}
+          </button>
+        </div>
+
+        {onOpenCalendar && (
+          <button
+            type="button"
+            onClick={onOpenCalendar}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 text-xs font-semibold border border-sky-500/30 transition-colors cursor-pointer"
+          >
+            <CalendarIcon className="w-3.5 h-3.5" />
+            <span>Open Calendar</span>
+          </button>
+        )}
       </div>
     </div>
   );

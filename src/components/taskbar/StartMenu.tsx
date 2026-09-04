@@ -34,6 +34,14 @@ import {
   Palette,
   Type,
   Music,
+  Wifi,
+  Bluetooth,
+  Wrench,
+  Calendar,
+  Mail,
+  Package,
+  Mic,
+  Gauge,
 } from 'lucide-react';
 import { AppId, SystemSettings } from '../../types';
 import { TRANSLATIONS } from '../../utils/localization';
@@ -151,6 +159,24 @@ export const StartMenu: React.FC<StartMenuProps> = ({
         return <Type className="w-4 h-4 text-blue-400" />;
       case 'synth':
         return <Music className="w-4 h-4 text-purple-400" />;
+      case 'wifi':
+        return <Wifi className="w-4 h-4 text-sky-400" />;
+      case 'bluetooth':
+        return <Bluetooth className="w-4 h-4 text-blue-400" />;
+      case 'device-manager':
+        return <Wrench className="w-4 h-4 text-amber-400" />;
+      case 'calendar':
+        return <Calendar className="w-4 h-4 text-emerald-400" />;
+      case 'mail':
+        return <Mail className="w-4 h-4 text-blue-400" />;
+      case 'software-center':
+        return <Package className="w-4 h-4 text-purple-400" />;
+      case 'recorder':
+        return <Mic className="w-4 h-4 text-pink-400" />;
+      case 'firewall':
+        return <Shield className="w-4 h-4 text-rose-400" />;
+      case 'benchmark':
+        return <Gauge className="w-4 h-4 text-cyan-400" />;
       default: {
         const glyph = AppRegistry.getApp(id)?.glyph;
         if (glyph) {

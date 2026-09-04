@@ -50,7 +50,19 @@ export type AppId =
   | 'palette'
   | 'font-book'
   | 'synth'
-  | 'camera';
+  | 'camera'
+  | 'profiler'
+  | 'disassembler'
+  | 'cheatsheet'
+  | 'wifi'
+  | 'bluetooth'
+  | 'device-manager'
+  | 'calendar'
+  | 'mail'
+  | 'software-center'
+  | 'recorder'
+  | 'firewall'
+  | 'benchmark';
 
 export type WallpaperId =
   | 'liquid-aurora'
@@ -71,6 +83,10 @@ export interface SystemSettings {
   volume: number;
   isMuted: boolean;
   wifiConnected: boolean;
+  wifiSsid?: string;
+  bluetoothEnabled?: boolean;
+  bluetoothConnected?: boolean;
+  connectedBluetoothDevice?: string;
   timeFormat: '12h' | '24h';
   showSeconds: boolean;
   language: SystemLanguage;

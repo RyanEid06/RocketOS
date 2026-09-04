@@ -50,8 +50,21 @@ import { KeyringVaultApp } from './components/apps/KeyringVaultApp';
 import { PaletteStudioApp } from './components/apps/PaletteStudioApp';
 import { FontBookApp } from './components/apps/FontBookApp';
 import { AudioSynthApp } from './components/apps/AudioSynthApp';
+import { ProfilerApp } from './components/apps/ProfilerApp';
+import { DisassemblerApp } from './components/apps/DisassemblerApp';
+import { RocketCheatsheetApp } from './components/apps/RocketCheatsheetApp';
+import { WifiApp } from './components/apps/WifiApp';
+import { BluetoothApp } from './components/apps/BluetoothApp';
+import { DeviceManagerApp } from './components/apps/DeviceManagerApp';
+import { CalendarApp } from './components/apps/CalendarApp';
+import { MailApp } from './components/apps/MailApp';
+import { SoftwareCenterApp } from './components/apps/SoftwareCenterApp';
+import { SoundRecorderApp } from './components/apps/SoundRecorderApp';
+import { FirewallApp } from './components/apps/FirewallApp';
+import { BenchmarkApp } from './components/apps/BenchmarkApp';
 import { CommandPalette } from './components/shell/CommandPalette';
 import { QuickLookModal } from './components/shell/QuickLookModal';
+import { MissionControlOverlay } from './components/shell/MissionControlOverlay';
 import { NotificationToastContainer } from './components/notifications/NotificationToastContainer';
 
 import { browserPersistenceProvider } from './platform/browser/BrowserPersistenceProvider';
@@ -97,8 +110,9 @@ export default function App() {
   // Command Palette & Quick Look Modals
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
   const [quickLookItem, setQuickLookItem] = useState<FSItem | null>(null);
+  const [isMissionControlOpen, setIsMissionControlOpen] = useState<boolean>(false);
 
-  // Global Keyboard Shortcuts (Alt+Space / Ctrl+K for Command Palette)
+  // Global Keyboard Shortcuts (Alt+Space / Ctrl+K for Command Palette, F3 for Mission Control)
   useEffect(() => {
     const handleGlobalShortcuts = (e: KeyboardEvent) => {
       // Toggle Command Palette
@@ -109,6 +123,13 @@ export default function App() {
         e.preventDefault();
         soundEngine.playOpen();
         setIsCommandPaletteOpen((prev) => !prev);
+      }
+
+      // Toggle Mission Control (F3)
+      if (e.key === 'F3') {
+        e.preventDefault();
+        soundEngine.playOpen();
+        setIsMissionControlOpen((prev) => !prev);
       }
     };
     window.addEventListener('keydown', handleGlobalShortcuts);
@@ -810,39 +831,32 @@ export default function App() {
     );
   };
 
-  // Get desktop files for the desktop surface
+  // Get desktop files for the desktop surface (cleaned of clutter without deleting files)
   const getDesktopItems = (): FSItem[] => {
-    const findFolderByPath = (items: FSItem[], targetPath: string): FSItem | null => {
-      for (const it of items) {
-        if (it.path === targetPath && it.type === 'folder') return it;
-        if (it.children) {
-          const found = findFolderByPath(it.children, targetPath);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const stateDesktop =
-      findFolderByPath(fileSystem, '/Desktop') ||
-      findFolderByPath(fileSystem, '/home/ryan/Desktop') ||
-      fileSystem.find((item) => item.name === 'Desktop') ||
-      fileSystem[0]?.children?.find((c) => c.name === 'Desktop');
-
-    if (stateDesktop?.children) {
-      return stateDesktop.children;
-    }
-
-    const rfsFolder =
-      RocketFS.getInstance().findItemByPath('/Desktop') ||
-      RocketFS.getInstance().findItemByPath('/home/ryan/Desktop');
-
-    return rfsFolder?.children || [];
+    return [];
   };
 
   // Render individual window content
   const renderWindowContent = (win: WindowState) => {
     switch (win.appId) {
+      case 'wifi':
+        return <WifiApp />;
+      case 'bluetooth':
+        return <BluetoothApp />;
+      case 'device-manager':
+        return <DeviceManagerApp />;
+      case 'calendar':
+        return <CalendarApp />;
+      case 'mail':
+        return <MailApp />;
+      case 'software-center':
+        return <SoftwareCenterApp onOpenApp={(appId) => openApp(appId as any)} />;
+      case 'recorder':
+        return <SoundRecorderApp />;
+      case 'firewall':
+        return <FirewallApp />;
+      case 'benchmark':
+        return <BenchmarkApp />;
       case 'explorer':
         return (
           <FileExplorer
@@ -971,6 +985,16 @@ export default function App() {
         return <AudioSynthApp />;
       case 'camera':
         return <CameraApp />;
+      case 'profiler':
+        return <ProfilerApp />;
+      case 'disassembler':
+        return <DisassemblerApp />;
+      case 'cheatsheet':
+        return (
+          <RocketCheatsheetApp
+            onOpenStudioWithCode={(code) => openApp('rocket-studio', { code })}
+          />
+        );
       default:
         return <div className="p-4 text-slate-300">App content</div>;
     }
@@ -1081,6 +1105,19 @@ export default function App() {
         onOpenFile={handleOpenFile}
         onReboot={() => setIsBooted(false)}
         onOpenExplorerPath={(path) => openApp('explorer', { path })}
+        onToggleMissionControl={() => setIsMissionControlOpen((prev) => !prev)}
+      />
+
+      {/* Mission Control & Exposé Overview (F3) */}
+      <MissionControlOverlay
+        isOpen={isMissionControlOpen}
+        onClose={() => setIsMissionControlOpen(false)}
+        windows={windows}
+        currentWorkspace={currentWorkspace}
+        onChangeWorkspace={handleChangeWorkspace}
+        onFocusWindow={(id) => focusWindow(id)}
+        onMoveWindowToWorkspace={(winId, wsId) => handleMoveWindowToWorkspace(winId, wsId)}
+        onCloseWindow={(winId) => closeWindow(winId)}
       />
 
       {/* Universal Command Palette (Super+Space / Alt+Space / Ctrl+K) */}

@@ -16,8 +16,10 @@ import {
   Sliders,
   ChevronDown,
   ChevronUp,
+  Bluetooth,
+  Cpu,
 } from 'lucide-react';
-import { SystemSettings, SystemLanguage } from '../../types';
+import { SystemSettings, SystemLanguage, AppId } from '../../types';
 import { TRANSLATIONS } from '../../utils/localization';
 import { SystemManifest } from '../../core/manifest/SystemManifest';
 import { DriverManager } from '../../core/drivers/DriverManager';
@@ -28,6 +30,7 @@ interface QuickSettingsFlyoutProps {
   settings: SystemSettings;
   onUpdateSettings: (newSettings: Partial<SystemSettings>) => void;
   onOpenSettings: () => void;
+  onOpenApp?: (appId: AppId) => void;
   onClose: () => void;
 }
 
@@ -36,12 +39,15 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
   settings,
   onUpdateSettings,
   onOpenSettings,
+  onOpenApp,
   onClose,
 }) => {
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
+  const driverMgr = DriverManager.getInstance();
   const [ambientType, setAmbientType] = useState<string | null>(null);
   const [ambientVolume, setAmbientVolume] = useState<number>(35);
   const [showAppMixer, setShowAppMixer] = useState<boolean>(false);
+  const [bluetoothActive, setBluetoothActive] = useState<boolean>(driverMgr.isBluetoothEnabled());
   const [appVolumes, setAppVolumes] = useState<{ id: string; label: string; volume: number }[]>([
     { id: 'system', label: 'System UI & Shell', volume: soundEngine.getAppVolume('system') ?? 100 },
     { id: 'notifications', label: 'Notifications & Alerts', volume: soundEngine.getAppVolume('notifications') ?? 85 },
@@ -51,6 +57,11 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
 
   useEffect(() => {
     setAmbientType(soundEngine.getCurrentAmbientType());
+    setBluetoothActive(driverMgr.isBluetoothEnabled());
+    const unsub = driverMgr.subscribe(() => {
+      setBluetoothActive(driverMgr.isBluetoothEnabled());
+    });
+    return unsub;
   }, [isOpen]);
 
   const handleAppVolumeChange = (id: string, vol: number) => {
@@ -108,35 +119,94 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
       {/* Quick Action Tiles */}
       <div className="grid grid-cols-2 gap-2.5">
         {/* WiFi Tile */}
-        <button
-          type="button"
+        <div
           onClick={() => {
             const next = !settings.wifiConnected;
             onUpdateSettings({ wifiConnected: next });
-            DriverManager.getInstance().setWifiEnabled(next);
+            driverMgr.setWifiEnabled(next);
           }}
-          className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center gap-3 ${
+          className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between gap-2 group ${
             settings.wifiConnected
               ? 'bg-[var(--rkt-accent)]/20 border-[var(--rkt-accent)]/50 text-white shadow-lg shadow-[var(--rkt-accent)]/10'
               : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
           }`}
         >
-          <div
-            className={`p-2 rounded-xl ${
-              settings.wifiConnected ? 'accent-bg text-white' : 'bg-slate-800 text-slate-400'
-            }`}
-          >
-            <Wifi className="w-4 h-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-xs truncate">WiFi</div>
-            <div className="text-[10px] opacity-75 truncate">
-              {settings.wifiConnected
-                ? `Connected (${DriverManager.getInstance().getActiveSsid() || 'Wi-Fi'})`
-                : 'Disconnected'}
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`p-2 rounded-xl shrink-0 ${
+                settings.wifiConnected ? 'accent-bg text-white' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              <Wifi className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-xs truncate">Wi-Fi</div>
+              <div className="text-[10px] opacity-75 truncate">
+                {settings.wifiConnected
+                  ? driverMgr.getActiveSsid() || 'Connected'
+                  : 'Off'}
+              </div>
             </div>
           </div>
-        </button>
+          {onOpenApp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenApp('wifi');
+                onClose();
+              }}
+              className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 hover:bg-white/20 text-slate-200 transition-colors shrink-0"
+              title="Open Wi-Fi Settings"
+            >
+              Setup
+            </button>
+          )}
+        </div>
+
+        {/* Bluetooth Tile */}
+        <div
+          onClick={() => {
+            const next = !bluetoothActive;
+            driverMgr.setBluetoothEnabled(next);
+            setBluetoothActive(next);
+          }}
+          className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center justify-between gap-2 group ${
+            bluetoothActive
+              ? 'bg-blue-600/20 border-blue-400/50 text-white shadow-lg shadow-blue-500/10'
+              : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className={`p-2 rounded-xl shrink-0 ${
+                bluetoothActive ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400'
+              }`}
+            >
+              <Bluetooth className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-semibold text-xs truncate">Bluetooth</div>
+              <div className="text-[10px] opacity-75 truncate">
+                {bluetoothActive ? 'Enabled' : 'Off'}
+              </div>
+            </div>
+          </div>
+          {onOpenApp && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenApp('bluetooth');
+                onClose();
+              }}
+              className="px-1.5 py-0.5 rounded text-[10px] bg-white/10 hover:bg-white/20 text-slate-200 transition-colors shrink-0"
+              title="Open Bluetooth Devices"
+            >
+              Pair
+            </button>
+          )}
+        </div>
 
         {/* Night Light Tile */}
         <button
@@ -160,6 +230,26 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
             <div className="text-[10px] opacity-75 truncate">
               {settings.nightLight ? 'Warm filter active' : 'Disabled'}
             </div>
+          </div>
+        </button>
+
+        {/* Device Manager Tile */}
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenApp) {
+              onOpenApp('device-manager');
+              onClose();
+            }
+          }}
+          className="p-3 rounded-2xl border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-all cursor-pointer text-left flex items-center gap-3"
+        >
+          <div className="p-2 rounded-xl bg-slate-800 text-cyan-400">
+            <Cpu className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-xs truncate">Device Manager</div>
+            <div className="text-[10px] opacity-75 truncate">Hardware & Drivers</div>
           </div>
         </button>
 

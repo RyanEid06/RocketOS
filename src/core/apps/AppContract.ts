@@ -237,6 +237,79 @@ export class AppContract {
       'filesystem.write',
       'notifications',
     ],
+    profiler: [
+      'system.info',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    disassembler: [
+      'filesystem.read',
+      'filesystem.write',
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    cheatsheet: [
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    wifi: [
+      'network',
+      'system.info',
+      'service.manage',
+      'notifications',
+    ],
+    bluetooth: [
+      'network',
+      'system.info',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    'device-manager': [
+      'system.info',
+      'service.manage',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    calendar: [
+      'system.info',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    mail: [
+      'network',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    'software-center': [
+      'network',
+      'filesystem.read',
+      'filesystem.write',
+      'service.manage',
+      'notifications',
+    ],
+    recorder: [
+      'filesystem.write',
+      'notifications',
+    ],
+    firewall: [
+      'network',
+      'system.info',
+      'service.manage',
+      'notifications',
+    ],
+    benchmark: [
+      'system.info',
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
   };
 
   /**

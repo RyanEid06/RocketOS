@@ -82,6 +82,14 @@ export const Desktop: React.FC<DesktopProps> = ({
   onOpenTimeSettings,
 }) => {
   const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
+  const [showDesktopIcons, setShowDesktopIcons] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('rocket_show_desktop_icons');
+      return saved === 'true'; // Defaults to false (clean desktop without clutter on left side)
+    } catch {
+      return false;
+    }
+  });
 
   // Spacebar Native Quick Look Listener
   useEffect(() => {
@@ -386,89 +394,91 @@ export const Desktop: React.FC<DesktopProps> = ({
         />
       )}
 
-      {/* Purpose-Built Workspace Shortcuts Grid & Desktop Files */}
-      <div
-        style={{ zIndex: SHELL_Z_LAYERS.DESKTOP_ICONS }}
-        className="absolute top-6 left-6 grid grid-flow-col grid-rows-6 auto-cols-max gap-3 select-none pointer-events-auto"
-      >
-        {/* Workspace Purpose-Built System Shortcuts */}
-        {activeShortcuts.map((shortcut) => {
-          const isSelected = selectedIconId === shortcut.id;
-          return (
-            <div
-              key={shortcut.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedIconId(shortcut.id);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                onOpenApp(shortcut.appId, shortcut.extraData);
-              }}
-              onContextMenu={(e) => handleIconContextMenu(e, shortcut)}
-              className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
-                isSelected
-                  ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
-                  : 'hover:bg-white/5 border border-transparent'
-              }`}
-              title={`${shortcut.title} - ${shortcut.sub}`}
-            >
-              <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
-                {renderShortcutIcon(shortcut.iconName)}
+      {/* Purpose-Built Workspace Shortcuts Grid & Desktop Files (Cleaned by default) */}
+      {showDesktopIcons && (activeShortcuts.length > 0 || desktopFiles.length > 0) && (
+        <div
+          style={{ zIndex: SHELL_Z_LAYERS.DESKTOP_ICONS }}
+          className="absolute top-6 left-6 grid grid-flow-col grid-rows-6 auto-cols-max gap-3 select-none pointer-events-auto"
+        >
+          {/* Workspace Purpose-Built System Shortcuts */}
+          {activeShortcuts.map((shortcut) => {
+            const isSelected = selectedIconId === shortcut.id;
+            return (
+              <div
+                key={shortcut.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedIconId(shortcut.id);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  onOpenApp(shortcut.appId, shortcut.extraData);
+                }}
+                onContextMenu={(e) => handleIconContextMenu(e, shortcut)}
+                className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
+                  isSelected
+                    ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
+                    : 'hover:bg-white/5 border border-transparent'
+                }`}
+                title={`${shortcut.title} - ${shortcut.sub}`}
+              >
+                <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
+                  {renderShortcutIcon(shortcut.iconName)}
+                </div>
+                <span className="text-[11px] font-medium text-slate-100 line-clamp-2 leading-tight drop-shadow-md">
+                  {shortcut.title}
+                </span>
               </div>
-              <span className="text-[11px] font-medium text-slate-100 line-clamp-2 leading-tight drop-shadow-md">
-                {shortcut.title}
-              </span>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        {/* User-created Desktop Files & Dropped Items */}
-        {desktopFiles.map((file) => {
-          const isSelected = selectedIconId === file.id;
-          return (
-            <div
-              key={file.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedIconId(file.id);
-              }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                if (file.type === 'folder') {
-                  onOpenApp('explorer', { path: file.path });
-                } else {
-                  onOpenFile(file);
-                }
-              }}
-              onContextMenu={(e) => handleIconContextMenu(e, file)}
-              className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
-                isSelected
-                  ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
-                  : 'hover:bg-white/5 border border-transparent'
-              }`}
-              title={file.name}
-            >
-              <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
-                {file.type === 'folder' ? (
-                  <Folder className="w-8 h-8 text-amber-400 drop-shadow-md" />
-                ) : file.name.endsWith('.rocket') ? (
-                  <FileCode className="w-8 h-8 text-sky-400 drop-shadow-md" />
-                ) : file.name.endsWith('.rnote') ? (
-                  <FileText className="w-8 h-8 text-emerald-400 drop-shadow-md" />
-                ) : file.name.endsWith('.rpaint') || file.name.endsWith('.png') || file.name.endsWith('.jpg') ? (
-                  <ImageIcon className="w-8 h-8 text-purple-400 drop-shadow-md" />
-                ) : (
-                  <FileText className="w-8 h-8 text-slate-300 drop-shadow-md" />
-                )}
+          {/* User-created Desktop Files & Dropped Items */}
+          {desktopFiles.map((file) => {
+            const isSelected = selectedIconId === file.id;
+            return (
+              <div
+                key={file.id}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedIconId(file.id);
+                }}
+                onDoubleClick={(e) => {
+                  e.stopPropagation();
+                  if (file.type === 'folder') {
+                    onOpenApp('explorer', { path: file.path });
+                  } else {
+                    onOpenFile(file);
+                  }
+                }}
+                onContextMenu={(e) => handleIconContextMenu(e, file)}
+                className={`w-20 p-2 rounded-xl flex flex-col items-center justify-center text-center cursor-pointer transition-all duration-150 group ${
+                  isSelected
+                    ? 'bg-white/15 border border-white/20 shadow-md backdrop-blur-xs'
+                    : 'hover:bg-white/5 border border-transparent'
+                }`}
+                title={file.name}
+              >
+                <div className="mb-1.5 transition-transform duration-150 group-hover:scale-105">
+                  {file.type === 'folder' ? (
+                    <Folder className="w-8 h-8 text-amber-400 drop-shadow-md" />
+                  ) : file.name.endsWith('.rocket') ? (
+                    <FileCode className="w-8 h-8 text-sky-400 drop-shadow-md" />
+                  ) : file.name.endsWith('.rnote') ? (
+                    <FileText className="w-8 h-8 text-emerald-400 drop-shadow-md" />
+                  ) : file.name.endsWith('.rpaint') || file.name.endsWith('.png') || file.name.endsWith('.jpg') ? (
+                    <ImageIcon className="w-8 h-8 text-purple-400 drop-shadow-md" />
+                  ) : (
+                    <FileText className="w-8 h-8 text-slate-300 drop-shadow-md" />
+                  )}
+                </div>
+                <span className="text-[11px] font-medium text-slate-100 truncate w-full leading-tight drop-shadow-md">
+                  {file.name}
+                </span>
               </div>
-              <span className="text-[11px] font-medium text-slate-100 truncate w-full leading-tight drop-shadow-md">
-                {file.name}
-              </span>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Desktop Widget System (Clock, System Stats, Quick Sticky Notes) */}
       <DesktopWidgets onOpenApp={onOpenApp} />
@@ -728,6 +738,27 @@ export const Desktop: React.FC<DesktopProps> = ({
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                 <span>Desktop Widgets & Stickies</span>
+              </button>
+              <button
+                onClick={() => {
+                  setShowDesktopIcons((prev) => {
+                    const next = !prev;
+                    try {
+                      localStorage.setItem('rocket_show_desktop_icons', String(next));
+                    } catch {}
+                    return next;
+                  });
+                  handleCloseContextMenu();
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <FileText className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Show Desktop Icons</span>
+                </div>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-mono font-semibold ${showDesktopIcons ? 'bg-emerald-500/20 text-emerald-300' : 'bg-white/10 text-slate-400'}`}>
+                  {showDesktopIcons ? 'ON' : 'OFF'}
+                </span>
               </button>
               <button
                 onClick={() => {

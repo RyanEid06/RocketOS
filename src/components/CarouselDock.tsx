@@ -17,6 +17,8 @@ import {
   Radio,
   Package,
   StickyNote,
+  Calculator as CalcIcon,
+  Camera as CameraIcon,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../utils/localization';
 import { soundEngine } from '../utils/audio';
@@ -198,6 +200,24 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
       category: 'Developer',
       icon: <Package className="w-11 h-11 text-emerald-400" />,
       action: () => onOpenApp('rockpm'),
+    },
+    {
+      id: 'calculator',
+      appId: 'calculator',
+      title: 'Calculator',
+      desc: 'Scientific & Programmer calculator',
+      category: 'Utilities',
+      icon: <CalcIcon className="w-11 h-11 text-amber-400" />,
+      action: () => onOpenApp('calculator'),
+    },
+    {
+      id: 'camera',
+      appId: 'camera',
+      title: 'Camera',
+      desc: 'Webcam capture with live filters',
+      category: 'Utilities',
+      icon: <CameraIcon className="w-11 h-11 text-emerald-400" />,
+      action: () => onOpenApp('camera'),
     },
   ];
 

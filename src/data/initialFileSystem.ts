@@ -14,40 +14,7 @@ export const INITIAL_FILE_SYSTEM: FSItem[] = [
         type: 'folder',
         path: '/Desktop',
         updatedAt: '2026-09-04',
-        children: [
-          {
-            id: 'welcome-rocket',
-            name: 'welcome.rocket',
-            type: 'file',
-            path: '/Desktop/welcome.rocket',
-            size: '128 B',
-            updatedAt: '2026-09-04',
-            content: `# Welcome to RocketOS 2.1
-# Statically-typed, deterministic ARC, indentation-aware system
-
-fn main() -> Int:
-    let message = "Welcome to RocketOS"
-    print(message)
-    return 0
-`
-          },
-          {
-            id: 'rocket-toml',
-            name: 'rocket.toml',
-            type: 'file',
-            path: '/Desktop/rocket.toml',
-            size: '150 B',
-            updatedAt: '2026-09-04',
-            content: `[package]
-name = "workspace"
-version = "2.1.0"
-entry = "src/main.rocket"
-
-[target.native]
-features = ["llvm", "raylib"]
-`
-          }
-        ]
+        children: []
       },
       {
         id: 'src-folder',
@@ -205,6 +172,38 @@ Architecture: Deterministic ARC + Atomic Graph Promotion`
 - [x] Dual-Engine Programmer & Scientific Calculator
 - [x] Snapshot Backup & Restore Center
 - [x] Ambient Focus Audio Generator
+`
+          },
+          {
+            id: 'doc-welcome-rocket',
+            name: 'welcome.rocket',
+            type: 'file',
+            path: '/Documents/welcome.rocket',
+            size: '128 B',
+            updatedAt: '2026-09-04',
+            content: `# Welcome to RocketOS 2.1
+# Statically-typed, deterministic ARC, indentation-aware system
+
+fn main() -> Int:
+    let message = "Welcome to RocketOS"
+    print(message)
+    return 0
+`
+          },
+          {
+            id: 'doc-rocket-toml',
+            name: 'rocket.toml',
+            type: 'file',
+            path: '/Documents/rocket.toml',
+            size: '150 B',
+            updatedAt: '2026-09-04',
+            content: `[package]
+name = "workspace"
+version = "2.1.0"
+entry = "src/main.rocket"
+
+[target.native]
+features = ["llvm", "raylib"]
 `
           }
         ]
