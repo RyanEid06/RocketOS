@@ -1291,3 +1291,6 @@ export class RocketFS {
     }
   }
 }
+
+export const rocketFS = RocketFS.getInstance();
+

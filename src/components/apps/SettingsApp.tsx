@@ -37,8 +37,10 @@ import {
   Network,
   WifiOff,
   Lock,
+  Keyboard,
 } from 'lucide-react';
 import { DriverManager } from '../../core/drivers/DriverManager';
+import { ShortcutsSettingsSection } from '../settings/ShortcutsSettingsSection';
 
 interface SettingsAppProps {
   settings: SystemSettings;
@@ -51,7 +53,7 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
   onUpdateSettings,
   onReboot,
 }) => {
-  const [activeTab, setActiveTab] = useState<'personalization' | 'display' | 'time' | 'network' | 'apps' | 'storage' | 'system'>('personalization');
+  const [activeTab, setActiveTab] = useState<'personalization' | 'display' | 'time' | 'network' | 'apps' | 'storage' | 'system' | 'shortcuts'>('personalization');
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [fsStats, setFsStats] = useState<{ totalInodes: number; totalBytes: number; trashCount: number }>({
     totalInodes: 0,
@@ -239,6 +241,18 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
           >
             <HardDrive className="w-4 h-4 text-cyan-400" />
             <span>Storage & VFS</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('shortcuts')}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors cursor-pointer text-left ${
+              activeTab === 'shortcuts'
+                ? 'bg-sky-600/30 text-white font-semibold border border-sky-500/50'
+                : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
+            }`}
+          >
+            <Keyboard className="w-4 h-4 text-emerald-400" />
+            <span>Shortcuts & Keys</span>
           </button>
 
           <button
@@ -998,6 +1012,11 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* 6. SHORTCUTS & KEYS TAB */}
+        {activeTab === 'shortcuts' && (
+          <ShortcutsSettingsSection />
         )}
       </div>
     </div>

@@ -50,12 +50,14 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
 
   const snapTo = (snapType: WindowSnapState) => {
     const halfWidth = Math.floor(window.innerWidth / 2);
-    const screenHeight = Math.max(300, window.innerHeight - 64);
+    const screenHeight = Math.max(300, window.innerHeight - 48);
     const halfHeight = Math.floor(screenHeight / 2);
     soundEngine.playSnap();
 
     if (snapType === 'none') {
       onToggleMaximize();
+    } else if (snapType === 'top') {
+      if (!win.isMaximized) onToggleMaximize();
     } else if (snapType === 'left' && onUpdateBounds) {
       onUpdateBounds(halfWidth, screenHeight, 0, 0, 'left');
     } else if (snapType === 'right' && onUpdateBounds) {
@@ -126,7 +128,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
     e.stopPropagation();
     e.preventDefault();
     onFocus();
-    if (win.isMaximized || win.snapState) return;
+    if (win.isMaximized || (win.snapState && win.snapState !== 'none')) return;
 
     setResizingDir(dir);
     dragStartRef.current = {
@@ -149,27 +151,42 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         onUpdatePosition(newX, newY);
 
         // Detect Aero Snap Zones (Edges and 4 Corners)
-        const isLeft = e.clientX <= 30;
-        const isRight = e.clientX >= window.innerWidth - 30;
-        const isTop = e.clientY <= 30;
-        const isBottom = e.clientY >= window.innerHeight - 90;
+        const cornerThreshold = 55;
+        const edgeThreshold = 25;
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight;
 
-        if (isTop && isLeft) {
-          setSnapPreview('top-left');
-        } else if (isTop && isRight) {
-          setSnapPreview('top-right');
-        } else if (isBottom && isLeft) {
-          setSnapPreview('bottom-left');
-        } else if (isBottom && isRight) {
-          setSnapPreview('bottom-right');
-        } else if (isTop) {
-          setSnapPreview('top');
-        } else if (isLeft) {
-          setSnapPreview('left');
-        } else if (isRight) {
-          setSnapPreview('right');
-        } else {
-          setSnapPreview(null);
+        const isLeftCorner = e.clientX <= cornerThreshold;
+        const isRightCorner = e.clientX >= screenW - cornerThreshold;
+        const isTopCorner = e.clientY <= cornerThreshold;
+        const isBottomCorner = e.clientY >= screenH - 100;
+
+        const isTopEdge = e.clientY <= edgeThreshold;
+        const isLeftEdge = e.clientX <= edgeThreshold;
+        const isRightEdge = e.clientX >= screenW - edgeThreshold;
+
+        let detectedSnap: WindowSnapState | null = null;
+        if (isTopCorner && isLeftCorner) {
+          detectedSnap = 'top-left';
+        } else if (isTopCorner && isRightCorner) {
+          detectedSnap = 'top-right';
+        } else if (isBottomCorner && isLeftCorner) {
+          detectedSnap = 'bottom-left';
+        } else if (isBottomCorner && isRightCorner) {
+          detectedSnap = 'bottom-right';
+        } else if (isTopEdge) {
+          detectedSnap = 'top';
+        } else if (isLeftEdge) {
+          detectedSnap = 'left';
+        } else if (isRightEdge) {
+          detectedSnap = 'right';
+        }
+
+        if (detectedSnap !== snapPreview) {
+          if (detectedSnap) {
+            soundEngine.playSnap();
+          }
+          setSnapPreview(detectedSnap);
         }
       } else if (resizingDir && onUpdateBounds) {
         const dx = e.clientX - dragStartRef.current.startX;
@@ -177,7 +194,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         const minW = 340;
         const minH = 220;
         const maxW = window.innerWidth;
-        const maxH = window.innerHeight - 64;
+        const maxH = window.innerHeight - 48;
 
         let newW = dragStartRef.current.initWidth;
         let newH = dragStartRef.current.initHeight;
@@ -212,12 +229,14 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
       if (isDragging) {
         setIsDragging(false);
         const halfWidth = Math.floor(window.innerWidth / 2);
-        const screenHeight = Math.max(300, window.innerHeight - 64);
+        const screenHeight = Math.max(300, window.innerHeight - 48);
         const halfHeight = Math.floor(screenHeight / 2);
 
         if (snapPreview === 'top') {
           soundEngine.playSnap();
-          onToggleMaximize();
+          if (!win.isMaximized) {
+            onToggleMaximize();
+          }
         } else if (snapPreview === 'left' && onUpdateBounds) {
           soundEngine.playSnap();
           onUpdateBounds(halfWidth, screenHeight, 0, 0, 'left');
@@ -276,7 +295,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         left: 0,
         top: 0,
         width: '100vw',
-        height: 'calc(100vh - 64px)',
+        height: 'calc(100vh - 48px)',
         zIndex: effectiveZIndex,
       }
     : isSnappedLeft
@@ -285,7 +304,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         left: 0,
         top: 0,
         width: '50vw',
-        height: 'calc(100vh - 64px)',
+        height: 'calc(100vh - 48px)',
         zIndex: effectiveZIndex,
       }
     : isSnappedRight
@@ -294,7 +313,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         left: '50vw',
         top: 0,
         width: '50vw',
-        height: 'calc(100vh - 64px)',
+        height: 'calc(100vh - 48px)',
         zIndex: effectiveZIndex,
       }
     : isSnappedTopLeft
@@ -303,7 +322,7 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         left: 0,
         top: 0,
         width: '50vw',
-        height: 'calc((100vh - 64px) / 2)',
+        height: 'calc((100vh - 48px) / 2)',
         zIndex: effectiveZIndex,
       }
     : isSnappedTopRight
@@ -312,25 +331,25 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
         left: '50vw',
         top: 0,
         width: '50vw',
-        height: 'calc((100vh - 64px) / 2)',
+        height: 'calc((100vh - 48px) / 2)',
         zIndex: effectiveZIndex,
       }
     : isSnappedBottomLeft
     ? {
         position: 'fixed',
         left: 0,
-        top: 'calc((100vh - 64px) / 2)',
+        top: 'calc((100vh - 48px) / 2)',
         width: '50vw',
-        height: 'calc((100vh - 64px) / 2)',
+        height: 'calc((100vh - 48px) / 2)',
         zIndex: effectiveZIndex,
       }
     : isSnappedBottomRight
     ? {
         position: 'fixed',
         left: '50vw',
-        top: 'calc((100vh - 64px) / 2)',
+        top: 'calc((100vh - 48px) / 2)',
         width: '50vw',
-        height: 'calc((100vh - 64px) / 2)',
+        height: 'calc((100vh - 48px) / 2)',
         zIndex: effectiveZIndex,
       }
     : {
@@ -344,27 +363,45 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
 
   return (
     <>
-      {/* Aero Snap Ghost Previews */}
-      {snapPreview === 'top' && (
-        <div className="fixed top-2 left-2 right-2 h-[calc(100vh-76px)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'left' && (
-        <div className="fixed top-2 left-2 w-[calc(50vw-12px)] h-[calc(100vh-76px)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'right' && (
-        <div className="fixed top-2 left-[calc(50vw+4px)] right-2 h-[calc(100vh-76px)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'top-left' && (
-        <div className="fixed top-2 left-2 w-[calc(50vw-12px)] h-[calc((100vh-88px)/2)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'top-right' && (
-        <div className="fixed top-2 left-[calc(50vw+4px)] right-2 h-[calc((100vh-88px)/2)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'bottom-left' && (
-        <div className="fixed top-[calc((100vh-64px)/2+4px)] left-2 w-[calc(50vw-12px)] h-[calc((100vh-88px)/2)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
-      )}
-      {snapPreview === 'bottom-right' && (
-        <div className="fixed top-[calc((100vh-64px)/2+4px)] left-[calc(50vw+4px)] right-2 h-[calc((100vh-88px)/2)] z-40 bg-[var(--rkt-accent)]/20 border-2 border-[var(--rkt-accent)] rounded-2xl backdrop-blur-sm pointer-events-none transition-all duration-150 animate-pulse shadow-2xl" />
+      {/* Aero Snap Translucent Ghost Previews (High Z-Index above windows) */}
+      {snapPreview && (
+        <div
+          style={{ zIndex: 950 }}
+          className={`fixed pointer-events-none transition-all duration-150 ease-out backdrop-blur-md rounded-2xl border-2 border-sky-400 bg-sky-500/20 shadow-[0_0_40px_rgba(56,189,248,0.4)] flex items-center justify-center animate-pulse ${
+            snapPreview === 'top'
+              ? 'top-2 left-2 right-2 bottom-[52px]'
+              : snapPreview === 'left'
+              ? 'top-2 left-2 w-[calc(50vw-8px)] bottom-[52px]'
+              : snapPreview === 'right'
+              ? 'top-2 left-[calc(50vw+4px)] right-2 bottom-[52px]'
+              : snapPreview === 'top-left'
+              ? 'top-2 left-2 w-[calc(50vw-8px)] h-[calc((100vh-64px)/2)]'
+              : snapPreview === 'top-right'
+              ? 'top-2 left-[calc(50vw+4px)] right-2 h-[calc((100vh-64px)/2)]'
+              : snapPreview === 'bottom-left'
+              ? 'top-[calc((100vh-48px)/2+4px)] left-2 w-[calc(50vw-8px)] bottom-[52px]'
+              : 'top-[calc((100vh-48px)/2+4px)] left-[calc(50vw+4px)] right-2 bottom-[52px]'
+          }`}
+        >
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-900/85 border border-sky-400/80 shadow-2xl text-sky-200 text-xs font-semibold tracking-wide">
+            <span className="w-2 h-2 rounded-full bg-sky-400 animate-ping" />
+            <span>
+              {snapPreview === 'top'
+                ? 'Maximize Full Screen'
+                : snapPreview === 'left'
+                ? 'Dock Left (50%)'
+                : snapPreview === 'right'
+                ? 'Dock Right (50%)'
+                : snapPreview === 'top-left'
+                ? 'Top-Left Quadrant (25%)'
+                : snapPreview === 'top-right'
+                ? 'Top-Right Quadrant (25%)'
+                : snapPreview === 'bottom-left'
+                ? 'Bottom-Left Quadrant (25%)'
+                : 'Bottom-Right Quadrant (25%)'}
+            </span>
+          </div>
+        </div>
       )}
 
       <div

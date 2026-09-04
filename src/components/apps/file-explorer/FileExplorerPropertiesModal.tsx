@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FSItem } from '../../../types';
+import { AppId, FSItem } from '../../../types';
 import { RocketFS } from '../../../core/filesystem/RocketFS';
 import { PermissionsEngine } from '../../../core/filesystem/PermissionsEngine';
 import { UserManager } from '../../../core/users/UserManager';
@@ -26,7 +26,15 @@ export const FileExplorerPropertiesModal: React.FC<FileExplorerPropertiesModalPr
   const [mode, setMode] = useState<number>(inode ? inode.mode : 0o644);
   const isOwnerOrRoot = currentUser.uid === 0 || (inode && currentUser.uid === inode.uid);
   const ext = PathEngine.getExtension(item.name);
-  const defaultApp = FileAssociations.getDefaultApp(ext);
+  const [selectedApp, setSelectedApp] = useState<AppId>(() => FileAssociations.getDefaultApp(ext));
+  const availableApps = FileAssociations.getAssociatedApps(ext);
+
+  const handleAppChange = (newApp: AppId) => {
+    setSelectedApp(newApp);
+    if (ext) {
+      FileAssociations.setDefaultApp(ext, newApp);
+    }
+  };
 
   const toggleBit = (bit: number) => {
     if (!isOwnerOrRoot) return;
@@ -88,9 +96,19 @@ export const FileExplorerPropertiesModal: React.FC<FileExplorerPropertiesModalPr
               <span className="text-slate-400">Size:</span>
               <span className="font-mono text-slate-200">{inode?.sizeBytes ?? 0} bytes</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Default Association:</span>
-              <span className="font-semibold text-sky-300 capitalize">{defaultApp}</span>
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400">Default Opener:</span>
+              <select
+                value={selectedApp}
+                onChange={(e) => handleAppChange(e.target.value as AppId)}
+                className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-0.5 text-sky-300 font-medium focus:outline-none focus:border-sky-500 cursor-pointer capitalize text-[11px]"
+              >
+                {availableApps.map((app) => (
+                  <option key={app} value={app} className="bg-slate-900 text-slate-200">
+                    {app}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 

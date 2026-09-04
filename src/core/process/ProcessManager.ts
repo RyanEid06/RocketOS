@@ -7,6 +7,7 @@ import { SystemLogger } from '../logging/SystemLogger';
 import { UserManager } from '../users/UserManager';
 import {
   ProcessCapabilities,
+  ProcessPriority,
   ProcessRecord,
   ProcessState,
   ResourceAccounting,
@@ -20,9 +21,11 @@ export class ProcessManager {
   private processes: Map<number, ProcessRecord> = new Map();
   private listeners: Set<() => void> = new Set();
   private logger = SystemLogger.getInstance();
+  private schedulerTimer: any = null;
 
   private constructor() {
     this.bootstrapCoreProcesses();
+    this.startSchedulerSimulation();
   }
 
   public static getInstance(): ProcessManager {
@@ -64,6 +67,10 @@ export class ProcessManager {
         canSpawn: true,
         canIpc: true,
       },
+      priority: 'HIGH',
+      threadsCount: 4,
+      cpuQuotaPercent: 100,
+      cpuAffinity: [0, 1, 2, 3],
     });
 
     this.nextPid = 2;
@@ -140,6 +147,10 @@ export class ProcessManager {
       capabilities,
       windowId: options.windowId,
       isBackgroundDaemon: !!options.isBackgroundDaemon,
+      priority: 'NORMAL',
+      threadsCount: options.isBackgroundDaemon ? 1 : 3,
+      cpuQuotaPercent: 100,
+      cpuAffinity: [0, 1, 2, 3],
     };
 
     this.processes.set(pid, record);
@@ -270,6 +281,75 @@ export class ProcessManager {
 
   public getActiveCount(): number {
     return Array.from(this.processes.values()).filter((p) => p.state !== 'ZOMBIE').length;
+  }
+
+  // =========================================================================
+  // SCHEDULER SIMULATION & THREAD CONTROLS
+  // =========================================================================
+  public setProcessPriority(pid: number, priority: ProcessPriority): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.state === 'ZOMBIE') return false;
+    proc.priority = priority;
+    this.logger.logProcess('state_change', pid, proc.name, `priority changed to ${priority}`);
+    this.notify();
+    return true;
+  }
+
+  public setProcessCpuQuota(pid: number, quotaPercent: number): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.state === 'ZOMBIE') return false;
+    proc.cpuQuotaPercent = Math.max(5, Math.min(100, quotaPercent));
+    this.logger.logProcess('state_change', pid, proc.name, `cpu quota set to ${proc.cpuQuotaPercent}%`);
+    this.notify();
+    return true;
+  }
+
+  public setProcessThreads(pid: number, count: number): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.state === 'ZOMBIE') return false;
+    proc.threadsCount = Math.max(1, Math.min(32, count));
+    this.notify();
+    return true;
+  }
+
+  public setProcessAffinity(pid: number, cores: number[]): boolean {
+    const proc = this.processes.get(pid);
+    if (!proc || proc.state === 'ZOMBIE') return false;
+    proc.cpuAffinity = cores.length > 0 ? cores : [0];
+    this.notify();
+    return true;
+  }
+
+  private startSchedulerSimulation(): void {
+    if (typeof window === 'undefined') return;
+    this.schedulerTimer = setInterval(() => {
+      this.tickScheduler();
+    }, 2000);
+  }
+
+  private tickScheduler(): void {
+    let changed = false;
+    for (const proc of this.processes.values()) {
+      if (proc.state === 'RUNNING') {
+        // Compute dynamic CPU utilization based on priority and quota
+        let weight = 1.0;
+        if (proc.priority === 'REALTIME') weight = 2.8;
+        else if (proc.priority === 'HIGH') weight = 1.8;
+        else if (proc.priority === 'LOW') weight = 0.4;
+
+        const baseLoad = Math.floor(Math.random() * 12) + 2; // 0.2 - 1.4%
+        const threadsMult = 1 + (proc.threadsCount || 1) * 0.15;
+        let calculated = Math.round(baseLoad * weight * threadsMult);
+
+        const quota = proc.cpuQuotaPercent ?? 100;
+        const maxAllowed = Math.round(quota * 10); // in tenths
+        proc.accounting.cpuPercentTenth = Math.min(calculated, maxAllowed);
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.notify();
+    }
   }
 
   // =========================================================================

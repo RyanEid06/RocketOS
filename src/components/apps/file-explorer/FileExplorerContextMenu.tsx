@@ -1,6 +1,7 @@
 import React from 'react';
-import { Folder, Copy, Scissors, Trash2, Edit2, Shield, Eye } from 'lucide-react';
+import { Folder, Copy, Scissors, Trash2, Edit2, Shield, Eye, Disc } from 'lucide-react';
 import { FSItem } from '../../../types';
+import { mountManager } from '../../../core/filesystem/MountManager';
 
 interface FileExplorerContextMenuProps {
   x: number;
@@ -68,6 +69,23 @@ export const FileExplorerContextMenu: React.FC<FileExplorerContextMenuProps> = (
           <span>Quick Look (Space)</span>
         </button>
       )}
+
+      {item.type === 'file' &&
+        (item.name.toLowerCase().endsWith('.iso') ||
+          item.name.toLowerCase().endsWith('.zip') ||
+          item.name.toLowerCase().endsWith('.img')) && (
+          <button
+            type="button"
+            onClick={() => {
+              mountManager.mountVirtualDisk(item.path, item.content);
+              onClose();
+            }}
+            className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-amber-500/20 text-left cursor-pointer transition-colors text-amber-300 font-semibold"
+          >
+            <Disc className="w-3.5 h-3.5 text-amber-400" />
+            <span>Mount Virtual Disk</span>
+          </button>
+        )}
 
       {item.type === 'file' && onOpenWith && (
         <div className="relative">

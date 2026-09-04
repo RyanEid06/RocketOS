@@ -42,6 +42,7 @@ import { TRANSLATIONS, getLocaleCode } from '../utils/localization';
 import { WorkspaceRulesManager, WorkspaceShortcutItem } from '../core/workspace/WorkspaceRules';
 import { SHELL_Z_LAYERS } from '../core/theme/tokens';
 import { clipboardService } from '../core/clipboard/ClipboardService';
+import { DesktopWidgets } from './desktop/DesktopWidgets';
 
 interface DesktopProps {
   desktopFiles: FSItem[];
@@ -469,6 +470,9 @@ export const Desktop: React.FC<DesktopProps> = ({
         })}
       </div>
 
+      {/* Desktop Widget System (Clock, System Stats, Quick Sticky Notes) */}
+      <DesktopWidgets onOpenApp={onOpenApp} />
+
       {/* Context Menu (Liquid Glass Aesthetic) */}
       {contextMenu && (
         <div
@@ -714,6 +718,16 @@ export const Desktop: React.FC<DesktopProps> = ({
               >
                 <Palette className="w-3.5 h-3.5 text-sky-300" />
                 <span>Personalize & Wallpaper</span>
+              </button>
+              <button
+                onClick={() => {
+                  handleCloseContextMenu();
+                  onOpenApp('widgets');
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Desktop Widgets & Stickies</span>
               </button>
               <button
                 onClick={() => {

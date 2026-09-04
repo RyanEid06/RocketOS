@@ -1,10 +1,16 @@
 // FileAssociations.ts
 // Authoritative TypeScript binding implementing rocket/filesystem/associations.rocket
+// Extended with dynamic user overrides and virtual disk / media associations.
 
 import { AppId } from '../../types';
 import { FileAssociation } from './types';
 
+const STORAGE_KEY = 'rocket_user_file_associations_v1';
+
 export class FileAssociations {
+  private static userOverrides: Map<string, AppId> = new Map();
+  private static initialized = false;
+
   private static readonly ASSOCIATIONS: FileAssociation[] = [
     {
       extension: '.rocket',
@@ -139,14 +145,119 @@ export class FileAssociations {
       associatedAppIds: ['pdf-viewer', 'editor'],
       friendlyName: 'Specification Document',
     },
+    // Virtual Disk & Archive Files
+    {
+      extension: '.iso',
+      mimeType: 'application/x-iso9660-image',
+      defaultAppId: 'explorer',
+      associatedAppIds: ['explorer', 'system-monitor'],
+      friendlyName: 'Virtual Disk Image (ISO)',
+    },
+    {
+      extension: '.zip',
+      mimeType: 'application/zip',
+      defaultAppId: 'explorer',
+      associatedAppIds: ['explorer'],
+      friendlyName: 'Compressed ZIP Archive',
+    },
+    {
+      extension: '.tar',
+      mimeType: 'application/x-tar',
+      defaultAppId: 'explorer',
+      associatedAppIds: ['explorer'],
+      friendlyName: 'TAR Archive',
+    },
+    // Media Audio & Video Files
+    {
+      extension: '.mp3',
+      mimeType: 'audio/mpeg',
+      defaultAppId: 'media',
+      associatedAppIds: ['media'],
+      friendlyName: 'MP3 Audio File',
+    },
+    {
+      extension: '.wav',
+      mimeType: 'audio/wav',
+      defaultAppId: 'media',
+      associatedAppIds: ['media'],
+      friendlyName: 'WAV Audio Track',
+    },
+    {
+      extension: '.ogg',
+      mimeType: 'audio/ogg',
+      defaultAppId: 'media',
+      associatedAppIds: ['media'],
+      friendlyName: 'Ogg Vorbis Audio',
+    },
+    {
+      extension: '.mp4',
+      mimeType: 'video/mp4',
+      defaultAppId: 'media',
+      associatedAppIds: ['media'],
+      friendlyName: 'MP4 Video File',
+    },
+    {
+      extension: '.webm',
+      mimeType: 'video/webm',
+      defaultAppId: 'media',
+      associatedAppIds: ['media'],
+      friendlyName: 'WebM Video File',
+    },
   ];
 
-  public static getAllAssociations() {
-    return this.ASSOCIATIONS;
+  private static ensureInitialized() {
+    if (this.initialized) return;
+    this.initialized = true;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        Object.entries(parsed).forEach(([ext, appId]) => {
+          this.userOverrides.set(ext.toLowerCase(), appId as AppId);
+        });
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  public static getAllAssociations(): FileAssociation[] {
+    this.ensureInitialized();
+    return this.ASSOCIATIONS.map((a) => {
+      const override = this.userOverrides.get(a.extension);
+      if (override) {
+        return { ...a, defaultAppId: override };
+      }
+      return a;
+    });
+  }
+
+  public static setDefaultApp(extension: string, appId: AppId): void {
+    this.ensureInitialized();
+    const cleanExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
+    this.userOverrides.set(cleanExt, appId);
+    try {
+      const obj: Record<string, string> = {};
+      this.userOverrides.forEach((v, k) => {
+        obj[k] = v;
+      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    } catch {
+      // ignore
+    }
+  }
+
+  public static resetDefaults(): void {
+    this.userOverrides.clear();
+    localStorage.removeItem(STORAGE_KEY);
   }
 
   public static getDefaultApp(extension: string): AppId {
+    this.ensureInitialized();
     const cleanExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
+    const override = this.userOverrides.get(cleanExt);
+    if (override) return override;
+
     const found = this.ASSOCIATIONS.find((a) => a.extension === cleanExt);
     return (found?.defaultAppId as AppId) || 'editor';
   }
@@ -164,6 +275,7 @@ export class FileAssociations {
   }
 
   public static getAssociatedApps(extension: string): AppId[] {
+    this.ensureInitialized();
     const cleanExt = extension.startsWith('.') ? extension.toLowerCase() : `.${extension.toLowerCase()}`;
     const found = this.ASSOCIATIONS.find((a) => a.extension === cleanExt);
     if (!found) return ['editor'];

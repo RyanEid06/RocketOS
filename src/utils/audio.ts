@@ -321,6 +321,10 @@ class SoundEngine {
     } catch {}
   }
 
+  playDelete(volume?: number, muted?: boolean) {
+    this.playTrash(volume, muted);
+  }
+
   // Soft dismissal pop for window close
   playClose(volume?: number, muted?: boolean) {
     const { vol, silent } = this.resolveAudioParams(volume, muted);

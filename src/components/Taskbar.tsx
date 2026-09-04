@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { WindowState, AppId, SystemSettings, FSItem } from '../types';
+import { SHELL_Z_LAYERS } from '../core/theme/tokens';
 import {
   Folder,
   Terminal,
@@ -331,7 +332,8 @@ export const Taskbar: React.FC<TaskbarProps> = ({
       ref={taskbarRef}
       id="taskbar"
       onContextMenu={handleTaskbarContextMenu}
-      className="fixed bottom-0 left-0 right-0 h-12 z-50 bg-slate-950/80 backdrop-blur-2xl border-t border-white/10 px-3 flex items-center justify-between select-none shadow-2xl"
+      style={{ zIndex: SHELL_Z_LAYERS.TASKBAR }}
+      className="fixed bottom-0 left-0 right-0 h-12 bg-slate-950/80 backdrop-blur-2xl border-t border-white/10 px-3 flex items-center justify-between select-none shadow-2xl"
     >
       {/* Left Section: Start Button, Workspaces, Search Launcher */}
       <div className="flex items-center gap-1.5">
@@ -535,6 +537,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
               soundEngine.playOpen();
             }
           }}
+          onContextMenu={handleTaskbarContextMenu}
           className={`h-9 px-2.5 rounded-2xl flex items-center gap-2 border transition-all cursor-pointer ${
             controlCenterOpen
               ? 'bg-white/15 text-white border-white/20 shadow-md'
@@ -565,6 +568,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
               soundEngine.playOpen();
             }
           }}
+          onContextMenu={handleTaskbarContextMenu}
           className={`h-9 px-3 rounded-2xl flex flex-col justify-center text-right border transition-all cursor-pointer ${
             calendarOpen
               ? 'bg-white/15 text-white border-white/20 shadow-md'
@@ -589,6 +593,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
               soundEngine.playOpen();
             }
           }}
+          onContextMenu={handleTaskbarContextMenu}
           className={`h-9 w-9 rounded-2xl flex items-center justify-center border relative transition-all cursor-pointer ${
             notificationsOpen
               ? 'bg-white/15 text-white border-white/20 shadow-md'
@@ -612,6 +617,7 @@ export const Taskbar: React.FC<TaskbarProps> = ({
         {/* Show Desktop Sliver */}
         <div
           onClick={onToggleShowDesktop}
+          onContextMenu={handleTaskbarContextMenu}
           className="w-2.5 h-8 ml-1 rounded-full bg-white/10 hover:bg-sky-400 transition-colors cursor-pointer"
           title="Show Desktop"
         />
@@ -678,7 +684,8 @@ export const Taskbar: React.FC<TaskbarProps> = ({
       {contextMenu && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-transparent"
+            style={{ zIndex: SHELL_Z_LAYERS.CONTEXT_MENU - 1 }}
+            className="fixed inset-0 bg-transparent"
             onMouseDown={() => setContextMenu(null)}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -687,11 +694,13 @@ export const Taskbar: React.FC<TaskbarProps> = ({
           />
           <div
             style={{
+              zIndex: SHELL_Z_LAYERS.CONTEXT_MENU,
               bottom: '54px',
               left: `${Math.min(Math.max(12, contextMenu.x - 40), Math.max(12, window.innerWidth - 270))}px`,
             }}
             onClick={(e) => e.stopPropagation()}
-            className="fixed z-50 w-64 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-2xl p-2 text-slate-200 text-xs space-y-1 select-none animate-in fade-in zoom-in-95 duration-100"
+            onContextMenu={(e) => e.preventDefault()}
+            className="fixed w-64 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-2xl p-2 text-slate-200 text-xs space-y-1 select-none animate-in fade-in zoom-in-95 duration-100"
           >
           {/* Taskbar Background Right-Click Menu */}
           {contextMenu.isTaskbarBg ? (

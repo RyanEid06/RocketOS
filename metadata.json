@@ -1,6 +1,8 @@
 {
   "name": "RocketOS",
   "description": "An operating system prototype and workbench powered by the Rocket programming language, featuring a bootable GUI desktop, file explorer, shell, and language analyzer.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "camera"
+  ],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

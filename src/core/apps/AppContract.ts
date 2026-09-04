@@ -183,6 +183,60 @@ export class AppContract {
       'filesystem.write',
       'notifications',
     ],
+    archive: [
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+      'system.info',
+    ],
+    network: [
+      'network',
+      'notifications',
+      'system.info',
+    ],
+    clock: [
+      'notifications',
+      'system.info',
+    ],
+    hex: [
+      'filesystem.read',
+      'filesystem.write',
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    snippets: [
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    'db-studio': [
+      'filesystem.read',
+      'filesystem.write',
+      'notifications',
+    ],
+    keyring: [
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    palette: [
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    'font-book': [
+      'clipboard.read',
+      'clipboard.write',
+      'notifications',
+    ],
+    synth: [
+      'notifications',
+    ],
+    camera: [
+      'filesystem.write',
+      'notifications',
+    ],
   };
 
   /**

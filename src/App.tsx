@@ -39,8 +39,20 @@ import { MediaApp } from './components/apps/MediaApp';
 import { BrowserApp } from './components/apps/BrowserApp';
 import { DisplayApp } from './components/apps/DisplayApp';
 import { CronApp } from './components/apps/CronApp';
+import { CameraApp } from './components/apps/CameraApp';
+import { ArchiveApp } from './components/apps/ArchiveApp';
+import { NetworkApp } from './components/apps/NetworkApp';
+import { ClockApp } from './components/apps/ClockApp';
+import { HexEditorApp } from './components/apps/HexEditorApp';
+import { RegexSnippetLabApp } from './components/apps/RegexSnippetLabApp';
+import { DatabaseStudioApp } from './components/apps/DatabaseStudioApp';
+import { KeyringVaultApp } from './components/apps/KeyringVaultApp';
+import { PaletteStudioApp } from './components/apps/PaletteStudioApp';
+import { FontBookApp } from './components/apps/FontBookApp';
+import { AudioSynthApp } from './components/apps/AudioSynthApp';
 import { CommandPalette } from './components/shell/CommandPalette';
 import { QuickLookModal } from './components/shell/QuickLookModal';
+import { NotificationToastContainer } from './components/notifications/NotificationToastContainer';
 
 import { browserPersistenceProvider } from './platform/browser/BrowserPersistenceProvider';
 import { settingsService } from './core/settings/SettingsService';
@@ -390,64 +402,59 @@ export default function App() {
         return;
       }
 
-      // 4. Window Snapping & Tiling Shortcuts (Alt + Arrow Keys)
-      if (e.altKey && activeWindowId && !isInput) {
+      // 4. Window Snapping & Tiling Shortcuts (Win + Arrow Keys or Alt + Arrow Keys)
+      if ((e.metaKey || e.altKey) && activeWindowId && !isInput) {
         const activeWin = windows.find((w) => w.id === activeWindowId);
         if (!activeWin) return;
 
         const screenW = window.innerWidth;
         const screenH = window.innerHeight - 48; // Space reserved for taskbar
+        const halfW = Math.floor(screenW / 2);
+        const halfH = Math.floor(screenH / 2);
 
         if (e.key === 'ArrowLeft') {
           e.preventDefault();
           soundEngine.playSnap();
           if (e.shiftKey) {
-            updateWindowBounds(
-              activeWindowId,
-              Math.floor(screenW / 2),
-              Math.floor(screenH / 2),
-              0,
-              0,
-              'top-left'
-            );
+            updateWindowBounds(activeWindowId, halfW, halfH, 0, 0, 'top-left');
+            notificationService.notify('Window Snapped', 'Top-Left Quadrant (25%)', 'info');
           } else {
-            updateWindowBounds(activeWindowId, Math.floor(screenW / 2), screenH, 0, 0, 'left');
+            updateWindowBounds(activeWindowId, halfW, screenH, 0, 0, 'left');
+            notificationService.notify('Window Snapped', 'Docked to Left (50%)', 'info');
           }
-          notificationService.notify('Window Snapped', 'Tiled to left side', 'info');
         } else if (e.key === 'ArrowRight') {
           e.preventDefault();
           soundEngine.playSnap();
           if (e.shiftKey) {
-            updateWindowBounds(
-              activeWindowId,
-              Math.floor(screenW / 2),
-              Math.floor(screenH / 2),
-              Math.floor(screenW / 2),
-              0,
-              'top-right'
-            );
+            updateWindowBounds(activeWindowId, halfW, halfH, halfW, 0, 'top-right');
+            notificationService.notify('Window Snapped', 'Top-Right Quadrant (25%)', 'info');
           } else {
-            updateWindowBounds(
-              activeWindowId,
-              Math.floor(screenW / 2),
-              screenH,
-              Math.floor(screenW / 2),
-              0,
-              'right'
-            );
+            updateWindowBounds(activeWindowId, halfW, screenH, halfW, 0, 'right');
+            notificationService.notify('Window Snapped', 'Docked to Right (50%)', 'info');
           }
-          notificationService.notify('Window Snapped', 'Tiled to right side', 'info');
         } else if (e.key === 'ArrowUp') {
           e.preventDefault();
           soundEngine.playSnap();
-          if (!activeWin.isMaximized) {
+          if (activeWin.snapState === 'bottom-left') {
+            updateWindowBounds(activeWindowId, halfW, halfH, 0, 0, 'top-left');
+            notificationService.notify('Window Snapped', 'Top-Left Quadrant', 'info');
+          } else if (activeWin.snapState === 'bottom-right') {
+            updateWindowBounds(activeWindowId, halfW, halfH, halfW, 0, 'top-right');
+            notificationService.notify('Window Snapped', 'Top-Right Quadrant', 'info');
+          } else if (!activeWin.isMaximized) {
             toggleMaximizeWindow(activeWindowId);
             notificationService.notify('Window Maximized', activeWin.title, 'info');
           }
         } else if (e.key === 'ArrowDown') {
           e.preventDefault();
           soundEngine.playSnap();
-          if (activeWin.isMaximized) {
+          if (e.shiftKey && activeWin.snapState === 'top-left') {
+            updateWindowBounds(activeWindowId, halfW, halfH, 0, halfH, 'bottom-left');
+            notificationService.notify('Window Snapped', 'Bottom-Left Quadrant', 'info');
+          } else if (e.shiftKey && activeWin.snapState === 'top-right') {
+            updateWindowBounds(activeWindowId, halfW, halfH, halfW, halfH, 'bottom-right');
+            notificationService.notify('Window Snapped', 'Bottom-Right Quadrant', 'info');
+          } else if (activeWin.isMaximized) {
             toggleMaximizeWindow(activeWindowId);
           } else if (activeWin.snapState !== 'none' && activeWin.restoreBounds) {
             updateWindowBounds(
@@ -458,6 +465,7 @@ export default function App() {
               activeWin.restoreBounds.y,
               'none'
             );
+            notificationService.notify('Window Restored', 'Floating layout restored', 'info');
           } else {
             minimizeWindow(activeWindowId);
           }
@@ -941,6 +949,28 @@ export default function App() {
         return <DisplayApp />;
       case 'cron':
         return <CronApp />;
+      case 'archive':
+        return <ArchiveApp />;
+      case 'network':
+        return <NetworkApp />;
+      case 'clock':
+        return <ClockApp />;
+      case 'hex':
+        return <HexEditorApp />;
+      case 'snippets':
+        return <RegexSnippetLabApp />;
+      case 'db-studio':
+        return <DatabaseStudioApp />;
+      case 'keyring':
+        return <KeyringVaultApp />;
+      case 'palette':
+        return <PaletteStudioApp />;
+      case 'font-book':
+        return <FontBookApp />;
+      case 'synth':
+        return <AudioSynthApp />;
+      case 'camera':
+        return <CameraApp />;
       default:
         return <div className="p-4 text-slate-300">App content</div>;
     }
@@ -1078,6 +1108,9 @@ export default function App() {
           handleOpenFile(file);
         }}
       />
+
+      {/* Real-time Notification Toast Stacking with Interactive Actions */}
+      <NotificationToastContainer />
     </div>
   );
 }

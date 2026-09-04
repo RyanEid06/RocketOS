@@ -24,6 +24,7 @@ import {
 import { RocketFS } from '../../core/filesystem/RocketFS';
 import { CrashRecoveryService } from '../../core/recovery/CrashRecoveryService';
 import { AppSecurityManager } from '../../core/apps/AppSecurityManager';
+import { binaryBlobStore } from '../../platform/browser/BinaryBlobStore';
 
 type Tool = 'brush' | 'eraser' | 'line' | 'rectangle' | 'circle';
 
@@ -317,6 +318,7 @@ export const PaintApp: React.FC<PaintAppProps> = ({ initialFilePath }) => {
       });
 
       RocketFS.getInstance().writeFile(filePath, rpaintPayload);
+      binaryBlobStore.saveBlob(`paint-${filePath}`, filePath.split('/').pop() || 'drawing.png', 'image/png', dataUrl);
       CrashRecoveryService.getInstance().clearDraftSnapshot('paint', filePath);
       setIsDirty(false);
       setNotification('Saved to RocketFS!');

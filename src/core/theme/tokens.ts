@@ -106,6 +106,7 @@ export const SHELL_Z_LAYERS = {
   FLYOUT: 1100,
   MODAL: 1200,
   CONTEXT_MENU: 1300,
+  NOTIFICATION_TOAST: 1400,
 } as const;
 
 export const DESIGN_TOKENS = {

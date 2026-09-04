@@ -22,6 +22,18 @@ import {
   ArrowLeft,
   Image,
   Rocket,
+  Calculator,
+  Camera,
+  Archive,
+  Radio,
+  Clock,
+  Binary,
+  Zap,
+  Database,
+  Key,
+  Palette,
+  Type,
+  Music,
 } from 'lucide-react';
 import { AppId, SystemSettings } from '../../types';
 import { TRANSLATIONS } from '../../utils/localization';
@@ -115,8 +127,37 @@ export const StartMenu: React.FC<StartMenuProps> = ({
         return <ListTodo className="w-4 h-4 text-emerald-400" />;
       case 'graphics':
         return <Rocket className="w-4 h-4 text-purple-400" />;
-      default:
+      case 'calculator':
+        return <Calculator className="w-4 h-4 text-amber-400" />;
+      case 'camera':
+        return <Camera className="w-4 h-4 text-emerald-400" />;
+      case 'archive':
+        return <Archive className="w-4 h-4 text-amber-400" />;
+      case 'network':
+        return <Radio className="w-4 h-4 text-sky-400" />;
+      case 'clock':
+        return <Clock className="w-4 h-4 text-teal-400" />;
+      case 'hex':
+        return <Binary className="w-4 h-4 text-violet-400" />;
+      case 'snippets':
+        return <Zap className="w-4 h-4 text-amber-400" />;
+      case 'db-studio':
+        return <Database className="w-4 h-4 text-emerald-400" />;
+      case 'keyring':
+        return <Key className="w-4 h-4 text-sky-400" />;
+      case 'palette':
+        return <Palette className="w-4 h-4 text-pink-400" />;
+      case 'font-book':
+        return <Type className="w-4 h-4 text-blue-400" />;
+      case 'synth':
+        return <Music className="w-4 h-4 text-purple-400" />;
+      default: {
+        const glyph = AppRegistry.getApp(id)?.glyph;
+        if (glyph) {
+          return <span className="text-sm leading-none">{glyph}</span>;
+        }
         return <Folder className="w-4 h-4 text-sky-400" />;
+      }
     }
   };
 

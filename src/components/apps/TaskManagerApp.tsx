@@ -21,9 +21,12 @@ import {
   Info,
   Clock,
   X,
+  Radio,
+  Send,
+  MessageSquare,
 } from 'lucide-react';
 import { ProcessManager } from '../../core/process/ProcessManager';
-import { ProcessRecord, ProcessState } from '../../core/process/ProcessTypes';
+import { ProcessPriority, ProcessRecord, ProcessState } from '../../core/process/ProcessTypes';
 import { ServiceManager } from '../../core/services/ServiceManager';
 import { ServiceInstance } from '../../core/services/ServiceTypes';
 import { SessionManager } from '../../core/sessions/SessionManager';
@@ -32,6 +35,7 @@ import { TelemetryProvider } from '../../core/telemetry/TelemetryProvider';
 import { MetricProvenance, TelemetrySnapshot } from '../../core/telemetry/TelemetryTypes';
 import { AppRegistry } from '../../core/apps/AppRegistry';
 import { AppId, WindowState } from '../../types';
+import { ipcManager, IPCChannelInfo, IPCMessage } from '../../core/ipc/IPCChannelManager';
 
 interface TaskManagerAppProps {
   windows: WindowState[];
@@ -40,7 +44,7 @@ interface TaskManagerAppProps {
 }
 
 export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onCloseWindow, onLaunchApp }) => {
-  const [activeTab, setActiveTab] = useState<'processes' | 'services' | 'sessions' | 'telemetry'>('processes');
+  const [activeTab, setActiveTab] = useState<'processes' | 'services' | 'sessions' | 'telemetry' | 'ipc'>('processes');
   const [selectedPid, setSelectedPid] = useState<number | null>(null);
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
   const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState<boolean>(false);
@@ -55,6 +59,9 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
   const [services, setServices] = useState<ServiceInstance[]>(() => svcMgr.listServices());
   const [session, setSession] = useState<UserSessionRecord>(() => sessionMgr.getCurrentSession());
   const [snapshot, setSnapshot] = useState<TelemetrySnapshot>(() => telemetry.getSnapshot());
+  const [ipcChannels, setIpcChannels] = useState<IPCChannelInfo[]>(() => ipcManager.listChannels());
+  const [ipcMessages, setIpcMessages] = useState<IPCMessage[]>(() => ipcManager.getRecentMessages());
+  const [broadcastInput, setBroadcastInput] = useState<string>('Hello from Task Manager IPC test');
 
   // Subscribe to updates
   useEffect(() => {
@@ -62,12 +69,17 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
     const unsubSvc = svcMgr.subscribe(() => setServices(svcMgr.listServices()));
     const unsubSession = sessionMgr.subscribe(() => setSession(sessionMgr.getCurrentSession()));
     const unsubTelem = telemetry.subscribe(() => setSnapshot(telemetry.getSnapshot()));
+    const unsubIpc = ipcManager.subscribeChanges(() => {
+      setIpcChannels(ipcManager.listChannels());
+      setIpcMessages(ipcManager.getRecentMessages());
+    });
 
     return () => {
       unsubProc();
       unsubSvc();
       unsubSession();
       unsubTelem();
+      unsubIpc();
     };
   }, [procMgr, svcMgr, sessionMgr, telemetry]);
 
@@ -189,6 +201,16 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
             <Cpu className="w-3.5 h-3.5" />
             <span>System Diagnostics</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('ipc')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer ${
+              activeTab === 'ipc' ? 'bg-sky-500/20 text-sky-300 font-medium border border-sky-500/30' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            <span>IPC Message Bus</span>
+          </button>
         </div>
 
         {/* Process Actions Bar */}
@@ -274,6 +296,9 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                     <th className="py-2.5 px-3">Name / Command</th>
                     <th className="py-2.5 px-3">Type</th>
                     <th className="py-2.5 px-3">State</th>
+                    <th className="py-2.5 px-3">Threads</th>
+                    <th className="py-2.5 px-3">Priority</th>
+                    <th className="py-2.5 px-3">Quota</th>
                     <th className="py-2.5 px-3">Workspace</th>
                     <th className="py-2.5 px-3">UID</th>
                     <th className="py-2.5 px-3 text-right">CPU</th>
@@ -285,6 +310,16 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                     const isSelected = proc.pid === selectedPid;
                     const memMb = (proc.accounting.memoryRssBytes / (1024 * 1024)).toFixed(1);
                     const cpuPercent = (proc.accounting.cpuPercentTenth / 10).toFixed(1);
+                    const priority = proc.priority || 'NORMAL';
+
+                    const priorityBadgeColor =
+                      priority === 'REALTIME'
+                        ? 'bg-rose-500/20 text-rose-300 border-rose-500/30'
+                        : priority === 'HIGH'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : priority === 'LOW'
+                        ? 'bg-slate-500/20 text-slate-300 border-slate-500/30'
+                        : 'bg-sky-500/20 text-sky-300 border-sky-500/30';
 
                     return (
                       <tr
@@ -307,6 +342,13 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                           {proc.isBackgroundDaemon ? 'Daemon' : 'GUI App'}
                         </td>
                         <td className="py-2 px-3">{getStateBadge(proc.state)}</td>
+                        <td className="py-2 px-3 font-mono text-slate-300">{proc.threadsCount || 1} th</td>
+                        <td className="py-2 px-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${priorityBadgeColor}`}>
+                            {priority}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3 font-mono text-emerald-400">{proc.cpuQuotaPercent ?? 100}%</td>
                         <td className="py-2 px-3 font-mono text-sky-300">WS {proc.workspaceId || 1}</td>
                         <td className="py-2 px-3 font-mono text-slate-400">{proc.uid}</td>
                         <td className="py-2 px-3 text-right font-mono">{cpuPercent}%</td>
@@ -319,19 +361,67 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
             </div>
 
             {selectedProcess && (
-              <div className="mt-3 p-3 bg-slate-900/80 rounded-xl border border-white/10 text-[11px] text-slate-300 flex items-center justify-between">
+              <div className="mt-3 p-3 bg-slate-900/80 rounded-xl border border-white/10 text-[11px] text-slate-300 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <span className="text-slate-400">Process Details:</span>{' '}
                   <span className="font-semibold text-white">{selectedProcess.name}</span> (PID {selectedProcess.pid}, PPID {selectedProcess.ppid})
                   <span className="ml-3 text-slate-400">Virtual Memory:</span> {(selectedProcess.accounting.virtualMemoryBytes / (1024 * 1024)).toFixed(1)} MB
                 </div>
-                <div>
-                  <span className="text-slate-400">Capabilities:</span> [
-                  {Object.entries(selectedProcess.capabilities)
-                    .filter(([, v]) => v)
-                    .map(([k]) => k)
-                    .join(', ')}
-                  ]
+
+                {/* Scheduler Controls */}
+                <div className="flex items-center gap-2">
+                  <span className="text-slate-400">Priority:</span>
+                  <select
+                    value={selectedProcess.priority || 'NORMAL'}
+                    onChange={(e) => {
+                      procMgr.setProcessPriority(selectedProcess.pid, e.target.value as ProcessPriority);
+                      setProcesses(procMgr.getAllProcesses());
+                    }}
+                    className="bg-slate-800 text-xs px-2 py-1 rounded border border-white/10 text-sky-300 cursor-pointer outline-none"
+                  >
+                    <option value="LOW">LOW (0.4x)</option>
+                    <option value="NORMAL">NORMAL (1.0x)</option>
+                    <option value="HIGH">HIGH (1.8x)</option>
+                    <option value="REALTIME">REALTIME (2.8x)</option>
+                  </select>
+
+                  <span className="ml-2 text-slate-400">CPU Quota:</span>
+                  <select
+                    value={selectedProcess.cpuQuotaPercent ?? 100}
+                    onChange={(e) => {
+                      procMgr.setProcessCpuQuota(selectedProcess.pid, Number(e.target.value));
+                      setProcesses(procMgr.getAllProcesses());
+                    }}
+                    className="bg-slate-800 text-xs px-2 py-1 rounded border border-white/10 text-emerald-300 cursor-pointer outline-none"
+                  >
+                    <option value={100}>100% (Uncapped)</option>
+                    <option value={75}>75% (3/4 Core)</option>
+                    <option value={50}>50% (Half Core)</option>
+                    <option value={25}>25% (Throttled)</option>
+                  </select>
+
+                  <span className="ml-2 text-slate-400">Threads:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      procMgr.setProcessThreads(selectedProcess.pid, Math.max(1, (selectedProcess.threadsCount || 1) - 1));
+                      setProcesses(procMgr.getAllProcesses());
+                    }}
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono text-white">{selectedProcess.threadsCount || 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      procMgr.setProcessThreads(selectedProcess.pid, Math.min(32, (selectedProcess.threadsCount || 1) + 1));
+                      setProcesses(procMgr.getAllProcesses());
+                    }}
+                    className="px-1.5 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                  >
+                    +
+                  </button>
                 </div>
               </div>
             )}
@@ -491,6 +581,109 @@ export const TaskManagerApp: React.FC<TaskManagerAppProps> = ({ windows, onClose
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ================= IPC MESSAGE BUS TAB ================= */}
+        {activeTab === 'ipc' && (
+          <div className="space-y-4">
+            {/* Header / Dispatcher */}
+            <div className="p-3 bg-slate-900/80 rounded-xl border border-white/10 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Radio className="w-4 h-4 text-sky-400 animate-pulse" />
+                <span className="font-semibold text-white text-xs">RocketOS Inter-Process Message Bus</span>
+                <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-500/20 text-emerald-300 font-mono">
+                  {ipcChannels.length} Channels Active
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={broadcastInput}
+                  onChange={(e) => setBroadcastInput(e.target.value)}
+                  placeholder="Broadcast message..."
+                  className="px-2.5 py-1 text-xs bg-slate-950 rounded-lg border border-white/10 text-white outline-none w-64 focus:border-sky-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (broadcastInput.trim()) {
+                      ipcManager.broadcast('system:notifications', { text: broadcastInput.trim(), sender: 'TaskManager' }, 1);
+                      setIpcMessages(ipcManager.getRecentMessages());
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white rounded-lg transition-colors cursor-pointer"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Broadcast</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Channels Table */}
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-slate-900/60 backdrop-blur-md">
+              <div className="px-3 py-2 bg-slate-800/80 border-b border-white/10 text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Registered Message Channels</span>
+                <span className="text-[10px] text-slate-400">Owner PID / Subscribers</span>
+              </div>
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-black/20 text-slate-400 text-[10px] font-semibold uppercase tracking-wider border-b border-white/5">
+                    <th className="py-2 px-3">Channel Name</th>
+                    <th className="py-2 px-3">Owner</th>
+                    <th className="py-2 px-3 text-center">Subscribers</th>
+                    <th className="py-2 px-3 text-right">Messages Delivered</th>
+                    <th className="py-2 px-3 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/5">
+                  {ipcChannels.map((chan) => (
+                    <tr key={chan.name} className="hover:bg-white/5 transition-colors">
+                      <td className="py-2 px-3 font-mono font-medium text-sky-300 flex items-center gap-2">
+                        <MessageSquare className="w-3.5 h-3.5 text-sky-400" />
+                        <span>{chan.name}</span>
+                      </td>
+                      <td className="py-2 px-3 font-mono text-slate-400">PID {chan.ownerPid}</td>
+                      <td className="py-2 px-3 text-center font-mono text-emerald-400">{chan.subscribersCount}</td>
+                      <td className="py-2 px-3 text-right font-mono text-slate-300">{chan.totalMessagesSent}</td>
+                      <td className="py-2 px-3 text-right">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-300 font-semibold">
+                          ONLINE
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Message Stream */}
+            <div className="border border-white/10 rounded-xl overflow-hidden bg-slate-900/60 backdrop-blur-md">
+              <div className="px-3 py-2 bg-slate-800/80 border-b border-white/10 text-xs font-bold text-slate-300 flex items-center justify-between">
+                <span>Live IPC Packet Stream</span>
+                <span className="text-[10px] text-slate-400">FIFO Buffer ({ipcMessages.length} packets)</span>
+              </div>
+              <div className="max-h-48 overflow-y-auto divide-y divide-white/5 font-mono text-[11px]">
+                {ipcMessages.length === 0 ? (
+                  <div className="p-4 text-center text-slate-500 text-xs">No IPC packets dispatched yet. Click "Broadcast" to test.</div>
+                ) : (
+                  ipcMessages.map((msg) => (
+                    <div key={msg.id} className="p-2 hover:bg-white/5 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 truncate">
+                        <span className="text-slate-500">{new Date(msg.timestampEpochMs).toLocaleTimeString()}</span>
+                        <span className="px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 text-[10px] font-semibold">
+                          {msg.channel}
+                        </span>
+                        <span className="text-slate-400">PID {msg.senderPid}:</span>
+                        <span className="text-slate-200 truncate">{JSON.stringify(msg.payload)}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-600 shrink-0">{msg.id}</span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         )}

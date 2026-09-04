@@ -19,6 +19,8 @@ export interface ResourceAccounting {
   ioWriteBytes: number;
 }
 
+export type ProcessPriority = 'LOW' | 'NORMAL' | 'HIGH' | 'REALTIME';
+
 export interface ProcessRecord {
   pid: number;
   ppid: number;
@@ -35,6 +37,10 @@ export interface ProcessRecord {
   capabilities: ProcessCapabilities;
   windowId?: string;
   isBackgroundDaemon: boolean;
+  priority?: ProcessPriority;
+  threadsCount?: number;
+  cpuQuotaPercent?: number; // 1 - 100%
+  cpuAffinity?: number[]; // e.g. [0, 1]
 }
 
 export interface SpawnProcessOptions {

@@ -39,7 +39,18 @@ export type AppId =
   | 'media'
   | 'browser'
   | 'display'
-  | 'cron';
+  | 'cron'
+  | 'archive'
+  | 'network'
+  | 'clock'
+  | 'hex'
+  | 'snippets'
+  | 'db-studio'
+  | 'keyring'
+  | 'palette'
+  | 'font-book'
+  | 'synth'
+  | 'camera';
 
 export type WallpaperId =
   | 'liquid-aurora'
