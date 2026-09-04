@@ -285,6 +285,17 @@ export class BrowserPersistenceProvider implements IPersistenceProvider {
       }
     } catch {}
   }
+
+  public async clearAll(): Promise<void> {
+    await this.init();
+    if (this.db) {
+      try {
+        const tx = this.db.transaction([this.storeName], 'readwrite');
+        tx.objectStore(this.storeName).clear();
+      } catch {}
+    }
+    this.clearLocalStorage();
+  }
 }
 
 export const persistenceProvider = BrowserPersistenceProvider.getInstance();

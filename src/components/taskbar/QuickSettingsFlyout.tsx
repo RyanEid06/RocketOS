@@ -13,6 +13,9 @@ import {
   CloudRain,
   Radio,
   Headphones,
+  Sliders,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { SystemSettings, SystemLanguage } from '../../types';
 import { TRANSLATIONS } from '../../utils/localization';
@@ -38,10 +41,22 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
   const [ambientType, setAmbientType] = useState<string | null>(null);
   const [ambientVolume, setAmbientVolume] = useState<number>(35);
+  const [showAppMixer, setShowAppMixer] = useState<boolean>(false);
+  const [appVolumes, setAppVolumes] = useState<{ id: string; label: string; volume: number }[]>([
+    { id: 'system', label: 'System UI & Shell', volume: soundEngine.getAppVolume('system') ?? 100 },
+    { id: 'notifications', label: 'Notifications & Alerts', volume: soundEngine.getAppVolume('notifications') ?? 85 },
+    { id: 'terminal', label: 'Terminal / REPL Beeps', volume: soundEngine.getAppVolume('terminal') ?? 90 },
+    { id: 'media', label: 'Media & Physics Engine', volume: soundEngine.getAppVolume('media') ?? 100 },
+  ]);
 
   useEffect(() => {
     setAmbientType(soundEngine.getCurrentAmbientType());
   }, [isOpen]);
+
+  const handleAppVolumeChange = (id: string, vol: number) => {
+    soundEngine.setAppVolume(id, vol);
+    setAppVolumes((prev) => prev.map((a) => (a.id === id ? { ...a, volume: vol } : a)));
+  };
 
   const toggleAmbient = (type: 'rain' | 'whitenoise' | 'binaural') => {
     if (ambientType === type) {
@@ -209,6 +224,48 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
           }
           className="w-full accent-[var(--rkt-accent)] cursor-pointer h-1.5 bg-slate-800 rounded-lg"
         />
+
+        {/* Per-App Volume Mixer Toggle */}
+        <div className="pt-1">
+          <button
+            type="button"
+            onClick={() => setShowAppMixer(!showAppMixer)}
+            className="w-full flex items-center justify-between text-[11px] text-slate-400 hover:text-slate-200 py-1 transition-colors cursor-pointer"
+          >
+            <span className="flex items-center gap-1.5 font-medium">
+              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Per-App Sound Mixer</span>
+            </span>
+            {showAppMixer ? (
+              <ChevronUp className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" />
+            )}
+          </button>
+
+          {showAppMixer && (
+            <div className="space-y-2 pt-2 border-t border-white/5 animate-in fade-in duration-150">
+              {appVolumes.map((app) => (
+                <div key={app.id} className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-400">
+                    <span>{app.label}</span>
+                    <span className="font-mono">{app.volume}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={app.volume}
+                    onChange={(e) =>
+                      handleAppVolumeChange(app.id, parseInt(e.target.value, 10))
+                    }
+                    className="w-full accent-indigo-400 cursor-pointer h-1 bg-slate-800 rounded-lg"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Ambient Sound Focus Generator Widget */}

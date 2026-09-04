@@ -13,6 +13,10 @@ import {
   Cpu,
   Settings as SettingsIcon,
   Code2,
+  Zap,
+  Radio,
+  Package,
+  StickyNote,
 } from 'lucide-react';
 import { TRANSLATIONS } from '../utils/localization';
 import { soundEngine } from '../utils/audio';
@@ -158,6 +162,42 @@ export const CarouselDock: React.FC<CarouselDockProps> = ({
       category: 'Preferences',
       icon: <SettingsIcon className="w-11 h-11 text-slate-300" />,
       action: () => onOpenApp('settings'),
+    },
+    {
+      id: 'repl',
+      appId: 'repl',
+      title: 'Rocket REPL',
+      desc: 'Interactive evaluation & step debugger',
+      category: 'Developer',
+      icon: <Zap className="w-11 h-11 text-amber-400" />,
+      action: () => onOpenApp('repl'),
+    },
+    {
+      id: 'widgets',
+      appId: 'widgets',
+      title: 'Widgets Shelf',
+      desc: 'Sticky notes & desktop telemetry',
+      category: 'Utilities',
+      icon: <StickyNote className="w-11 h-11 text-amber-300" />,
+      action: () => onOpenApp('widgets'),
+    },
+    {
+      id: 'rocket-drop',
+      appId: 'rocket-drop',
+      title: 'RocketDrop',
+      desc: 'Mesh network peer file sharing',
+      category: 'Utilities',
+      icon: <Radio className="w-11 h-11 text-sky-400" />,
+      action: () => onOpenApp('rocket-drop'),
+    },
+    {
+      id: 'rockpm',
+      appId: 'rockpm',
+      title: 'rockpm Catalog',
+      desc: 'Package manager & ecosystem store',
+      category: 'Developer',
+      icon: <Package className="w-11 h-11 text-emerald-400" />,
+      action: () => onOpenApp('rockpm'),
     },
   ];
 

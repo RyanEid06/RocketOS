@@ -1,0 +1,114 @@
+# RocketOS Spreadsheet (Rocket Sheet) Domain Engine
+# Tabular computation, cell coordinate addressing, formula parser & CSV serialization
+
+import std.string
+import std.collections
+import std.math
+
+struct CellAddress:
+    col: Int
+    row: Int
+    raw_label: String
+
+struct FormulaResult:
+    is_numeric: Bool
+    numeric_value: Float
+    text_value: String
+    is_error: Bool
+    error_message: String
+
+fn col_to_letter(col: Int) -> String:
+    if col == 0: return "A"
+    if col == 1: return "B"
+    if col == 2: return "C"
+    if col == 3: return "D"
+    if col == 4: return "E"
+    if col == 5: return "F"
+    if col == 6: return "G"
+    if col == 7: return "H"
+    if col == 8: return "I"
+    if col == 9: return "J"
+    if col == 10: return "K"
+    if col == 11: return "L"
+    if col == 12: return "M"
+    if col == 13: return "N"
+    if col == 14: return "O"
+    if col == 15: return "P"
+    return "Z"
+
+fn letter_to_col(letter: String) -> Int:
+    let upper = string.trim(letter)
+    if upper == "A": return 0
+    if upper == "B": return 1
+    if upper == "C": return 2
+    if upper == "D": return 3
+    if upper == "E": return 4
+    if upper == "F": return 5
+    if upper == "G": return 6
+    if upper == "H": return 7
+    if upper == "I": return 8
+    if upper == "J": return 9
+    if upper == "K": return 10
+    if upper == "L": return 11
+    if upper == "M": return 12
+    if upper == "N": return 13
+    if upper == "O": return 14
+    if upper == "P": return 15
+    return 0
+
+fn format_coordinate(col: Int, row: Int) -> String:
+    return col_to_letter(col) + string.from_int(row + 1)
+
+fn parse_coordinate(raw: String) -> CellAddress:
+    let clean = string.trim(raw)
+    if string.byte_length(clean) < 2:
+        return CellAddress(0, 0, "A1")
+    let col_char = string.slice(clean, 0, 1)
+    let row_part = string.slice(clean, 1, string.byte_length(clean))
+    let col = letter_to_col(col_char)
+    var row = 0
+    match string.parse_int(row_part):
+        case Ok(num):
+            row = num - 1
+        case Err(err):
+            row = 0
+    return CellAddress(col, row, clean)
+
+fn parse_csv_line(line: String) -> Array[String]:
+    return string.split(line, ",")
+
+fn format_csv_line(cells: Array[String]) -> String:
+    return collections.join(cells, ",")
+
+fn compute_sum(numbers: Array[Float]) -> Float:
+    var total: Float = 0.0
+    for num in numbers:
+        total = total + num
+    return total
+
+fn compute_average(numbers: Array[Float]) -> Float:
+    let count = collections.length(numbers)
+    if count == 0:
+        return 0.0
+    let total = compute_sum(numbers)
+    return total / (count + 0.0)
+
+fn compute_min(numbers: Array[Float]) -> Float:
+    let count = collections.length(numbers)
+    if count == 0:
+        return 0.0
+    var lowest: Float = 999999999.0
+    for num in numbers:
+        if num < lowest:
+            lowest = num
+    return lowest
+
+fn compute_max(numbers: Array[Float]) -> Float:
+    let count = collections.length(numbers)
+    if count == 0:
+        return 0.0
+    var highest: Float = -999999999.0
+    for num in numbers:
+        if num > highest:
+            highest = num
+    return highest

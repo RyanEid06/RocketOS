@@ -3,7 +3,7 @@
 // Powered by CommandRegistry, ShellParser, SessionManager, and RocketFS
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, X, Terminal, Copy, Trash2 } from 'lucide-react';
+import { Plus, X, Terminal, Copy, Trash2, Columns, Rows, Activity } from 'lucide-react';
 import { FSItem } from '../../types';
 import { CommandRegistry, CommandContext } from '../../core/commands/CommandRegistry';
 import { PathEngine } from '../../core/filesystem/PathEngine';
@@ -67,6 +67,8 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({
 
   const [activeTabId, setActiveTabId] = useState<string>('tab-1');
   const [inputVal, setInputVal] = useState<string>('');
+  const [splitMode, setSplitMode] = useState<'none' | 'horizontal' | 'vertical'>('none');
+  const [isHtopActive, setIsHtopActive] = useState<boolean>(false);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -238,6 +240,11 @@ export const TerminalApp: React.FC<TerminalAppProps> = ({
     setInputVal('');
 
     // Handle special built-in UI commands
+    if (rawLine === 'htop' || rawLine === 'top') {
+      setIsHtopActive(true);
+      return;
+    }
+
     if (rawLine === 'reboot') {
       onReboot();
       return;
@@ -445,6 +452,34 @@ Type 'help' for shell commands, 'rocketctl status' for service supervision, or '
         {/* Quick Toolbar */}
         <div className="flex items-center gap-1 px-2 pb-1 text-slate-400">
           <button
+            onClick={() => setIsHtopActive((prev) => !prev)}
+            className={`p-1 rounded transition-colors ${
+              isHtopActive ? 'bg-sky-500/20 text-sky-300' : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+            title="Toggle htop process monitor"
+          >
+            <Activity className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setSplitMode((prev) => (prev === 'vertical' ? 'none' : 'vertical'))}
+            className={`p-1 rounded transition-colors ${
+              splitMode === 'vertical' ? 'bg-sky-500/20 text-sky-300' : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+            title="Split pane vertically (Columns)"
+          >
+            <Columns className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => setSplitMode((prev) => (prev === 'horizontal' ? 'none' : 'horizontal'))}
+            className={`p-1 rounded transition-colors ${
+              splitMode === 'horizontal' ? 'bg-sky-500/20 text-sky-300' : 'hover:bg-slate-800 hover:text-slate-200'
+            }`}
+            title="Split pane horizontally (Rows)"
+          >
+            <Rows className="w-3.5 h-3.5" />
+          </button>
+          <div className="h-3.5 w-px bg-slate-800 mx-0.5" />
+          <button
             onClick={handleCopySelection}
             className="p-1 rounded hover:bg-slate-800 hover:text-slate-200 transition-colors"
             title="Copy all output to clipboard"
@@ -461,92 +496,233 @@ Type 'help' for shell commands, 'rocketctl status' for service supervision, or '
         </div>
       </div>
 
-      {/* Scrollable Output Area */}
-      <div
-        className="flex-1 p-3 overflow-y-auto space-y-2 select-text"
-        onClick={() => inputRef.current?.focus()}
-      >
-        {activeTab.outputLines.map((entry) => {
-          if (entry.type === 'input') {
-            return (
-              <div key={entry.id} className="flex items-start gap-1.5 text-slate-300">
-                <span className="text-emerald-400 font-semibold shrink-0 select-none">
-                  {entry.prompt}
-                </span>
-                <span className="text-white font-medium break-all">{entry.text}</span>
+      {/* Main Terminal View or HTOP Monitor */}
+      {isHtopActive ? (
+        <div className="flex-1 flex flex-col bg-slate-950 p-3 font-mono text-[11px] text-slate-300 overflow-hidden select-none">
+          {/* Curses top bars */}
+          <div className="grid grid-cols-2 gap-4 pb-3 border-b border-slate-800">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sky-400 font-bold w-12">1 [CPU]</span>
+                <div className="flex-1 bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
+                  <div className="bg-emerald-500 h-full w-[28%]" />
+                  <div className="bg-rose-500 h-full w-[12%]" />
+                </div>
+                <span className="text-slate-400 text-[10px] w-12 text-right">40.0%</span>
               </div>
-            );
-          }
+              <div className="flex items-center gap-2">
+                <span className="text-sky-400 font-bold w-12">2 [CPU]</span>
+                <div className="flex-1 bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
+                  <div className="bg-emerald-500 h-full w-[15%]" />
+                  <div className="bg-rose-500 h-full w-[6%]" />
+                </div>
+                <span className="text-slate-400 text-[10px] w-12 text-right">21.0%</span>
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-sky-400 font-bold w-12">Mem</span>
+                <div className="flex-1 bg-slate-800 rounded-full h-2.5 overflow-hidden">
+                  <div className="bg-purple-500 h-full w-[35%]" />
+                </div>
+                <span className="text-slate-400 text-[10px] w-16 text-right">420M/4096M</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sky-400 font-bold w-12">Tasks</span>
+                <span className="text-white">28 total, 1 running, 27 sleeping</span>
+              </div>
+            </div>
+          </div>
 
-          if (entry.type === 'stderr') {
-            return (
-              <pre
-                key={entry.id}
-                className="text-rose-400 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l-2 border-rose-500/40"
-              >
-                {entry.text}
-              </pre>
-            );
-          }
+          {/* Process Table Header */}
+          <div className="bg-slate-900 px-2 py-1 text-slate-400 font-semibold flex items-center justify-between text-[10px] border-b border-slate-800">
+            <span className="w-12">PID</span>
+            <span className="w-16">USER</span>
+            <span className="w-12">PRI</span>
+            <span className="w-12">VIRT</span>
+            <span className="w-12">RES</span>
+            <span className="w-10">S</span>
+            <span className="w-12 text-right">CPU%</span>
+            <span className="w-12 text-right">MEM%</span>
+            <span className="w-20 text-right">TIME+</span>
+            <span className="flex-1 ml-4">Command</span>
+          </div>
 
-          if (entry.type === 'system') {
-            return (
+          {/* Process List */}
+          <div className="flex-1 overflow-y-auto space-y-0.5 py-1 text-[11px]">
+            {[
+              { pid: 1, user: 'root', pri: 20, virt: '110M', res: '18M', s: 'S', cpu: '0.0', mem: '0.4', time: '0:03.11', cmd: '/sbin/init' },
+              { pid: 48, user: 'root', pri: 20, virt: '148M', res: '22M', s: 'S', cpu: '0.8', mem: '0.5', time: '0:07.45', cmd: '/usr/bin/rsh-daemon' },
+              { pid: 104, user: 'ryan', pri: 20, virt: '640M', res: '140M', s: 'S', cpu: '4.2', mem: '3.4', time: '0:22.01', cmd: '/usr/bin/compositor --wayland' },
+              { pid: 182, user: 'ryan', pri: 20, virt: '320M', res: '48M', s: 'S', cpu: '1.1', mem: '1.2', time: '0:05.18', cmd: '/usr/bin/rocketc --daemon' },
+              { pid: 219, user: 'ryan', pri: 20, virt: '180M', res: '32M', s: 'S', cpu: '0.4', mem: '0.8', time: '0:01.89', cmd: '/usr/bin/sound-mixer' },
+              { pid: 301, user: 'ryan', pri: 20, virt: '98M', res: '19M', s: 'R', cpu: '12.4', mem: '0.5', time: '0:00.64', cmd: 'htop' },
+            ].map((p) => (
               <div
-                key={entry.id}
-                className="text-sky-400/90 whitespace-pre-wrap font-mono leading-relaxed p-2 bg-sky-950/20 rounded border border-sky-900/30"
+                key={p.pid}
+                className="flex items-center justify-between px-2 py-0.5 hover:bg-white/5 rounded transition-colors"
               >
-                {entry.text}
+                <span className="w-12 text-sky-400">{p.pid}</span>
+                <span className="w-16 text-slate-400">{p.user}</span>
+                <span className="w-12 text-slate-500">{p.pri}</span>
+                <span className="w-12 text-slate-400">{p.virt}</span>
+                <span className="w-12 text-slate-400">{p.res}</span>
+                <span className={`w-10 ${p.s === 'R' ? 'text-emerald-400 font-bold' : 'text-slate-400'}`}>{p.s}</span>
+                <span className="w-12 text-right text-amber-300">{p.cpu}</span>
+                <span className="w-12 text-right text-slate-400">{p.mem}</span>
+                <span className="w-20 text-right text-slate-500">{p.time}</span>
+                <span className="flex-1 ml-4 text-white font-medium truncate">{p.cmd}</span>
               </div>
-            );
-          }
+            ))}
+          </div>
 
-          // stdout
-          return (
-            <pre
-              key={entry.id}
-              className="text-slate-300 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l border-slate-800"
+          {/* Curses Footer Buttons */}
+          <div className="h-7 border-t border-slate-800 bg-slate-900/80 px-2 flex items-center justify-between text-[10px]">
+            <div className="flex items-center gap-2">
+              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">F1 Help</span>
+              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">F2 Setup</span>
+              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">F3 Search</span>
+              <span className="px-1.5 py-0.5 rounded bg-slate-800 text-sky-400">F9 Kill</span>
+            </div>
+            <button
+              onClick={() => setIsHtopActive(false)}
+              className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 font-semibold cursor-pointer"
             >
-              {entry.text}
-            </pre>
-          );
-        })}
-        <div ref={endRef} />
-      </div>
+              [Q] Quit htop
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className={`flex-1 flex ${splitMode === 'horizontal' ? 'flex-col' : 'flex-row'} overflow-hidden`}>
+          {/* Primary Pane */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {/* Scrollable Output Area */}
+            <div
+              className="flex-1 p-3 overflow-y-auto space-y-2 select-text"
+              onClick={() => inputRef.current?.focus()}
+            >
+              {activeTab.outputLines.map((entry) => {
+                if (entry.type === 'input') {
+                  return (
+                    <div key={entry.id} className="flex items-start gap-1.5 text-slate-300">
+                      <span className="text-emerald-400 font-semibold shrink-0 select-none">
+                        {entry.prompt}
+                      </span>
+                      <span className="text-white font-medium break-all">{entry.text}</span>
+                    </div>
+                  );
+                }
 
-      {/* Interactive Input Prompt */}
-      <form
-        onSubmit={handleCommand}
-        className="flex items-center gap-1.5 p-2 bg-slate-900/90 border-t border-slate-800 select-none"
-      >
-        <span
-          className={
-            isElevated || currentUser.uid === 0
-              ? 'text-rose-400 font-semibold'
-              : 'text-emerald-400 font-semibold'
-          }
-        >
-          {currentUser.username}@rocket
-        </span>
-        <span className="text-slate-500">:</span>
-        <span className="text-sky-400 font-semibold">{displayCwd}</span>
-        <span
-          className={
-            isElevated || currentUser.uid === 0 ? 'text-rose-400 font-bold' : 'text-slate-400 font-bold'
-          }
-        >
-          {promptSymbol}
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputVal}
-          onChange={(e) => setInputVal(e.target.value)}
-          onKeyDown={handleKeyDown}
-          className="flex-1 bg-transparent border-none outline-none text-slate-100 font-mono text-xs select-text"
-          placeholder="Type command ('help', 'ps', 'rocketctl list', 'ls -la', 'sysinfo')..."
-          autoFocus
-        />
-      </form>
+                if (entry.type === 'stderr') {
+                  return (
+                    <pre
+                      key={entry.id}
+                      className="text-rose-400 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l-2 border-rose-500/40"
+                    >
+                      {entry.text}
+                    </pre>
+                  );
+                }
+
+                if (entry.type === 'system') {
+                  return (
+                    <div
+                      key={entry.id}
+                      className="text-sky-400/90 whitespace-pre-wrap font-mono leading-relaxed p-2 bg-sky-950/20 rounded border border-sky-900/30"
+                    >
+                      {entry.text}
+                    </div>
+                  );
+                }
+
+                // stdout
+                return (
+                  <pre
+                    key={entry.id}
+                    className="text-slate-300 whitespace-pre-wrap font-mono leading-relaxed pl-2 border-l border-slate-800"
+                  >
+                    {entry.text}
+                  </pre>
+                );
+              })}
+              <div ref={endRef} />
+            </div>
+
+            {/* Interactive Input Prompt */}
+            <form
+              onSubmit={handleCommand}
+              className="flex items-center gap-1.5 p-2 bg-slate-900/90 border-t border-slate-800 select-none"
+            >
+              <span
+                className={
+                  isElevated || currentUser.uid === 0
+                    ? 'text-rose-400 font-semibold'
+                    : 'text-emerald-400 font-semibold'
+                }
+              >
+                {currentUser.username}@rocket
+              </span>
+              <span className="text-slate-500">:</span>
+              <span className="text-sky-400 font-semibold">{displayCwd}</span>
+              <span
+                className={
+                  isElevated || currentUser.uid === 0 ? 'text-rose-400 font-bold' : 'text-slate-400 font-bold'
+                }
+              >
+                {promptSymbol}
+              </span>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputVal}
+                onChange={(e) => setInputVal(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="flex-1 bg-transparent border-none outline-none text-slate-100 font-mono text-xs select-text"
+                placeholder="Type command ('help', 'htop', 'neofetch', 'ps', 'ls -la')..."
+                autoFocus
+              />
+            </form>
+          </div>
+
+          {/* Auxiliary Multiplexed Split Pane (if active) */}
+          {splitMode !== 'none' && (
+            <div
+              className={`flex-1 flex flex-col bg-black/40 ${
+                splitMode === 'horizontal' ? 'border-t border-slate-800' : 'border-l border-slate-800'
+              }`}
+            >
+              <div className="h-7 bg-slate-900/80 px-3 border-b border-slate-800 flex items-center justify-between text-slate-400 text-[10px]">
+                <span className="flex items-center gap-1.5 text-sky-400 font-semibold">
+                  <Terminal className="w-3 h-3" />
+                  rsh: Split Session #2
+                </span>
+                <button
+                  onClick={() => setSplitMode('none')}
+                  className="hover:text-slate-200"
+                  title="Close split pane"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+              <div className="flex-1 p-3 font-mono text-xs text-slate-400 space-y-1">
+                <div className="text-slate-500">Connected to multiplexed pseudo-terminal ttyS1</div>
+                <div className="text-emerald-400">{currentUser.username}@rocket:~ $ uptime</div>
+                <div className="text-slate-300"> 01:25:40 up 1:25, 2 users, load average: 0.12, 0.08, 0.04</div>
+                <div className="text-emerald-400">{currentUser.username}@rocket:~ $ rocketc --version</div>
+                <div className="text-slate-300">rocketc 2.1.0-LTS (LLVM 22.1.6, ABI v1)</div>
+              </div>
+              <div className="p-2 border-t border-slate-800 flex items-center gap-1 text-[11px] text-slate-500">
+                <span className="text-emerald-400">{currentUser.username}@rocket:~ $</span>
+                <input
+                  type="text"
+                  placeholder="Secondary session active..."
+                  className="flex-1 bg-transparent text-slate-300 outline-none font-mono"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };

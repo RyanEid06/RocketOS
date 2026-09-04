@@ -26,9 +26,19 @@ import { PaintApp } from './components/apps/PaintApp';
 import { NotesApp } from './components/apps/NotesApp';
 import { RocketGallery } from './components/apps/RocketGallery';
 import { RocketSheetApp } from './components/apps/RocketSheetApp';
+import { RocketDocApp } from './components/apps/RocketDocApp';
 import { CalculatorApp } from './components/apps/CalculatorApp';
 import { PdfViewerApp } from './components/apps/PdfViewerApp';
 import { BackupRestoreApp } from './components/apps/BackupRestoreApp';
+import { ReplApp } from './components/apps/ReplApp';
+import { WidgetsApp } from './components/apps/WidgetsApp';
+import { RocketDropApp } from './components/apps/RocketDropApp';
+import { RockpmApp } from './components/apps/RockpmApp';
+import { GitApp } from './components/apps/GitApp';
+import { MediaApp } from './components/apps/MediaApp';
+import { BrowserApp } from './components/apps/BrowserApp';
+import { DisplayApp } from './components/apps/DisplayApp';
+import { CronApp } from './components/apps/CronApp';
 import { CommandPalette } from './components/shell/CommandPalette';
 import { QuickLookModal } from './components/shell/QuickLookModal';
 
@@ -65,34 +75,9 @@ export default function App() {
   const [pinnedAppIds, setPinnedAppIds] = useState<AppId[]>(() => pinningService.getPinned());
 
   // Windows State
-  const [activeWindowId, setActiveWindowId] = useState<string | null>('win-1');
+  const [activeWindowId, setActiveWindowId] = useState<string | null>(null);
   const [highestZIndex, setHighestZIndex] = useState<number>(10);
-  const [windows, setWindows] = useState<WindowState[]>([
-    {
-      id: 'win-1',
-      appId: 'notes',
-      title: 'Notes & To-Do Checklist',
-      icon: '📝',
-      isMinimized: false,
-      isMaximized: false,
-      zIndex: 9,
-      position: { x: 90, y: 50 },
-      size: { width: 780, height: 500 },
-      workspaceId: 1,
-    },
-    {
-      id: 'win-2',
-      appId: 'graphics',
-      title: 'Raylib 2D Engine Canvas',
-      icon: '🚀',
-      isMinimized: false,
-      isMaximized: false,
-      zIndex: 8,
-      position: { x: 180, y: 110 },
-      size: { width: 840, height: 520 },
-      workspaceId: 1,
-    },
-  ]);
+  const [windows, setWindows] = useState<WindowState[]>([]);
 
   // Show Desktop state (minimize/restore all)
   const [windowsBeforeShowDesktop, setWindowsBeforeShowDesktop] = useState<string[] | null>(null);
@@ -353,6 +338,136 @@ export default function App() {
       })
     );
   };
+
+  // Global Keyboard Shortcuts (Super+Space / Alt+Space, Spacebar Peek, Window Snapping, Virtual Desktops)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+
+      // 1. Unified Global Search & Command Palette (Super+Space, Alt+Space, Ctrl+K)
+      if (
+        ((e.altKey || e.metaKey) && e.code === 'Space') ||
+        (e.ctrlKey && e.key.toLowerCase() === 'k')
+      ) {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+        soundEngine.play('navigate');
+        return;
+      }
+
+      // 2. Spacebar Peek / Quick Look toggle (when not typing in an input)
+      if (e.code === 'Space' && !e.ctrlKey && !e.altKey && !e.metaKey && !isInput) {
+        if (quickLookItem) {
+          e.preventDefault();
+          setQuickLookItem(null);
+          return;
+        }
+      }
+
+      // 3. Virtual Desktops Navigation (Alt + 1/2/3/4 or Ctrl + Alt + Left/Right) & Window Workspace Send (Alt + Shift + 1/2/3/4)
+      if (e.ctrlKey && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        const nextWs =
+          e.key === 'ArrowLeft'
+            ? Math.max(1, currentWorkspace - 1)
+            : Math.min(4, currentWorkspace + 1);
+        handleChangeWorkspace(nextWs);
+        return;
+      }
+
+      if (e.altKey && ['1', '2', '3', '4'].includes(e.key)) {
+        const targetWs = parseInt(e.key, 10);
+        e.preventDefault();
+        if (e.shiftKey && activeWindowId) {
+          handleMoveWindowToWorkspace(activeWindowId, targetWs);
+        } else {
+          handleChangeWorkspace(targetWs);
+        }
+        return;
+      }
+
+      // 4. Window Snapping & Tiling Shortcuts (Alt + Arrow Keys)
+      if (e.altKey && activeWindowId && !isInput) {
+        const activeWin = windows.find((w) => w.id === activeWindowId);
+        if (!activeWin) return;
+
+        const screenW = window.innerWidth;
+        const screenH = window.innerHeight - 48; // Space reserved for taskbar
+
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          soundEngine.playSnap();
+          if (e.shiftKey) {
+            updateWindowBounds(
+              activeWindowId,
+              Math.floor(screenW / 2),
+              Math.floor(screenH / 2),
+              0,
+              0,
+              'top-left'
+            );
+          } else {
+            updateWindowBounds(activeWindowId, Math.floor(screenW / 2), screenH, 0, 0, 'left');
+          }
+          notificationService.notify('Window Snapped', 'Tiled to left side', 'info');
+        } else if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          soundEngine.playSnap();
+          if (e.shiftKey) {
+            updateWindowBounds(
+              activeWindowId,
+              Math.floor(screenW / 2),
+              Math.floor(screenH / 2),
+              Math.floor(screenW / 2),
+              0,
+              'top-right'
+            );
+          } else {
+            updateWindowBounds(
+              activeWindowId,
+              Math.floor(screenW / 2),
+              screenH,
+              Math.floor(screenW / 2),
+              0,
+              'right'
+            );
+          }
+          notificationService.notify('Window Snapped', 'Tiled to right side', 'info');
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          soundEngine.playSnap();
+          if (!activeWin.isMaximized) {
+            toggleMaximizeWindow(activeWindowId);
+            notificationService.notify('Window Maximized', activeWin.title, 'info');
+          }
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          soundEngine.playSnap();
+          if (activeWin.isMaximized) {
+            toggleMaximizeWindow(activeWindowId);
+          } else if (activeWin.snapState !== 'none' && activeWin.restoreBounds) {
+            updateWindowBounds(
+              activeWindowId,
+              activeWin.restoreBounds.width,
+              activeWin.restoreBounds.height,
+              activeWin.restoreBounds.x,
+              activeWin.restoreBounds.y,
+              'none'
+            );
+          } else {
+            minimizeWindow(activeWindowId);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [activeWindowId, windows, currentWorkspace, quickLookItem]);
 
   // Toggle Show Desktop
   const toggleShowDesktop = () => {
@@ -761,6 +876,13 @@ export default function App() {
         return <NotesApp />;
       case 'sheet':
         return <RocketSheetApp initialFilePath={win.extraData?.filePath || win.extraData?.path} />;
+      case 'docs':
+        return (
+          <RocketDocApp
+            initialFile={win.extraData?.file}
+            onSave={(path, content) => handleSaveFileContent(path, content)}
+          />
+        );
       case 'calculator':
         return <CalculatorApp />;
       case 'pdf-viewer':
@@ -801,6 +923,24 @@ export default function App() {
         );
       case 'graphics':
         return <RaylibCanvasApp initialFilePath={win.extraData?.path} />;
+      case 'repl':
+        return <ReplApp />;
+      case 'widgets':
+        return <WidgetsApp />;
+      case 'rocket-drop':
+        return <RocketDropApp />;
+      case 'rockpm':
+        return <RockpmApp />;
+      case 'git':
+        return <GitApp />;
+      case 'media':
+        return <MediaApp />;
+      case 'browser':
+        return <BrowserApp />;
+      case 'display':
+        return <DisplayApp />;
+      case 'cron':
+        return <CronApp />;
       default:
         return <div className="p-4 text-slate-300">App content</div>;
     }
@@ -913,12 +1053,20 @@ export default function App() {
         onOpenExplorerPath={(path) => openApp('explorer', { path })}
       />
 
-      {/* Universal Command Palette (Alt+Space / Ctrl+K) */}
+      {/* Universal Command Palette (Super+Space / Alt+Space / Ctrl+K) */}
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}
+        fileSystem={fileSystem}
+        windows={windows}
+        settings={settings}
+        currentWorkspace={currentWorkspace}
         onOpenApp={openApp}
         onOpenFile={handleOpenFile}
+        onOpenExplorerPath={(path) => openApp('explorer', { path })}
+        onUpdateSettings={handleUpdateSettings}
+        onChangeWorkspace={handleChangeWorkspace}
+        onEmptyTrash={handleEmptyRecycleBin}
         onReboot={() => setIsBooted(false)}
       />
 

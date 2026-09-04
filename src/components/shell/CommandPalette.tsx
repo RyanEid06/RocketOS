@@ -354,7 +354,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
         list.push({
           id: `app-${app.id}`,
           type: 'app',
-          title: app.name,
+          title: app.displayName,
           subtitle: `${app.category} • ${app.description}`,
           icon: <Sparkles className="w-4 h-4 text-sky-400" />,
           action: () => {

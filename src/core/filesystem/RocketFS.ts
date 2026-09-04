@@ -51,6 +51,18 @@ export class RocketFS {
     return this.trashSubsystem;
   }
 
+  public getAllNodes(): VFSInode[] {
+    return Array.from(this.inodesById.values());
+  }
+
+  public getTree(): FSItem[] {
+    return this.toFSItemTree();
+  }
+
+  public resolvePath(path: string): string {
+    return PathEngine.canonicalize(path);
+  }
+
   // =========================================================================
   // BOOTSTRAP DEFAULT ROOT HIERARCHY
   // =========================================================================
@@ -83,8 +95,6 @@ export class RocketFS {
       { path: '/Documents', mode: 0o755, uid: 1000, gid: 100 },
       { path: '/Downloads', mode: 0o755, uid: 1000, gid: 100 },
       { path: '/Pictures', mode: 0o755, uid: 1000, gid: 100 },
-      { path: '/demos', mode: 0o755, uid: 1000, gid: 100 },
-      { path: '/src', mode: 0o755, uid: 1000, gid: 100 },
     ];
 
     for (const d of topDirs) {
@@ -143,43 +153,18 @@ export class RocketFS {
       '/home/ryan/Pictures',
       '/home/ryan/Music',
       '/home/ryan/Projects',
-      '/home/ryan/Projects/Rocket',
     ];
     for (const d of userDirs) {
       this.createRawInode(d, 'directory', 1000, 100, 0o755);
     }
 
-    // Clean default desktop & system files
-    const defaultWelcomeContent = '# Welcome to RocketOS 2.1\nfn main() -> Int:\n    print("Welcome to RocketOS!")\n    return 0\n';
-    const defaultTomlContent = '[package]\nname = "workspace"\nversion = "2.1.0"\nentry = "src/main.rocket"\n\n[target.native]\nfeatures = ["llvm", "raylib"]\n';
+    // Clean, functional starter file on Desktop
+    const defaultWelcomeContent = '# Welcome to RocketOS 2.1\n\nfn main() -> Int:\n    print("Hello from RocketOS 2.1!")\n    return 0\n';
 
     this.createRawInode('/Desktop/welcome.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', defaultWelcomeContent);
-    this.createRawInode('/Desktop/rocket.toml', 'file', 1000, 100, 0o644, undefined, 'text/x-toml', defaultTomlContent);
     this.createRawInode('/home/ryan/Desktop/welcome.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', defaultWelcomeContent);
-    this.createRawInode('/home/ryan/Desktop/rocket.toml', 'file', 1000, 100, 0o644, undefined, 'text/x-toml', defaultTomlContent);
 
-    // Demos
-    this.createRawInode('/demos/hello.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Hello World Demo\nfn main() -> Int:\n    print("Hello from Rocket 2.1!")\n    return 0\n');
-    this.createRawInode('/demos/fibonacci.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Fibonacci calculation\nimport std.string\n\nfn fib(n: Int) -> Int:\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nfn main() -> Int:\n    print("fib(10) = " + string.from_int(fib(10)))\n    return 0\n');
-    this.createRawInode('/demos/system_info.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# System information\nfn main() -> Int:\n    print("Operating System: RocketOS 2.1 LTS")\n    print("Architecture: x86_64 Long Mode")\n    return 0\n');
-
-    // Source template
-    this.createRawInode('/src/main.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Rocket Application Entry\nimport std.string\nimport std.math\n\nfn main() -> Int:\n    print("Rocket Application Running")\n    return 0\n');
-    this.createRawInode('/src/math_demo.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Standard Math Demo\nimport std.math\nimport std.string\n\nfn main() -> Int:\n    let val = math.sqrt(25.0)\n    print("sqrt(25) = " + string.from_float(val))\n    return 0\n');
-
-    // User Projects
-    this.createRawInode(
-      '/home/ryan/Projects/Rocket/main.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      'fn main() -> Int:\n    print("Rocket Project Main Entry")\n    return 0\n'
-    );
-
-    // User Pictures (Sample Gallery Images)
+    // User Pictures (Clean system wallpapers for personalization)
     const svgNebula = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"><defs><radialGradient id="space" cx="50%" cy="50%" r="70%"><stop offset="0%" stop-color="#140b2b" /><stop offset="60%" stop-color="#080614" /><stop offset="100%" stop-color="#020205" /></radialGradient><radialGradient id="nebula" cx="40%" cy="40%" r="50%"><stop offset="0%" stop-color="#8b5cf6" stop-opacity="0.8" /><stop offset="50%" stop-color="#06b6d4" stop-opacity="0.4" /><stop offset="100%" stop-color="#000000" stop-opacity="0" /></radialGradient><linearGradient id="rocketBody" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#ffffff" /><stop offset="100%" stop-color="#94a3b8" /></linearGradient><linearGradient id="flame" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#38bdf8" /><stop offset="50%" stop-color="#f59e0b" /><stop offset="100%" stop-color="#ef4444" /></linearGradient></defs><rect width="800" height="600" fill="url(#space)" /><ellipse cx="380" cy="280" rx="350" ry="240" fill="url(#nebula)" filter="blur(40px)" /><circle cx="100" cy="80" r="1.5" fill="#fff" opacity="0.9" /><circle cx="220" cy="140" r="2" fill="#38bdf8" opacity="0.8" /><circle cx="310" cy="60" r="1" fill="#fff" opacity="0.7" /><circle cx="500" cy="120" r="2.5" fill="#a855f7" opacity="0.9" /><circle cx="680" cy="90" r="1.5" fill="#fff" opacity="0.8" /><circle cx="720" cy="300" r="2" fill="#38bdf8" opacity="0.8" /><g transform="translate(380, 240) rotate(-35)"><path d="M-15,60 Q0,110 0,130 Q0,110 15,60 Z" fill="url(#flame)" /><path d="M-28,45 L-40,70 L-20,60 Z" fill="#0284c7" /><path d="M28,45 L40,70 L20,60 Z" fill="#0284c7" /><path d="M0,-70 Q30,0 26,60 L-26,60 Q-30,0 0,-70 Z" fill="url(#rocketBody)" /><path d="M0,-70 Q15,-30 18,0 L-18,0 Q-15,-30 0,-70 Z" fill="#0284c7" /><circle cx="0" cy="0" r="12" fill="#0ea5e9" stroke="#fff" stroke-width="3" /><circle cx="3" cy="-3" r="4" fill="#ffffff" opacity="0.8" /></g><text x="40" y="540" font-family="system-ui, sans-serif" font-size="28" font-weight="bold" fill="#ffffff" opacity="0.9">Rocket Nebula</text><text x="40" y="570" font-family="system-ui, sans-serif" font-size="14" fill="#38bdf8" opacity="0.8">RocketOS Deep Space Visualizer • 800x600</text></svg>`;
     this.createRawInode(
       '/home/ryan/Pictures/rocket_nebula.png',

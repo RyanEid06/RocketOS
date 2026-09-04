@@ -23,8 +23,22 @@ export class FileAssociations {
     {
       extension: '.md',
       mimeType: 'text/markdown',
-      defaultAppId: 'editor',
-      associatedAppIds: ['editor', 'notes'],
+      defaultAppId: 'docs',
+      associatedAppIds: ['docs', 'editor', 'notes'],
+      friendlyName: 'Markdown Document',
+    },
+    {
+      extension: '.rmd',
+      mimeType: 'text/markdown',
+      defaultAppId: 'docs',
+      associatedAppIds: ['docs', 'editor'],
+      friendlyName: 'Rocket Markdown Document',
+    },
+    {
+      extension: '.markdown',
+      mimeType: 'text/markdown',
+      defaultAppId: 'docs',
+      associatedAppIds: ['docs', 'editor'],
       friendlyName: 'Markdown Document',
     },
     {

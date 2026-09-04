@@ -236,6 +236,64 @@ class SoundEngine {
     } catch {}
   }
 
+  // Gentle click sound
+  playClick(volume?: number, muted?: boolean) {
+    this.playHover(volume, muted);
+  }
+
+  // Soft keyboard mechanical click for editor/repl
+  playKeyboard(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
+    try {
+      const ctx = this.initCtx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(700 + Math.random() * 200, t);
+      osc.frequency.exponentialRampToValueAtTime(300, t + 0.03);
+      const masterVol = (vol / 100) * 0.04;
+      gain.gain.setValueAtTime(masterVol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.03);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.04);
+    } catch {}
+  }
+
+  // Harmonic success chime
+  playSuccess(volume?: number, muted?: boolean) {
+    const { vol, silent } = this.resolveAudioParams(volume, muted);
+    if (silent) return;
+    try {
+      const ctx = this.initCtx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const osc1 = ctx.createOscillator();
+      const osc2 = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(523.25, t); // C5
+      osc1.frequency.setValueAtTime(659.25, t + 0.08); // E5
+      osc1.frequency.setValueAtTime(783.99, t + 0.16); // G5
+      osc2.type = 'triangle';
+      osc2.frequency.setValueAtTime(1046.5, t + 0.16); // C6
+      const masterVol = (vol / 100) * 0.1;
+      gain.gain.setValueAtTime(masterVol, t);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      osc1.connect(gain);
+      osc2.connect(gain);
+      gain.connect(ctx.destination);
+      osc1.start(t);
+      osc1.stop(t + 0.36);
+      osc2.start(t + 0.16);
+      osc2.stop(t + 0.36);
+    } catch {}
+  }
+
   // Deletion / Recycle Bin sound
   playTrash(volume?: number, muted?: boolean) {
     const { vol, silent } = this.resolveAudioParams(volume, muted);
@@ -288,6 +346,54 @@ class SoundEngine {
       osc.start(t);
       osc.stop(t + 0.13);
     } catch {}
+  }
+
+  // Unified sound dispatcher for generic play calls
+  play(sound: 'click' | 'open' | 'close' | 'minimize' | 'restore' | 'pin' | 'snap' | 'trash' | 'navigate' | 'hover' | string) {
+    switch (sound) {
+      case 'open':
+        this.playOpen();
+        break;
+      case 'close':
+        this.playClose();
+        break;
+      case 'minimize':
+        this.playMinimize();
+        break;
+      case 'restore':
+        this.playRestore();
+        break;
+      case 'pin':
+        this.playPin();
+        break;
+      case 'snap':
+        this.playSnap();
+        break;
+      case 'trash':
+        this.playTrash();
+        break;
+      case 'navigate':
+        this.playWorkspaceSwitch();
+        break;
+      case 'hover':
+        this.playHover();
+        break;
+      case 'click':
+      default:
+        this.playHover();
+        break;
+    }
+  }
+
+  // Per-app volume control tracking
+  private appVolumes: Map<string, number> = new Map();
+
+  public setAppVolume(appId: string, volume: number): void {
+    this.appVolumes.set(appId, Math.max(0, Math.min(100, volume)));
+  }
+
+  public getAppVolume(appId: string): number {
+    return this.appVolumes.get(appId) ?? 100;
   }
 
   // Ambient Focus Generator for deep work sessions

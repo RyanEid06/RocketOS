@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import JSZip from 'jszip';
 import {
   HardDrive,
   Download,
@@ -12,8 +13,10 @@ import {
   FolderArchive,
   Save,
   FileText,
+  FileArchive,
 } from 'lucide-react';
 import { RocketFS } from '../../core/filesystem/RocketFS';
+import { RocketFSSnapshot } from '../../core/filesystem/types';
 import { browserPersistenceProvider } from '../../platform/browser/BrowserPersistenceProvider';
 import { settingsService } from '../../core/settings/SettingsService';
 import { notificationService } from '../../core/notifications/NotificationService';
@@ -28,6 +31,7 @@ interface SnapshotRecord {
   totalSizeBytes: number;
   snapshotData: {
     fileSystem: FSItem[];
+    rawSnapshot?: RocketFSSnapshot;
     settings?: SystemSettings;
   };
 }
@@ -80,6 +84,7 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
   // 1. Create named snapshot
   const handleCreateSnapshot = () => {
     const rfs = RocketFS.getInstance();
+    const rawSnapshot = rfs.snapshot();
     const tree = rfs.getTree();
     const settings = settingsService.getSettings();
     const name = snapshotName.trim() || `Snapshot-${new Date().toLocaleTimeString()}`;
@@ -92,6 +97,7 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
       totalSizeBytes: currentStats.bytes,
       snapshotData: {
         fileSystem: tree,
+        rawSnapshot,
         settings,
       },
     };
@@ -110,8 +116,11 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
   // 2. Restore snapshot
   const handleRestoreSnapshot = (record: SnapshotRecord) => {
     const rfs = RocketFS.getInstance();
-    rfs.loadSnapshot(record.snapshotData.fileSystem);
-    onRefreshFileSystem(record.snapshotData.fileSystem);
+    if (record.snapshotData.rawSnapshot) {
+      rfs.loadSnapshot(record.snapshotData.rawSnapshot);
+    }
+    const currentTree = rfs.getTree();
+    onRefreshFileSystem(currentTree);
 
     if (record.snapshotData.settings) {
       settingsService.updateSettings(record.snapshotData.settings);
@@ -138,6 +147,7 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
     const bundle = {
       format: 'rocket-os-system-backup-v2',
       exportedAt: new Date().toISOString(),
+      rawSnapshot: rfs.snapshot(),
       fileSystem: rfs.getTree(),
       settings: settingsService.getSettings(),
     };
@@ -159,6 +169,56 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
     });
   };
 
+  // 4b. Export full filesystem tree as standard .ZIP archive
+  const handleExportZipArchive = async () => {
+    setIsProcessing(true);
+    try {
+      const zip = new JSZip();
+      const rfs = RocketFS.getInstance();
+      const nodes = rfs.getAllNodes();
+
+      for (const node of nodes) {
+        if (node.nodeType === 'file') {
+          const relativePath = node.canonicalPath.startsWith('/')
+            ? node.canonicalPath.slice(1)
+            : node.canonicalPath;
+          zip.file(relativePath, node.content || '');
+        }
+      }
+
+      const zipBlob = await zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 6 },
+      });
+
+      const url = URL.createObjectURL(zipBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `RocketOS-Filesystem-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      soundEngine.play('navigate');
+      notificationService.sendNotification({
+        title: 'ZIP Archive Exported',
+        message: 'RocketOS userland filesystem downloaded as .zip archive',
+        type: 'success',
+      });
+    } catch (e) {
+      console.error('Failed to generate ZIP archive:', e);
+      notificationService.sendNotification({
+        title: 'Export Failed',
+        message: 'Could not generate .zip archive of filesystem',
+        type: 'error',
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   // 5. Import & Restore from uploaded JSON file
   const handleImportSystemBundle = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -170,23 +230,23 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
 
-        if (parsed.fileSystem && Array.isArray(parsed.fileSystem)) {
-          const rfs = RocketFS.getInstance();
-          rfs.loadSnapshot(parsed.fileSystem);
+        const rfs = RocketFS.getInstance();
+        if (parsed.rawSnapshot) {
+          rfs.loadSnapshot(parsed.rawSnapshot);
+          onRefreshFileSystem(rfs.getTree());
+        } else if (parsed.fileSystem && Array.isArray(parsed.fileSystem)) {
           onRefreshFileSystem(parsed.fileSystem);
-
-          if (parsed.settings) {
-            settingsService.updateSettings(parsed.settings);
-          }
-
-          notificationService.sendNotification({
-            title: 'Restore Completed',
-            message: 'Successfully imported filesystem and system settings',
-            type: 'success',
-          });
-        } else {
-          alert('Invalid RocketOS backup format');
         }
+
+        if (parsed.settings) {
+          settingsService.updateSettings(parsed.settings);
+        }
+
+        notificationService.sendNotification({
+          title: 'Restore Completed',
+          message: 'Successfully imported filesystem and system settings',
+          type: 'success',
+        });
       } catch (err) {
         alert('Could not parse backup file');
       }
@@ -233,11 +293,20 @@ export const BackupRestoreApp: React.FC<BackupRestoreAppProps> = ({
             />
           </label>
           <button
+            onClick={handleExportZipArchive}
+            disabled={isProcessing}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer disabled:opacity-50"
+            title="Download entire filesystem as standard .zip archive"
+          >
+            <FileArchive className="w-3.5 h-3.5" />
+            <span>Export .ZIP</span>
+          </button>
+          <button
             onClick={handleExportSystemBundle}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-sm transition-colors cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
-            <span>Export Archive</span>
+            <span>Export JSON</span>
           </button>
         </div>
       </div>

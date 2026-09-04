@@ -1,0 +1,122 @@
+# RocketOS Docs & Markdown Domain Model
+# Authoritative document parser, word analytics, reading time estimation, and HTML generator
+
+import std.string
+import std.collections
+import std.time
+
+struct DocStats:
+    word_count: Int
+    char_count: Int
+    line_count: Int
+    reading_time_minutes: Int
+
+struct DocSection:
+    title: String
+    level: Int
+    line_index: Int
+
+struct MarkdownDoc:
+    id: String
+    title: String
+    content: String
+    file_path: String
+    stats: DocStats
+    is_dirty: Bool
+    created_at: String
+    modified_at: String
+
+fn create_default_document(title: String, initial_content: String) -> MarkdownDoc:
+    let now = time.now_iso()
+    let stats = compute_stats(initial_content)
+    return MarkdownDoc(
+        id: "doc-" + string.from_int(time.timestamp_ms()),
+        title: title,
+        content: initial_content,
+        file_path: "",
+        stats: stats,
+        is_dirty: false,
+        created_at: now,
+        modified_at: now
+    )
+
+fn count_words(text: String) -> Int:
+    let trimmed = string.trim(text)
+    if string.byte_length(trimmed) == 0:
+        return 0
+    let parts = string.split(trimmed, " ")
+    var total = 0
+    for part in parts:
+        let clean = string.trim(part)
+        if string.byte_length(clean) > 0:
+            total = total + 1
+    return total
+
+fn compute_stats(content: String) -> DocStats:
+    let char_count = string.byte_length(content)
+    let words = count_words(content)
+    let lines = string.split(content, "\n")
+    let line_count = collections.length(lines)
+    # Average adult silent reading speed is roughly 200 words per minute
+    var read_mins = words / 200
+    if words > 0 and read_mins == 0:
+        read_mins = 1
+    return DocStats(
+        word_count: words,
+        char_count: char_count,
+        line_count: line_count,
+        reading_time_minutes: read_mins
+    )
+
+fn format_reading_time(minutes: Int) -> String:
+    if minutes <= 1:
+        return "1 min read"
+    return string.from_int(minutes) + " mins read"
+
+fn extract_table_of_contents(content: String) -> Array[DocSection]:
+    let lines = string.split(content, "\n")
+    var sections: Array[DocSection] = []
+    var idx = 0
+    for line in lines:
+        let trimmed = string.trim(line)
+        if string.starts_with(trimmed, "### "):
+            let title = string.slice(trimmed, 4, string.byte_length(trimmed))
+            let sec = DocSection(title, 3, idx)
+            sections = collections.append(sections, sec)
+        else if string.starts_with(trimmed, "## "):
+            let title = string.slice(trimmed, 3, string.byte_length(trimmed))
+            let sec = DocSection(title, 2, idx)
+            sections = collections.append(sections, sec)
+        else if string.starts_with(trimmed, "# "):
+            let title = string.slice(trimmed, 2, string.byte_length(trimmed))
+            let sec = DocSection(title, 1, idx)
+            sections = collections.append(sections, sec)
+        idx = idx + 1
+    return sections
+
+fn export_as_html_document(title: String, content: String) -> String:
+    let stats = compute_stats(content)
+    var b = string.builder()
+    string.builder_append(b, "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n")
+    string.builder_append(b, "<meta charset=\"UTF-8\">\n<title>")
+    string.builder_append(b, title)
+    string.builder_append(b, "</title>\n<style>\n")
+    string.builder_append(b, "body { font-family: system-ui, -apple-system, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; line-height: 1.6; color: #1e293b; background: #ffffff; }\n")
+    string.builder_append(b, "h1, h2, h3 { color: #0f172a; margin-top: 1.5em; }\n")
+    string.builder_append(b, "code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }\n")
+    string.builder_append(b, "pre { background: #0f172a; color: #f8fafc; padding: 16px; border-radius: 8px; overflow-x: auto; }\n")
+    string.builder_append(b, "blockquote { border-left: 4px solid #3b82f6; padding-left: 16px; margin: 16px 0; color: #64748b; }\n")
+    string.builder_append(b, "table { width: 100%; border-collapse: collapse; margin: 16px 0; }\n")
+    string.builder_append(b, "th, td { border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; }\n")
+    string.builder_append(b, "th { background: #f8fafc; font-weight: bold; }\n")
+    string.builder_append(b, "@media print { body { margin: 0; padding: 0; } }\n")
+    string.builder_append(b, "</style>\n</head>\n<body>\n")
+    string.builder_append(b, "<article>\n")
+    string.builder_append(b, "<header style=\"border-bottom: 1px solid #e2e8f0; padding-bottom: 16px; margin-bottom: 24px;\">\n")
+    string.builder_append(b, "<h1>" + title + "</h1>\n")
+    string.builder_append(b, "<div style=\"color: #64748b; font-size: 0.85em;\">" + string.from_int(stats.word_count) + " words • " + format_reading_time(stats.reading_time_minutes) + "</div>\n")
+    string.builder_append(b, "</header>\n")
+    string.builder_append(b, "<div class=\"markdown-body\">\n")
+    string.builder_append(b, content)
+    string.builder_append(b, "\n</div>\n</article>\n</body>\n</html>\n")
+    return string.builder_finish(b)

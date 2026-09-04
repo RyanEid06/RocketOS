@@ -68,7 +68,7 @@ export const RocketSheetApp: React.FC<RocketSheetAppProps> = ({
   // Load initial file or fallback to sample
   useEffect(() => {
     const rfs = RocketFS.getInstance();
-    const item = rfs.resolvePath(currentPath);
+    const item = rfs.findItemByPath(currentPath);
     if (item && item.type === 'file' && item.content) {
       loadFromCsv(item.content);
     } else {

@@ -83,6 +83,27 @@ export class NotificationService {
     return this.send({ sourceAppId, title, body, severity });
   }
 
+  public sendNotification(options: {
+    title: string;
+    message?: string;
+    body?: string;
+    type?: NotificationSeverity;
+    severity?: NotificationSeverity;
+    sourceAppId?: string;
+    action?: NotificationAction;
+  }): string {
+    const title = options.title;
+    const body = options.message || options.body || '';
+    const severity = options.type || options.severity || 'info';
+    return this.send({
+      sourceAppId: options.sourceAppId || 'system',
+      title,
+      body,
+      severity,
+      action: options.action,
+    });
+  }
+
   public getNotifications(): SystemNotification[] {
     return [...this.notifications];
   }

@@ -27,9 +27,19 @@ export type AppId =
   | 'trash'
   | 'thispc'
   | 'sheet'
+  | 'docs'
   | 'calculator'
   | 'pdf-viewer'
-  | 'backup';
+  | 'backup'
+  | 'repl'
+  | 'widgets'
+  | 'rocket-drop'
+  | 'rockpm'
+  | 'git'
+  | 'media'
+  | 'browser'
+  | 'display'
+  | 'cron';
 
 export type WallpaperId =
   | 'liquid-aurora'
