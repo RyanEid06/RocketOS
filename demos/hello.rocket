@@ -1,0 +1,8 @@
+# RocketOS Demo: Hello World
+# Written in the Rocket Programming Language (ABI v1)
+
+fn main() -> Int:
+    print("Welcome to RocketOS running on bare-metal hardware!")
+    print("System Architecture: x86_64 Long Mode with PML4 paging.")
+    print("Language: Rocket 2.1 (Deterministic ARC Runtime).")
+    return 0

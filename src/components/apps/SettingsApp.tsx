@@ -29,7 +29,16 @@ import {
   Trash2,
   Save,
   CheckCircle2,
+  Download,
+  Laptop,
+  Usb,
+  Radio,
+  Signal,
+  Network,
+  WifiOff,
+  Lock,
 } from 'lucide-react';
+import { DriverManager } from '../../core/drivers/DriverManager';
 
 interface SettingsAppProps {
   settings: SystemSettings;
@@ -49,6 +58,19 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
     totalBytes: 0,
     trashCount: 0,
   });
+
+  const driverMgr = DriverManager.getInstance();
+  const [wifiNetworks, setWifiNetworks] = useState(() => driverMgr.getWifiNetworks());
+  const [interfaces, setInterfaces] = useState(() => driverMgr.getInterfaces());
+  const [drivers, setDrivers] = useState(() => driverMgr.getDrivers());
+
+  useEffect(() => {
+    return driverMgr.subscribe(() => {
+      setWifiNetworks(driverMgr.getWifiNetworks());
+      setInterfaces(driverMgr.getInterfaces());
+      setDrivers(driverMgr.getDrivers());
+    });
+  }, []);
 
   useEffect(() => {
     const updateStats = () => {
@@ -507,46 +529,156 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
                 <Wifi className="w-5 h-5 text-emerald-400" />
-                <span>Network & Hardware Adapters</span>
+                <span>Network & Hardware Drivers</span>
               </h2>
               <p className="text-slate-400 text-xs mt-0.5">
-                Manage virtual network links and low-latency loopback sockets.
+                Manage Wi-Fi wireless links, hardware Ethernet adapters, and loaded kernel drivers.
               </p>
             </div>
 
+            {/* Wi-Fi Control Card */}
             <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-800/80 text-emerald-400">
-                    <Wifi className="w-5 h-5" />
+                  <div className={`p-2.5 rounded-xl border ${settings.wifiConnected ? 'bg-emerald-950/60 border-emerald-800/80 text-emerald-400' : 'bg-slate-900 border-slate-700 text-slate-500'}`}>
+                    {settings.wifiConnected ? <Wifi className="w-5 h-5" /> : <WifiOff className="w-5 h-5" />}
                   </div>
                   <div>
-                    <div className="font-bold text-white text-sm">RocketOS Virtual Loopback (eth0)</div>
-                    <div className="text-xs text-slate-400">Connected • 10 Gbps Virtual Bridged Interface</div>
+                    <div className="font-bold text-white text-sm">Wireless LAN (Wi-Fi 6 AX200)</div>
+                    <div className="text-xs text-slate-400">
+                      {settings.wifiConnected
+                        ? `Connected to ${driverMgr.getActiveSsid() || 'Wi-Fi Network'} • 866 Mbps`
+                        : 'Wi-Fi interface disabled'}
+                    </div>
                   </div>
                 </div>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                  ONLINE
-                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const nextState = !settings.wifiConnected;
+                    onUpdateSettings({ wifiConnected: nextState });
+                    driverMgr.setWifiEnabled(nextState);
+                  }}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                    settings.wifiConnected
+                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  {settings.wifiConnected ? 'Enabled' : 'Disabled'}
+                </button>
               </div>
 
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2 border-t border-slate-800 text-[11px]">
-                <div>
-                  <span className="text-slate-500">IP Address:</span>
-                  <div className="font-mono text-slate-200 mt-0.5">192.168.1.42</div>
+              {settings.wifiConnected && (
+                <div className="space-y-2 pt-2 border-t border-slate-800">
+                  <span className="text-xs font-semibold text-slate-300">Available Networks:</span>
+                  <div className="space-y-1.5">
+                    {wifiNetworks.map((net) => (
+                      <div
+                        key={net.ssid}
+                        className={`flex items-center justify-between p-2.5 rounded-xl border transition-colors ${
+                          net.isConnected
+                            ? 'bg-emerald-950/30 border-emerald-800/60 text-white'
+                            : 'bg-slate-900/40 border-slate-800/60 text-slate-300 hover:bg-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <Signal className={`w-4 h-4 ${net.isConnected ? 'text-emerald-400' : 'text-slate-400'}`} />
+                          <div>
+                            <div className="text-xs font-medium flex items-center gap-1.5">
+                              <span>{net.ssid}</span>
+                              {net.security !== 'Open' && <Lock className="w-3 h-3 text-slate-400" />}
+                            </div>
+                            <div className="text-[10px] text-slate-500">
+                              {net.frequencyGhz} GHz • Signal {net.signalStrength}% • {net.security}
+                            </div>
+                          </div>
+                        </div>
+
+                        {net.isConnected ? (
+                          <button
+                            type="button"
+                            onClick={() => driverMgr.disconnectWifi()}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800/60 transition-colors cursor-pointer"
+                          >
+                            Disconnect
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => driverMgr.connectToWifi(net.ssid)}
+                            className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-800 hover:bg-slate-700 text-white transition-colors cursor-pointer"
+                          >
+                            Connect
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div>
-                  <span className="text-slate-500">Subnet Mask:</span>
-                  <div className="font-mono text-slate-200 mt-0.5">255.255.255.0</div>
-                </div>
-                <div>
-                  <span className="text-slate-500">Gateway:</span>
-                  <div className="font-mono text-slate-200 mt-0.5">192.168.1.1</div>
-                </div>
-                <div>
-                  <span className="text-slate-500">Latency:</span>
-                  <div className="font-mono text-emerald-400 mt-0.5">4.2 ms</div>
-                </div>
+              )}
+            </div>
+
+            {/* Network Adapters */}
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-white">
+                <Network className="w-4 h-4 text-sky-400" />
+                <span>Physical & Virtual Network Adapters</span>
+              </div>
+
+              <div className="space-y-3">
+                {interfaces.map((iface) => (
+                  <div key={iface.id} className="p-3 bg-slate-900/50 rounded-xl border border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold text-xs text-sky-300">{iface.id}</span>
+                        <span className="text-xs text-slate-300">({iface.name})</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border ${iface.status === 'UP' ? 'bg-emerald-950 text-emerald-300 border-emerald-800' : 'bg-slate-800 text-slate-400 border-slate-700'}`}>
+                        {iface.status}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] text-slate-400">
+                      <div>IP: <span className="font-mono text-slate-200">{iface.ip}</span></div>
+                      <div>Gateway: <span className="font-mono text-slate-200">{iface.gateway}</span></div>
+                      <div>Speed: <span className="font-mono text-slate-200">{iface.speedMbps} Mbps</span></div>
+                      <div>Driver: <span className="font-mono text-slate-200">{iface.driver}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Kernel Drivers Subsystem */}
+            <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-white">
+                <Cpu className="w-4 h-4 text-purple-400" />
+                <span>Active Kernel Drivers & Subsystems</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {drivers.map((drv) => (
+                  <div key={drv.id} className="p-3 bg-slate-900/40 rounded-xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <div className="font-semibold text-xs text-white truncate max-w-[200px]">{drv.name}</div>
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-purple-950 text-purple-300 border border-purple-800">
+                        {drv.status}
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 flex items-center gap-2">
+                      <span>v{drv.version}</span>
+                      <span>•</span>
+                      <span className="font-mono text-slate-500">{drv.devicePath}</span>
+                    </div>
+                    <div className="flex flex-wrap gap-1 pt-1">
+                      {drv.features.map((feat) => (
+                        <span key={feat} className="text-[9px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                          {feat}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -732,6 +864,74 @@ export const SettingsApp: React.FC<SettingsAppProps> = ({
               <p className="text-slate-400 text-xs mt-0.5">
                 Authentic technical specifications sourced from RyanEid06/Rocket repository.
               </p>
+            </div>
+
+            {/* BARE-METAL LAPTOP BOOTABLE ISO CARD */}
+            <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950/40 p-5 rounded-2xl border border-indigo-500/30 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                    <Laptop className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="text-white font-bold text-sm flex items-center gap-2">
+                      <span>RocketOS Bare-Metal Laptop ISO</span>
+                      <span className="text-[10px] px-2 py-0.5 bg-emerald-950 text-emerald-300 border border-emerald-800 rounded-full font-mono">
+                        Ready to Boot
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-300 mt-0.5">
+                      Hybrid x86_64 image with UEFI & BIOS support, Linux 6.1 kernel, and Rocket Native Shell (rsh).
+                    </div>
+                  </div>
+                </div>
+
+                <a
+                  href="/rocket-os.iso"
+                  download="rocket-os.iso"
+                  className="flex items-center justify-center gap-2 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-indigo-600/30 transition-all cursor-pointer whitespace-nowrap"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download ISO (21 MB)</span>
+                </a>
+              </div>
+
+              {/* Badges */}
+              <div className="flex flex-wrap gap-2 text-[10px] font-mono">
+                <span className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-md flex items-center gap-1.5">
+                  <Usb className="w-3 h-3 text-cyan-400" /> USB Flashable (Rufus / Etcher / dd)
+                </span>
+                <span className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-md">
+                  Target: x86_64 Laptop / Desktop
+                </span>
+                <span className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-slate-300 rounded-md">
+                  Bootloader: GRUB 2 Dual-Mode
+                </span>
+                <span className="px-2 py-0.5 bg-slate-900 border border-slate-800 text-emerald-300 rounded-md">
+                  ✓ QEMU Boot Verified
+                </span>
+              </div>
+
+              {/* Instructions */}
+              <div className="p-3 bg-slate-950/80 rounded-xl border border-slate-800 text-xs space-y-2">
+                <div className="text-slate-300 font-semibold flex items-center gap-1.5">
+                  <span>How to Boot on Your Old Laptop:</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px] text-slate-400">
+                  <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+                    <span className="text-cyan-400 font-bold block mb-1">1. Flash to USB</span>
+                    Download <code className="text-indigo-300">rocket-os.iso</code> and write it to any USB stick using <b>Rufus</b> (Windows, select "DD mode" if prompted), <b>BalenaEtcher</b>, or <code className="text-indigo-300">sudo dd if=rocket-os.iso of=/dev/sdX bs=4M</code>.
+                  </div>
+                  <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+                    <span className="text-cyan-400 font-bold block mb-1">2. Laptop Boot Key</span>
+                    Insert the USB into your laptop and turn it on. Repeatedly press your laptop's boot key: <b>F12</b> (Lenovo/Dell), <b>F9</b> (HP), <b>F11</b> (MSI), or <b>Esc/F8</b> (Asus/others).
+                  </div>
+                  <div className="bg-slate-900/60 p-2.5 rounded-lg border border-slate-800/80">
+                    <span className="text-cyan-400 font-bold block mb-1">3. Launch RocketOS</span>
+                    Select your USB drive. The RocketOS splash menu loads immediately into the native <b>Rocket Shell (rsh)</b> with pre-loaded <code className="text-indigo-300">/demos</code>!
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

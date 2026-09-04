@@ -45,6 +45,32 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
   const [resizingDir, setResizingDir] = useState<ResizeDirection | null>(null);
   const [snapPreview, setSnapPreview] = useState<WindowSnapState | null>(null);
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState<boolean>(false);
+  const [showSnapFlyout, setShowSnapFlyout] = useState<boolean>(false);
+  const snapFlyoutTimerRef = useRef<number | null>(null);
+
+  const snapTo = (snapType: WindowSnapState) => {
+    const halfWidth = Math.floor(window.innerWidth / 2);
+    const screenHeight = Math.max(300, window.innerHeight - 64);
+    const halfHeight = Math.floor(screenHeight / 2);
+    soundEngine.playSnap();
+
+    if (snapType === 'none') {
+      onToggleMaximize();
+    } else if (snapType === 'left' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, screenHeight, 0, 0, 'left');
+    } else if (snapType === 'right' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, screenHeight, halfWidth, 0, 'right');
+    } else if (snapType === 'top-left' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, halfHeight, 0, 0, 'top-left');
+    } else if (snapType === 'top-right' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, halfHeight, halfWidth, 0, 'top-right');
+    } else if (snapType === 'bottom-left' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, halfHeight, 0, halfHeight, 'bottom-left');
+    } else if (snapType === 'bottom-right' && onUpdateBounds) {
+      onUpdateBounds(halfWidth, halfHeight, halfWidth, halfHeight, 'bottom-right');
+    }
+    setShowSnapFlyout(false);
+  };
 
   const dragStartRef = useRef<{
     startX: number;
@@ -508,21 +534,104 @@ export const WindowFrame: React.FC<WindowFrameProps> = ({
               >
                 <Minus className="w-3.5 h-3.5" />
               </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  soundEngine.playSnap();
-                  onToggleMaximize();
+              <div
+                className="relative"
+                onMouseEnter={() => {
+                  if (snapFlyoutTimerRef.current) clearTimeout(snapFlyoutTimerRef.current);
+                  setShowSnapFlyout(true);
                 }}
-                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-300/70 text-slate-500 hover:text-slate-800 cursor-pointer transition-colors"
-                title={isMax || isSnappedLeft || isSnappedRight ? 'Restore' : 'Maximize'}
+                onMouseLeave={() => {
+                  snapFlyoutTimerRef.current = window.setTimeout(() => {
+                    setShowSnapFlyout(false);
+                  }, 300);
+                }}
               >
-                {isMax || isSnappedLeft || isSnappedRight ? (
-                  <Copy className="w-3 h-3" />
-                ) : (
-                  <Square className="w-3 h-3" />
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    soundEngine.playSnap();
+                    onToggleMaximize();
+                  }}
+                  className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-300/70 text-slate-500 hover:text-slate-800 cursor-pointer transition-colors"
+                  title={isMax || isSnappedLeft || isSnappedRight ? 'Restore' : 'Maximize / Snap Assist'}
+                >
+                  {isMax || isSnappedLeft || isSnappedRight ? (
+                    <Copy className="w-3 h-3" />
+                  ) : (
+                    <Square className="w-3 h-3" />
+                  )}
+                </button>
+
+                {/* Snap Layouts Assist Popover */}
+                {showSnapFlyout && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    className="absolute top-8 right-0 z-50 w-44 bg-slate-900/95 backdrop-blur-xl border border-white/20 rounded-2xl shadow-2xl p-2.5 text-slate-200 text-xs space-y-2 select-none animate-in fade-in zoom-in-95 duration-150"
+                  >
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1">
+                      Snap Layouts
+                    </div>
+
+                    {/* Split 50/50 */}
+                    <div className="grid grid-cols-2 gap-1.5 h-12">
+                      <button
+                        onClick={() => snapTo('left')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Snap to Left Half"
+                      >
+                        <span className="text-[10px] text-slate-400 group-hover:text-white font-mono">50% L</span>
+                      </button>
+                      <button
+                        onClick={() => snapTo('right')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Snap to Right Half"
+                      >
+                        <span className="text-[10px] text-slate-400 group-hover:text-white font-mono">50% R</span>
+                      </button>
+                    </div>
+
+                    {/* 4 Corner Quadrants */}
+                    <div className="grid grid-cols-2 gap-1.5 h-14">
+                      <button
+                        onClick={() => snapTo('top-left')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Top Left Quarter"
+                      >
+                        <span className="text-[9px] text-slate-400 group-hover:text-white font-mono">TL</span>
+                      </button>
+                      <button
+                        onClick={() => snapTo('top-right')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Top Right Quarter"
+                      >
+                        <span className="text-[9px] text-slate-400 group-hover:text-white font-mono">TR</span>
+                      </button>
+                      <button
+                        onClick={() => snapTo('bottom-left')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Bottom Left Quarter"
+                      >
+                        <span className="text-[9px] text-slate-400 group-hover:text-white font-mono">BL</span>
+                      </button>
+                      <button
+                        onClick={() => snapTo('bottom-right')}
+                        className="bg-white/10 hover:bg-sky-500/30 border border-white/20 hover:border-sky-400 rounded-lg flex items-center justify-center transition-all cursor-pointer group"
+                        title="Bottom Right Quarter"
+                      >
+                        <span className="text-[9px] text-slate-400 group-hover:text-white font-mono">BR</span>
+                      </button>
+                    </div>
+
+                    {/* Maximize / Restore */}
+                    <button
+                      onClick={() => snapTo('none')}
+                      className="w-full py-1 rounded-lg bg-white/5 hover:bg-white/15 text-slate-300 text-[11px] font-medium transition-colors"
+                    >
+                      {isMax ? 'Restore Window' : 'Full Screen'}
+                    </button>
+                  </div>
                 )}
-              </button>
+              </div>
               <button
                 onClick={(e) => {
                   e.stopPropagation();

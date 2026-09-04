@@ -19,6 +19,7 @@ import {
   Layers,
   Search,
   Bell,
+  BellOff,
   Sliders,
   Cpu,
 } from 'lucide-react';
@@ -548,10 +549,14 @@ export const Taskbar: React.FC<TaskbarProps> = ({
               ? 'bg-white/15 text-white border-white/20 shadow-md'
               : 'bg-white/5 hover:bg-white/10 border-white/5 text-slate-300 hover:text-white'
           }`}
-          title="Notifications"
+          title={settings.focusMode ? 'Notification Center (Do Not Disturb Active)' : 'Notification Center'}
         >
-          <Bell className="w-4 h-4 text-slate-300" />
-          {notifications.some((n) => !n.isRead) && (
+          {settings.focusMode ? (
+            <BellOff className="w-4 h-4 text-purple-400" />
+          ) : (
+            <Bell className="w-4 h-4 text-slate-300" />
+          )}
+          {notifications.some((n) => !n.isRead) && !settings.focusMode && (
             <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-sky-400 animate-ping" />
           )}
           {notifications.some((n) => !n.isRead) && (
@@ -619,6 +624,8 @@ export const Taskbar: React.FC<TaskbarProps> = ({
       <NotificationFlyout
         isOpen={notificationsOpen}
         notifications={notifications}
+        focusMode={settings.focusMode}
+        onToggleFocusMode={() => onUpdateSettings({ focusMode: !settings.focusMode })}
         onClose={() => setNotificationsOpen(false)}
       />
 

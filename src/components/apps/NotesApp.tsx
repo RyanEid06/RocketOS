@@ -179,49 +179,14 @@ const NOTES_STORAGE_KEY = 'rocket_notes_app_data_v2';
 const DEFAULT_STARTER_NOTES: ExtendedNoteItem[] = [
   {
     id: 'note-1',
-    title: 'RocketOS Kernel Roadmap & To-Do',
-    category: 'todo',
-    color: 'sky',
-    updatedAt: 'Today, 14:10',
-    filePath: '/home/ryan/Documents/kernel_roadmap.rnote',
-    isDirty: false,
-    content: 'Primary architectural goals for the Long Mode microkernel release.',
-    tasks: [
-      { id: 't1', text: 'Initialize Stage-3 Bootloader with PML4 4-level paging', completed: true },
-      { id: 't2', text: 'Build Raylib safe primitive 2D drawing adapter', completed: true },
-      { id: 't3', text: 'Implement sleek liquid glass compositor & taskbar', completed: true },
-      { id: 't4', text: 'Support Recycle Bin with restore and permanent deletion', completed: true },
-      { id: 't5', text: 'Refine rocketc borrowing & lifetime checks in LLVM backend', completed: false },
-      { id: 't6', text: 'Add virtio-gpu hardware acceleration driver', completed: false },
-    ],
-  },
-  {
-    id: 'note-2',
-    title: 'Rocket Language Syntax Ideas',
-    category: 'ideas',
-    color: 'emerald',
-    updatedAt: 'Yesterday',
-    filePath: '/home/ryan/Documents/rocket_syntax.rnote',
-    isDirty: false,
-    content: `struct Vector3:\n    x: Float\n    y: Float\n    z: Float\n\nfn magnitude(v: Vector3) -> Float:\n    return math.sqrt(v.x*v.x + v.y*v.y + v.z*v.z)\n\nZero-cost abstractions with explicit memory ownership.`,
-    tasks: [
-      { id: 't7', text: 'Finalize match pattern exhaustiveness checker', completed: true },
-      { id: 't8', text: 'Add SIMD vector intrinsics to stdlib', completed: false },
-    ],
-  },
-  {
-    id: 'note-3',
-    title: 'Daily Meeting & Personal Scratchpad',
+    title: 'Quick Notes',
     category: 'notes',
-    color: 'amber',
-    updatedAt: 'Sep 3',
-    filePath: '/home/ryan/Documents/scratchpad.rnote',
+    color: 'sky',
+    updatedAt: 'Today',
+    filePath: '/Documents/quick_notes.rnote',
     isDirty: false,
-    content: 'Remember to verify the x86_64 interrupts IDT table and timer frequency in QEMU test harness.',
-    tasks: [
-      { id: 't9', text: 'Review APIC timer calibrate register', completed: true },
-      { id: 't10', text: 'Benchmark context switch latency (target < 850 cycles)', completed: false },
-    ],
+    content: 'Welcome to Notes. Use this space for your notes, ideas, and tasks.',
+    tasks: [],
   },
 ];
 
@@ -248,12 +213,10 @@ export const NotesApp: React.FC<NotesAppProps> = ({ initialFilePath }) => {
   const [newTaskInput, setNewTaskInput] = useState<string>('');
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [showSaveAsModal, setShowSaveAsModal] = useState<boolean>(false);
-  const [saveAsPath, setSaveAsPath] = useState<string>('/home/ryan/Documents/new_note.rnote');
+  const [saveAsPath, setSaveAsPath] = useState<string>('/Documents/new_note.rnote');
   const [showOpenModal, setShowOpenModal] = useState<boolean>(false);
   const [recentFiles, setRecentFiles] = useState<string[]>([
-    '/home/ryan/Documents/kernel_roadmap.rnote',
-    '/home/ryan/Documents/rocket_syntax.rnote',
-    '/home/ryan/Documents/scratchpad.rnote',
+    '/Documents/quick_notes.rnote',
   ]);
 
   const activeNote = notes.find((n) => n.id === activeNoteId) || notes[0];

@@ -97,6 +97,34 @@ export class FileAssociations {
       associatedAppIds: ['editor'],
       friendlyName: 'JSON Document',
     },
+    {
+      extension: '.csv',
+      mimeType: 'text/csv',
+      defaultAppId: 'sheet',
+      associatedAppIds: ['sheet', 'editor'],
+      friendlyName: 'CSV Spreadsheet',
+    },
+    {
+      extension: '.rcsv',
+      mimeType: 'text/csv',
+      defaultAppId: 'sheet',
+      associatedAppIds: ['sheet', 'editor'],
+      friendlyName: 'Rocket Spreadsheet Document',
+    },
+    {
+      extension: '.pdf',
+      mimeType: 'application/pdf',
+      defaultAppId: 'pdf-viewer',
+      associatedAppIds: ['pdf-viewer'],
+      friendlyName: 'PDF Document',
+    },
+    {
+      extension: '.spec',
+      mimeType: 'text/plain',
+      defaultAppId: 'pdf-viewer',
+      associatedAppIds: ['pdf-viewer', 'editor'],
+      friendlyName: 'Specification Document',
+    },
   ];
 
   public static getAllAssociations() {

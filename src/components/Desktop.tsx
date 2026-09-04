@@ -28,10 +28,20 @@ import {
   FolderCode,
   Image as ImageIcon,
   Layers,
+  Scissors,
+  FileEdit,
+  X,
+  Shield,
+  Calendar,
+  Clock as ClockIcon,
+  File,
+  ClipboardPaste,
+  Eye,
 } from 'lucide-react';
 import { TRANSLATIONS, getLocaleCode } from '../utils/localization';
 import { WorkspaceRulesManager, WorkspaceShortcutItem } from '../core/workspace/WorkspaceRules';
 import { SHELL_Z_LAYERS } from '../core/theme/tokens';
+import { clipboardService } from '../core/clipboard/ClipboardService';
 
 interface DesktopProps {
   desktopFiles: FSItem[];
@@ -40,10 +50,14 @@ interface DesktopProps {
   currentWorkspace?: number;
   onOpenApp: (appId: AppId, extraData?: Record<string, any>) => void;
   onOpenFile: (file: FSItem) => void;
+  onQuickLook?: (file: FSItem) => void;
   onDeleteFile?: (file: FSItem) => void;
   onCopyFile?: (file: FSItem) => void;
+  onCutFile?: (file: FSItem) => void;
+  onPasteFile?: (targetPath: string) => void;
+  onRenameFile?: (itemId: string, newName: string) => void;
   onReboot: () => void;
-  onCreateDesktopFile: () => void;
+  onCreateDesktopFile: (extension?: 'rocket' | 'txt') => void;
   onCreateFolder?: () => void;
   onOpenTimeSettings?: () => void;
 }
@@ -55,20 +69,45 @@ export const Desktop: React.FC<DesktopProps> = ({
   currentWorkspace = 1,
   onOpenApp,
   onOpenFile,
+  onQuickLook,
   onDeleteFile,
   onCopyFile,
+  onCutFile,
+  onPasteFile,
+  onRenameFile,
   onReboot,
   onCreateDesktopFile,
   onCreateFolder,
   onOpenTimeSettings,
 }) => {
   const [selectedIconId, setSelectedIconId] = useState<string | null>(null);
+
+  // Spacebar Native Quick Look Listener
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && selectedIconId && onQuickLook) {
+        // Prevent default page scroll
+        const target = desktopFiles.find((f) => f.id === selectedIconId);
+        if (target && target.type === 'file') {
+          e.preventDefault();
+          onQuickLook(target);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIconId, desktopFiles, onQuickLook]);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     type: 'desktop' | 'icon';
     targetItem?: FSItem | WorkspaceShortcutItem;
   } | null>(null);
+
+  // Modals state for file operations
+  const [propertiesItem, setPropertiesItem] = useState<FSItem | null>(null);
+  const [renameItem, setRenameItem] = useState<{ id: string; name: string } | null>(null);
+  const [renameName, setRenameName] = useState<string>('');
 
   const [timeStr, setTimeStr] = useState<string>('');
   const [dateStr, setDateStr] = useState<string>('');
@@ -433,14 +472,18 @@ export const Desktop: React.FC<DesktopProps> = ({
       {/* Context Menu (Liquid Glass Aesthetic) */}
       {contextMenu && (
         <div
-          style={{ top: `${contextMenu.y}px`, left: `${contextMenu.x}px` }}
+          style={{
+            top: `${contextMenu.y}px`,
+            left: `${contextMenu.x}px`,
+            zIndex: SHELL_Z_LAYERS.CONTEXT_MENU,
+          }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-56 bg-slate-900/90 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-[0_16px_36px_rgba(0,0,0,0.5)] p-1.5 text-slate-200 text-xs font-sans space-y-1 animate-in fade-in zoom-in-95 duration-100"
+          className="fixed w-60 bg-slate-900/95 backdrop-blur-2xl rounded-2xl border border-white/20 shadow-[0_16px_36px_rgba(0,0,0,0.5)] p-1.5 text-slate-200 text-xs font-sans space-y-0.5 animate-in fade-in zoom-in-95 duration-100"
         >
           {contextMenu.type === 'icon' && contextMenu.targetItem ? (
             /* Icon Context Menu */
             <>
-              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-400 truncate">
+              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-400 truncate border-b border-white/10 mb-1">
                 {'title' in contextMenu.targetItem
                   ? contextMenu.targetItem.title
                   : contextMenu.targetItem.name}
@@ -461,7 +504,7 @@ export const Desktop: React.FC<DesktopProps> = ({
                     onOpenFile(contextMenu.targetItem as FSItem);
                   }
                 }}
-                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-white font-medium"
               >
                 <Folder className="w-3.5 h-3.5 text-sky-400" />
                 <span>Open</span>
@@ -469,6 +512,67 @@ export const Desktop: React.FC<DesktopProps> = ({
 
               {'name' in contextMenu.targetItem && (
                 <>
+                  {(contextMenu.targetItem.name.endsWith('.rocket') ||
+                    contextMenu.targetItem.name.endsWith('.toml') ||
+                    contextMenu.targetItem.name.endsWith('.json')) && (
+                    <button
+                      onClick={() => {
+                        handleCloseContextMenu();
+                        onOpenApp('editor', { file: contextMenu.targetItem, path: (contextMenu.targetItem as FSItem).path });
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-cyan-300"
+                    >
+                      <Code2 className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Edit with Code Studio</span>
+                    </button>
+                  )}
+
+                  {(contextMenu.targetItem.name.endsWith('.txt') ||
+                    contextMenu.targetItem.name.endsWith('.rnote') ||
+                    contextMenu.targetItem.name.endsWith('.md')) && (
+                    <button
+                      onClick={() => {
+                        handleCloseContextMenu();
+                        onOpenApp('notes', { file: contextMenu.targetItem });
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-emerald-300"
+                    >
+                      <FileEdit className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Edit in Notes</span>
+                    </button>
+                  )}
+
+                  <div className="h-px bg-white/10 my-1" />
+
+                  {onQuickLook && 'content' in contextMenu.targetItem && (
+                    <button
+                      onClick={() => {
+                        const target = contextMenu.targetItem as FSItem;
+                        handleCloseContextMenu();
+                        onQuickLook(target);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-amber-300 font-semibold"
+                    >
+                      <Eye className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Quick Look (Space)</span>
+                    </button>
+                  )}
+
+                  {onRenameFile && (
+                    <button
+                      onClick={() => {
+                        const target = contextMenu.targetItem as FSItem;
+                        handleCloseContextMenu();
+                        setRenameItem({ id: target.id, name: target.name });
+                        setRenameName(target.name);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Rename (F2)</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       handleCloseContextMenu();
@@ -479,6 +583,20 @@ export const Desktop: React.FC<DesktopProps> = ({
                     <Copy className="w-3.5 h-3.5 text-slate-300" />
                     <span>Copy (Ctrl+C)</span>
                   </button>
+
+                  {onCutFile && (
+                    <button
+                      onClick={() => {
+                        handleCloseContextMenu();
+                        onCutFile(contextMenu.targetItem as FSItem);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+                    >
+                      <Scissors className="w-3.5 h-3.5 text-slate-300" />
+                      <span>Cut (Ctrl+X)</span>
+                    </button>
+                  )}
+
                   <button
                     onClick={() => {
                       handleCloseContextMenu();
@@ -495,30 +613,41 @@ export const Desktop: React.FC<DesktopProps> = ({
               <div className="h-px bg-white/10 my-1" />
               <button
                 onClick={() => {
+                  const target = contextMenu.targetItem as FSItem;
                   handleCloseContextMenu();
-                  onOpenApp('settings');
+                  setPropertiesItem(target);
                 }}
-                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-slate-400"
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-slate-300"
               >
-                <Info className="w-3.5 h-3.5" />
+                <Info className="w-3.5 h-3.5 text-sky-400" />
                 <span>Properties</span>
               </button>
             </>
           ) : (
             /* Desktop Canvas Context Menu */
             <>
-              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-400">
+              <div className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-sky-400 border-b border-white/10 mb-1">
                 Desktop Options
               </div>
               <button
                 onClick={() => {
                   handleCloseContextMenu();
-                  onCreateDesktopFile();
+                  onCreateDesktopFile('rocket');
                 }}
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
               >
                 <Plus className="w-3.5 h-3.5 text-emerald-400" />
                 <span>{t.newFile} (.rocket)</span>
+              </button>
+              <button
+                onClick={() => {
+                  handleCloseContextMenu();
+                  onCreateDesktopFile('txt');
+                }}
+                className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5 text-slate-300" />
+                <span>New Text Document (.txt)</span>
               </button>
               {onCreateFolder && (
                 <button
@@ -532,15 +661,38 @@ export const Desktop: React.FC<DesktopProps> = ({
                   <span>{t.newFolder}</span>
                 </button>
               )}
+              {onPasteFile && (
+                <button
+                  disabled={!clipboardService.getClipboard()?.item}
+                  onClick={() => {
+                    handleCloseContextMenu();
+                    onPasteFile('/Desktop');
+                  }}
+                  className={`w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl text-left transition-colors ${
+                    clipboardService.getClipboard()?.item
+                      ? 'hover:bg-white/10 text-slate-200 cursor-pointer'
+                      : 'opacity-40 text-slate-500 cursor-not-allowed'
+                  }`}
+                >
+                  <ClipboardPaste className="w-3.5 h-3.5 text-amber-400" />
+                  <span>
+                    Paste{' '}
+                    {clipboardService.getClipboard()?.item
+                      ? `("${clipboardService.getClipboard()?.item?.name}")`
+                      : ''}
+                  </span>
+                </button>
+              )}
+              <div className="h-px bg-white/10 my-1" />
               <button
                 onClick={() => {
                   handleCloseContextMenu();
-                  onOpenApp('terminal');
+                  onOpenApp('terminal', { cwd: '/Desktop' });
                 }}
                 className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors"
               >
                 <Terminal className="w-3.5 h-3.5 text-emerald-400" />
-                <span>{t.terminal}</span>
+                <span>Open Terminal Here</span>
               </button>
               <button
                 onClick={() => {
@@ -586,6 +738,161 @@ export const Desktop: React.FC<DesktopProps> = ({
               </button>
             </>
           )}
+        </div>
+      )}
+
+      {/* Rename File Modal */}
+      {renameItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          style={{ zIndex: SHELL_Z_LAYERS.MODAL }}
+          onClick={() => setRenameItem(null)}
+        >
+          <div
+            className="w-full max-w-sm bg-slate-900/95 border border-white/20 rounded-2xl shadow-2xl p-5 text-slate-100 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm font-semibold text-sky-400">
+                <Edit3 className="w-4 h-4" />
+                <span>Rename Item</span>
+              </div>
+              <button
+                onClick={() => setRenameItem(null)}
+                className="p-1 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (renameItem && renameName.trim() && onRenameFile) {
+                  onRenameFile(renameItem.id, renameName.trim());
+                  setRenameItem(null);
+                }
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <label className="text-xs text-slate-400 block mb-1.5">New Name</label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={renameName}
+                  onChange={(e) => setRenameName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-950/80 border border-white/20 rounded-xl text-sm text-slate-100 focus:outline-none focus:border-sky-500 font-mono"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setRenameItem(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-white/5 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!renameName.trim() || renameName === renameItem.name}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-md shadow-sky-500/20"
+                >
+                  Rename
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* File Properties Modal */}
+      {propertiesItem && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150"
+          style={{ zIndex: SHELL_Z_LAYERS.MODAL }}
+          onClick={() => setPropertiesItem(null)}
+        >
+          <div
+            className="w-full max-w-md bg-slate-900/95 border border-white/20 rounded-2xl shadow-2xl p-5 text-slate-100 space-y-4 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                  {propertiesItem.type === 'folder' ? (
+                    <Folder className="w-5 h-5" />
+                  ) : propertiesItem.name.endsWith('.rocket') ? (
+                    <Code2 className="w-5 h-5" />
+                  ) : (
+                    <File className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-white truncate max-w-[240px]">
+                    {propertiesItem.name}
+                  </h3>
+                  <span className="text-[11px] text-slate-400 capitalize">
+                    {propertiesItem.type === 'folder'
+                      ? 'Directory'
+                      : propertiesItem.name.endsWith('.rocket')
+                      ? 'Rocket Source File (.rocket)'
+                      : propertiesItem.name.endsWith('.toml')
+                      ? 'TOML Configuration File'
+                      : 'Standard Document'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setPropertiesItem(null)}
+                className="p-1.5 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2.5 text-xs text-slate-300">
+              <div className="flex justify-between py-1.5 border-b border-white/5">
+                <span className="text-slate-400">Canonical Location:</span>
+                <span className="font-mono text-slate-200">{propertiesItem.path}</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-white/5">
+                <span className="text-slate-400">File Size:</span>
+                <span className="font-mono text-slate-200">
+                  {propertiesItem.size ||
+                    (propertiesItem.content ? `${propertiesItem.content.length} B` : '4.0 KB')}
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-white/5">
+                <span className="text-slate-400">Owner / Group:</span>
+                <span className="text-emerald-400 font-mono">ryan (1000) / users (100)</span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-white/5">
+                <span className="text-slate-400">UNIX Mode & Permissions:</span>
+                <span className="text-sky-300 font-mono">
+                  {propertiesItem.type === 'folder' ? '0755 (drwxr-xr-x)' : '0644 (-rw-r--r--)'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1.5 border-b border-white/5">
+                <span className="text-slate-400">Security Ring:</span>
+                <span className="text-purple-400 font-mono">Ring 3 (User-Space ARC Confined)</span>
+              </div>
+              <div className="flex justify-between py-1.5">
+                <span className="text-slate-400">Last Modified:</span>
+                <span className="text-slate-300">{propertiesItem.updatedAt || 'Recently'}</span>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-white/10 flex justify-end">
+              <button
+                onClick={() => setPropertiesItem(null)}
+                className="px-5 py-2 rounded-xl text-xs font-semibold bg-sky-500 hover:bg-sky-400 text-white transition-all shadow-md shadow-sky-500/20"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

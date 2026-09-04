@@ -8,6 +8,7 @@ import { BootStep } from '../types';
 import { Cpu, FastForward, CheckCircle2 } from 'lucide-react';
 import { ServiceManager } from '../core/services/ServiceManager';
 import { SystemManifest } from '../core/manifest/SystemManifest';
+import { DriverManager } from '../core/drivers/DriverManager';
 
 interface BootSequenceProps {
   onBootComplete: () => void;
@@ -66,8 +67,8 @@ const BOOT_STEPS_DEF: BootStepItem[] = [
     serviceToStart: 'rocket-audio',
   },
   {
-    stage: 'Network Interface',
-    message: '[rocket-network] VirtIO host adapter online. DNS simulation bridge initialized.',
+    stage: 'Hardware & Drivers',
+    message: '[rocket-drivers] Probing PCI buses. Intel Wi-Fi AX200, VirtIO Ethernet & DRM Modesetting drivers loaded.',
     durationMs: 250,
     sourceLanguage: 'Rocket',
     serviceToStart: 'rocket-network',
@@ -105,6 +106,9 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
     // Trigger service start if associated with this boot step
     if (currentStep.serviceToStart) {
       ServiceManager.getInstance().start(currentStep.serviceToStart);
+      if (currentStep.serviceToStart === 'rocket-network') {
+        DriverManager.getInstance();
+      }
     }
 
     const timer = setTimeout(() => {
@@ -117,6 +121,7 @@ export const BootSequence: React.FC<BootSequenceProps> = ({ onBootComplete }) =>
 
   const handleSkip = () => {
     // Fast boot: ensure all boot services are booted immediately
+    DriverManager.getInstance();
     ServiceManager.getInstance().bootCoreServices();
     onBootComplete();
   };

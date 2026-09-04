@@ -159,9 +159,23 @@ export class FileSystemService {
     // Also persist through authoritative RocketFS
     const rfs = RocketFS.getInstance();
     if (type === 'file') {
-      rfs.createFile(newPath, content);
+      const res = rfs.createFile(newPath, content);
+      if (!res.success) {
+        rfs.createDirectory(normParent);
+        rfs.createFile(newPath, content);
+      }
+      if (normParent === '/Desktop') {
+        rfs.createFile(`/home/ryan/Desktop/${name}`, content);
+      } else if (normParent === '/home/ryan/Desktop') {
+        rfs.createFile(`/Desktop/${name}`, content);
+      }
     } else {
       rfs.createDirectory(newPath);
+      if (normParent === '/Desktop') {
+        rfs.createDirectory(`/home/ryan/Desktop/${name}`);
+      } else if (normParent === '/home/ryan/Desktop') {
+        rfs.createDirectory(`/Desktop/${name}`);
+      }
     }
 
     const newItem: FSItem = {
@@ -175,12 +189,21 @@ export class FileSystemService {
       children: type === 'folder' ? [] : undefined,
     };
 
+    let inserted = false;
     const insert = (items: FSItem[]): FSItem[] => {
       return items.map((item) => {
-        if (this.normalizePath(item.path) === normParent && item.type === 'folder') {
+        const itemNorm = this.normalizePath(item.path);
+        const matchesParent =
+          itemNorm === normParent ||
+          (normParent === '/Desktop' && itemNorm === '/home/ryan/Desktop') ||
+          (normParent === '/home/ryan/Desktop' && itemNorm === '/Desktop');
+
+        if (matchesParent && item.type === 'folder') {
+          inserted = true;
+          const filtered = (item.children || []).filter((c) => c.name !== name);
           return {
             ...item,
-            children: [...(item.children || []), newItem],
+            children: [...filtered, newItem],
           };
         }
         if (item.children) {
@@ -190,7 +213,15 @@ export class FileSystemService {
       });
     };
 
-    return { newTree: insert(tree), createdItem: newItem };
+    const updatedTree = insert(tree);
+    if (!inserted) {
+      const rfsTree = rfs.toFSItemTree();
+      if (rfsTree.length > 0) {
+        return { newTree: rfsTree, createdItem: newItem };
+      }
+    }
+
+    return { newTree: updatedTree, createdItem: newItem };
   }
 
   public static deleteItem(

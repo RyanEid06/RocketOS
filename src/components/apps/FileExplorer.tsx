@@ -28,6 +28,7 @@ interface FileExplorerProps {
   copiedItem?: FSItem | null;
   onOpenFile: (file: FSItem) => void;
   onOpenWith?: (file: FSItem, appId: string) => void;
+  onQuickLook?: (file: FSItem) => void;
   onOpenTerminalAtPath?: (path: string) => void;
   onCreateItem: (parentPath: string, name: string, type: 'file' | 'folder', content?: string) => void;
   onDeleteItem?: (item: FSItem) => void;
@@ -46,6 +47,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
   copiedItem = null,
   onOpenFile,
   onOpenWith,
+  onQuickLook,
   onOpenTerminalAtPath,
   onCreateItem,
   onDeleteItem,
@@ -220,12 +222,17 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
           e.preventDefault();
           setRenamingItem({ id: primarySelectedItem.id, name: primarySelectedItem.name });
         }
+      } else if (e.code === 'Space') {
+        if (primarySelectedItem && primarySelectedItem.type === 'file' && onQuickLook) {
+          e.preventDefault();
+          onQuickLook(primarySelectedItem);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [itemsToDisplay, selectedIds, primarySelectedItem, activePath, onDeleteItem, onCopyItem, onCutItem, onPasteItem]);
+  }, [itemsToDisplay, selectedIds, primarySelectedItem, activePath, onDeleteItem, onCopyItem, onCutItem, onPasteItem, onQuickLook]);
 
   const getFileIcon = (item: FSItem) => {
     if (item.type === 'folder') {
@@ -550,6 +557,7 @@ export const FileExplorer: React.FC<FileExplorerProps> = ({
             }
           }}
           onOpenWith={onOpenWith}
+          onQuickLook={onQuickLook}
           onCopy={(item) => {
             clipboardService.copyItem(item);
             onCopyItem?.(item);

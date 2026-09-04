@@ -25,7 +25,11 @@ export type AppId =
   | 'gallery'
   | 'notes'
   | 'trash'
-  | 'thispc';
+  | 'thispc'
+  | 'sheet'
+  | 'calculator'
+  | 'pdf-viewer'
+  | 'backup';
 
 export type WallpaperId =
   | 'liquid-aurora'
@@ -56,6 +60,7 @@ export interface SystemSettings {
   transparency?: boolean;
   soundEffects?: boolean;
   brightness?: number; // 50 - 100
+  focusMode?: boolean; // Do Not Disturb
 }
 
 export interface TrashItem {

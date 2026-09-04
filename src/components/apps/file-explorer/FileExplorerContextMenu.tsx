@@ -1,5 +1,5 @@
 import React from 'react';
-import { Folder, Copy, Scissors, Trash2, Edit2, Shield } from 'lucide-react';
+import { Folder, Copy, Scissors, Trash2, Edit2, Shield, Eye } from 'lucide-react';
 import { FSItem } from '../../../types';
 
 interface FileExplorerContextMenuProps {
@@ -8,6 +8,7 @@ interface FileExplorerContextMenuProps {
   item: FSItem;
   onOpen: (item: FSItem) => void;
   onOpenWith?: (item: FSItem, appId: string) => void;
+  onQuickLook?: (item: FSItem) => void;
   onCopy: (item: FSItem) => void;
   onCut: (item: FSItem) => void;
   onRename: (item: FSItem) => void;
@@ -22,6 +23,7 @@ export const FileExplorerContextMenu: React.FC<FileExplorerContextMenuProps> = (
   item,
   onOpen,
   onOpenWith,
+  onQuickLook,
   onCopy,
   onCut,
   onRename,
@@ -53,6 +55,20 @@ export const FileExplorerContextMenu: React.FC<FileExplorerContextMenuProps> = (
         <span>Open</span>
       </button>
 
+      {item.type === 'file' && onQuickLook && (
+        <button
+          type="button"
+          onClick={() => {
+            onQuickLook(item);
+            onClose();
+          }}
+          className="w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded-xl hover:bg-white/10 text-left cursor-pointer transition-colors text-amber-300 font-semibold"
+        >
+          <Eye className="w-3.5 h-3.5 text-amber-400" />
+          <span>Quick Look (Space)</span>
+        </button>
+      )}
+
       {item.type === 'file' && onOpenWith && (
         <div className="relative">
           <button
@@ -78,6 +94,26 @@ export const FileExplorerContextMenu: React.FC<FileExplorerContextMenuProps> = (
                 className="w-full text-left px-2 py-1 rounded-lg hover:bg-white/10 text-[11px] text-slate-300 hover:text-white cursor-pointer"
               >
                 Rocket Text Editor
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenWith(item, 'sheet');
+                  onClose();
+                }}
+                className="w-full text-left px-2 py-1 rounded-lg hover:bg-white/10 text-[11px] text-slate-300 hover:text-white cursor-pointer"
+              >
+                Rocket Sheet (Spreadsheet)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onOpenWith(item, 'pdf-viewer');
+                  onClose();
+                }}
+                className="w-full text-left px-2 py-1 rounded-lg hover:bg-white/10 text-[11px] text-slate-300 hover:text-white cursor-pointer"
+              >
+                PDF / Spec Viewer
               </button>
               <button
                 type="button"

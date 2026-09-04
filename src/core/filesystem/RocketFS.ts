@@ -79,6 +79,12 @@ export class RocketFS {
       { path: '/sys', mode: 0o555, uid: 0, gid: 0 },  // Read-only virtual
       { path: '/mnt', mode: 0o755, uid: 0, gid: 0 },
       { path: '/opt', mode: 0o755, uid: 0, gid: 0 },
+      { path: '/Desktop', mode: 0o755, uid: 1000, gid: 100 },
+      { path: '/Documents', mode: 0o755, uid: 1000, gid: 100 },
+      { path: '/Downloads', mode: 0o755, uid: 1000, gid: 100 },
+      { path: '/Pictures', mode: 0o755, uid: 1000, gid: 100 },
+      { path: '/demos', mode: 0o755, uid: 1000, gid: 100 },
+      { path: '/src', mode: 0o755, uid: 1000, gid: 100 },
     ];
 
     for (const d of topDirs) {
@@ -143,106 +149,23 @@ export class RocketFS {
       this.createRawInode(d, 'directory', 1000, 100, 0o755);
     }
 
-    // Default Desktop files for Ryan
-    this.createRawInode(
-      '/home/ryan/Desktop/welcome.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      '// Welcome to RocketOS 2.1\nfn main() -> Int:\n    print("Welcome to RocketOS!")\n    return 0\n'
-    );
+    // Clean default desktop & system files
+    const defaultWelcomeContent = '# Welcome to RocketOS 2.1\nfn main() -> Int:\n    print("Welcome to RocketOS!")\n    return 0\n';
+    const defaultTomlContent = '[package]\nname = "workspace"\nversion = "2.1.0"\nentry = "src/main.rocket"\n\n[target.native]\nfeatures = ["llvm", "raylib"]\n';
 
-    this.createRawInode(
-      '/home/ryan/Desktop/hello.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      '// RocketOS Language Demo - Hello World\nfn main() -> Int:\n    print("Hello from Rocket 2.1 native compiler!")\n    return 0\n'
-    );
+    this.createRawInode('/Desktop/welcome.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', defaultWelcomeContent);
+    this.createRawInode('/Desktop/rocket.toml', 'file', 1000, 100, 0o644, undefined, 'text/x-toml', defaultTomlContent);
+    this.createRawInode('/home/ryan/Desktop/welcome.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', defaultWelcomeContent);
+    this.createRawInode('/home/ryan/Desktop/rocket.toml', 'file', 1000, 100, 0o644, undefined, 'text/x-toml', defaultTomlContent);
 
-    this.createRawInode(
-      '/home/ryan/Desktop/language_tour.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      '// Rocket Language Tour\nimport std.math\nimport std.collections\n\nstruct Vector2:\n    x: Float\n    y: Float\n\nfn main() -> Int:\n    let v = Vector2(x: 10.5, y: 20.2)\n    print("Vector initialized: " + string.from_float(v.x))\n    return 0\n'
-    );
+    // Demos
+    this.createRawInode('/demos/hello.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Hello World Demo\nfn main() -> Int:\n    print("Hello from Rocket 2.1!")\n    return 0\n');
+    this.createRawInode('/demos/fibonacci.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Fibonacci calculation\nimport std.string\n\nfn fib(n: Int) -> Int:\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nfn main() -> Int:\n    print("fib(10) = " + string.from_int(fib(10)))\n    return 0\n');
+    this.createRawInode('/demos/system_info.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# System information\nfn main() -> Int:\n    print("Operating System: RocketOS 2.1 LTS")\n    print("Architecture: x86_64 Long Mode")\n    return 0\n');
 
-    this.createRawInode(
-      '/home/ryan/Desktop/ownership_concurrency.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      '// Rocket Concurrency & Thread-Confined ARC\nimport std.concurrency\n\nfn worker_task(id: Int) -> Void:\n    print("Worker task active: " + string.from_int(id))\n\nfn main() -> Int:\n    spawn worker_task(1)\n    spawn worker_task(2)\n    return 0\n'
-    );
-
-    this.createRawInode(
-      '/home/ryan/Desktop/fibonacci.rocket',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-rocket',
-      '// Fast Recursive Fibonacci with Memoization\nfn fib(n: Int) -> Int:\n    if n <= 1:\n        return n\n    return fib(n - 1) + fib(n - 2)\n\nfn main() -> Int:\n    print("fib(10) = " + string.from_int(fib(10)))\n    return 0\n'
-    );
-
-    this.createRawInode(
-      '/home/ryan/Desktop/rocket.toml',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/x-toml',
-      '[package]\nname = "my_rocket_app"\nversion = "1.0.0"\nauthors = ["Ryan Eid <ryan@rocket-lang.org>"]\nedition = "2026"\n\n[dependencies]\nraylib = "6.0"\n'
-    );
-
-    this.createRawInode(
-      '/home/ryan/Desktop/README.md',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/markdown',
-      '# Welcome to RocketOS 2.1\n\nRocketOS is a high-performance desktop environment powered by the Rocket Programming Language.\n\n### Key Features\n- Real Virtual Filesystem (RocketFS) with full Unix permissions\n- Authoritative Path Engine & Multi-User Architecture\n- Procedural Audio & WebAudio Synthesis Engine\n- Raylib 6.0 Safe Primitive Adapter\n'
-    );
-
-    this.createRawInode(
-      '/home/ryan/Desktop/ROCKET_3_0_STATUS.txt',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/plain',
-      'ROCKET 3.0 ROADMAP STATUS:\n- Stage 1: Lexer / AST Parser [COMPLETE]\n- Stage 2: Type Inference & HIR [COMPLETE]\n- Stage 3: Thread-Confined ARC & Concurrency [COMPLETE]\n- Stage 4: LLVM 22 O2 Optimization Pipeline [READY]\n'
-    );
-
-    // User Documents
-    this.createRawInode(
-      '/home/ryan/Documents/PHASE_19_AUDIT_SUMMARY.md',
-      'file',
-      1000,
-      100,
-      0o644,
-      undefined,
-      'text/markdown',
-      '# RocketOS Architecture Audit\n\nStatus: Verified\nKernel: Pure 64-bit protected mode\nSecurity: Sudo & RBAC privilege model active\n'
-    );
+    // Source template
+    this.createRawInode('/src/main.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Rocket Application Entry\nimport std.string\nimport std.math\n\nfn main() -> Int:\n    print("Rocket Application Running")\n    return 0\n');
+    this.createRawInode('/src/math_demo.rocket', 'file', 1000, 100, 0o644, undefined, 'text/x-rocket', '# Standard Math Demo\nimport std.math\nimport std.string\n\nfn main() -> Int:\n    let val = math.sqrt(25.0)\n    print("sqrt(25) = " + string.from_float(val))\n    return 0\n');
 
     // User Projects
     this.createRawInode(
@@ -1206,8 +1129,15 @@ export class RocketFS {
 
   public findItemByPath(path: string): FSItem | null {
     try {
-      const canonical = PathEngine.canonicalize(path);
-      const inodeId = this.inodesByPath.get(canonical);
+      let canonical = PathEngine.canonicalize(path);
+      let inodeId = this.inodesByPath.get(canonical);
+      if (!inodeId && canonical === '/Desktop') {
+        canonical = '/home/ryan/Desktop';
+        inodeId = this.inodesByPath.get(canonical);
+      } else if (!inodeId && canonical === '/home/ryan/Desktop') {
+        canonical = '/Desktop';
+        inodeId = this.inodesByPath.get(canonical);
+      }
       if (!inodeId) return null;
       const inode = this.inodesById.get(inodeId);
       if (!inode) return null;

@@ -289,6 +289,84 @@ class SoundEngine {
       osc.stop(t + 0.13);
     } catch {}
   }
+
+  // Ambient Focus Generator for deep work sessions
+  private ambientSource: AudioNode | null = null;
+  private ambientGain: GainNode | null = null;
+  private currentAmbientType: string | null = null;
+
+  public startAmbientFocus(type: 'rain' | 'whitenoise' | 'binaural', volume: number = 20) {
+    this.stopAmbientFocus();
+    try {
+      const ctx = this.initCtx();
+      if (!ctx) return;
+
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime((Math.min(100, Math.max(0, volume)) / 100) * 0.15, ctx.currentTime);
+      gain.connect(ctx.destination);
+      this.ambientGain = gain;
+
+      if (type === 'whitenoise' || type === 'rain') {
+        const bufferSize = ctx.sampleRate * 2;
+        const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = buffer.getChannelData(0);
+        let lastOut = 0.0;
+
+        for (let i = 0; i < bufferSize; i++) {
+          const white = Math.random() * 2 - 1;
+          if (type === 'rain') {
+            // Pink/brown filtered noise simulating soothing rain
+            lastOut = (lastOut + 0.02 * white) / 1.02;
+            data[i] = lastOut * 3.5;
+          } else {
+            data[i] = white * 0.3;
+          }
+        }
+
+        const noise = ctx.createBufferSource();
+        noise.buffer = buffer;
+        noise.loop = true;
+        noise.connect(gain);
+        noise.start();
+        this.ambientSource = noise;
+      } else if (type === 'binaural') {
+        // Binaural alpha frequency (210 Hz left, 220 Hz right -> 10Hz alpha wave)
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(216, ctx.currentTime);
+        osc.connect(gain);
+        osc.start();
+        this.ambientSource = osc;
+      }
+
+      this.currentAmbientType = type;
+    } catch {}
+  }
+
+  public setAmbientVolume(vol: number) {
+    if (this.ambientGain && this.ctx) {
+      this.ambientGain.gain.setValueAtTime((Math.min(100, Math.max(0, vol)) / 100) * 0.15, this.ctx.currentTime);
+    }
+  }
+
+  public stopAmbientFocus() {
+    try {
+      if (this.ambientSource) {
+        (this.ambientSource as any).stop?.();
+        this.ambientSource.disconnect();
+        this.ambientSource = null;
+      }
+      if (this.ambientGain) {
+        this.ambientGain.disconnect();
+        this.ambientGain = null;
+      }
+      this.currentAmbientType = null;
+    } catch {}
+  }
+
+  public getCurrentAmbientType(): string | null {
+    return this.currentAmbientType;
+  }
 }
 
 export const soundEngine = new SoundEngine();

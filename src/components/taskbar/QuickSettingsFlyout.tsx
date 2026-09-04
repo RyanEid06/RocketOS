@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Wifi,
   Volume2,
@@ -9,10 +9,16 @@ import {
   Settings as SettingsIcon,
   ShieldCheck,
   Zap,
+  BellOff,
+  CloudRain,
+  Radio,
+  Headphones,
 } from 'lucide-react';
 import { SystemSettings, SystemLanguage } from '../../types';
 import { TRANSLATIONS } from '../../utils/localization';
 import { SystemManifest } from '../../core/manifest/SystemManifest';
+import { DriverManager } from '../../core/drivers/DriverManager';
+import { soundEngine } from '../../utils/audio';
 
 interface QuickSettingsFlyoutProps {
   isOpen: boolean;
@@ -30,6 +36,28 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
   onClose,
 }) => {
   const t = TRANSLATIONS[settings.language] || TRANSLATIONS.en;
+  const [ambientType, setAmbientType] = useState<string | null>(null);
+  const [ambientVolume, setAmbientVolume] = useState<number>(35);
+
+  useEffect(() => {
+    setAmbientType(soundEngine.getCurrentAmbientType());
+  }, [isOpen]);
+
+  const toggleAmbient = (type: 'rain' | 'whitenoise' | 'binaural') => {
+    if (ambientType === type) {
+      soundEngine.stopAmbientFocus();
+      setAmbientType(null);
+    } else {
+      soundEngine.startAmbientFocus(type, ambientVolume);
+      setAmbientType(type);
+    }
+    soundEngine.play('click');
+  };
+
+  const handleAmbientVolumeChange = (vol: number) => {
+    setAmbientVolume(vol);
+    soundEngine.setAmbientVolume(vol);
+  };
 
   if (!isOpen) return null;
 
@@ -44,7 +72,7 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
   return (
     <div
       onClick={(e) => e.stopPropagation()}
-      className="absolute bottom-16 right-4 z-50 w-[380px] max-w-[90vw] bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/20 shadow-2xl p-5 text-slate-100 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-6 duration-200 select-none"
+      className="absolute bottom-16 right-4 z-50 w-[390px] max-w-[92vw] bg-slate-900/90 backdrop-blur-2xl rounded-3xl border border-white/20 shadow-2xl p-5 text-slate-100 flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-6 duration-200 select-none max-h-[85vh] overflow-y-auto"
     >
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-white/10">
@@ -67,7 +95,11 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
         {/* WiFi Tile */}
         <button
           type="button"
-          onClick={() => onUpdateSettings({ wifiConnected: !settings.wifiConnected })}
+          onClick={() => {
+            const next = !settings.wifiConnected;
+            onUpdateSettings({ wifiConnected: next });
+            DriverManager.getInstance().setWifiEnabled(next);
+          }}
           className={`p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center gap-3 ${
             settings.wifiConnected
               ? 'bg-[var(--rkt-accent)]/20 border-[var(--rkt-accent)]/50 text-white shadow-lg shadow-[var(--rkt-accent)]/10'
@@ -84,7 +116,9 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-xs truncate">WiFi</div>
             <div className="text-[10px] opacity-75 truncate">
-              {settings.wifiConnected ? 'Connected (Quantum-5G)' : 'Disconnected'}
+              {settings.wifiConnected
+                ? `Connected (${DriverManager.getInstance().getActiveSsid() || 'Wi-Fi'})`
+                : 'Disconnected'}
             </div>
           </div>
         </button>
@@ -110,6 +144,35 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
             <div className="font-semibold text-xs truncate">Night Light</div>
             <div className="text-[10px] opacity-75 truncate">
               {settings.nightLight ? 'Warm filter active' : 'Disabled'}
+            </div>
+          </div>
+        </button>
+
+        {/* Focus Mode / DND Tile */}
+        <button
+          type="button"
+          onClick={() => {
+            const next = !settings.focusMode;
+            onUpdateSettings({ focusMode: next });
+            soundEngine.play('click');
+          }}
+          className={`col-span-2 p-3 rounded-2xl border transition-all cursor-pointer text-left flex items-center gap-3 ${
+            settings.focusMode
+              ? 'bg-purple-600/25 border-purple-400/50 text-white shadow-lg shadow-purple-500/10'
+              : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10'
+          }`}
+        >
+          <div
+            className={`p-2 rounded-xl ${
+              settings.focusMode ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400'
+            }`}
+          >
+            <BellOff className="w-4 h-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-xs truncate">Focus & Do Not Disturb</div>
+            <div className="text-[10px] opacity-75 truncate">
+              {settings.focusMode ? 'Active (silencing banners & notifications)' : 'Disabled'}
             </div>
           </div>
         </button>
@@ -146,6 +209,76 @@ export const QuickSettingsFlyout: React.FC<QuickSettingsFlyoutProps> = ({
           }
           className="w-full accent-[var(--rkt-accent)] cursor-pointer h-1.5 bg-slate-800 rounded-lg"
         />
+      </div>
+
+      {/* Ambient Sound Focus Generator Widget */}
+      <div className="space-y-2 p-3 rounded-2xl bg-black/30 border border-white/5">
+        <div className="flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2 font-semibold text-slate-300">
+            <Headphones className="w-4 h-4 text-emerald-400" />
+            <span>Ambient Focus Generator</span>
+          </div>
+          {ambientType && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">
+              PLAYING
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-1.5 pt-1">
+          <button
+            type="button"
+            onClick={() => toggleAmbient('rain')}
+            className={`py-1.5 px-2 rounded-xl text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              ambientType === 'rain'
+                ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300 shadow-sm'
+                : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+            }`}
+          >
+            <CloudRain className="w-3.5 h-3.5" />
+            <span>Rain</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => toggleAmbient('whitenoise')}
+            className={`py-1.5 px-2 rounded-xl text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              ambientType === 'whitenoise'
+                ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300 shadow-sm'
+                : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Radio className="w-3.5 h-3.5" />
+            <span>White</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => toggleAmbient('binaural')}
+            className={`py-1.5 px-2 rounded-xl text-xs font-medium border flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+              ambientType === 'binaural'
+                ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-300 shadow-sm'
+                : 'bg-white/5 border-white/5 text-slate-400 hover:text-white'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            <span>Alpha</span>
+          </button>
+        </div>
+
+        {ambientType && (
+          <div className="pt-2 flex items-center gap-2">
+            <span className="text-[10px] text-slate-400 font-mono">Level:</span>
+            <input
+              type="range"
+              min="5"
+              max="100"
+              value={ambientVolume}
+              onChange={(e) => handleAmbientVolumeChange(parseInt(e.target.value, 10))}
+              className="flex-1 accent-emerald-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+            />
+          </div>
+        )}
       </div>
 
       {/* Language Selector */}

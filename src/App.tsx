@@ -25,6 +25,12 @@ import { TaskManagerApp } from './components/apps/TaskManagerApp';
 import { PaintApp } from './components/apps/PaintApp';
 import { NotesApp } from './components/apps/NotesApp';
 import { RocketGallery } from './components/apps/RocketGallery';
+import { RocketSheetApp } from './components/apps/RocketSheetApp';
+import { CalculatorApp } from './components/apps/CalculatorApp';
+import { PdfViewerApp } from './components/apps/PdfViewerApp';
+import { BackupRestoreApp } from './components/apps/BackupRestoreApp';
+import { CommandPalette } from './components/shell/CommandPalette';
+import { QuickLookModal } from './components/shell/QuickLookModal';
 
 import { browserPersistenceProvider } from './platform/browser/BrowserPersistenceProvider';
 import { settingsService } from './core/settings/SettingsService';
@@ -90,6 +96,27 @@ export default function App() {
 
   // Show Desktop state (minimize/restore all)
   const [windowsBeforeShowDesktop, setWindowsBeforeShowDesktop] = useState<string[] | null>(null);
+
+  // Command Palette & Quick Look Modals
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState<boolean>(false);
+  const [quickLookItem, setQuickLookItem] = useState<FSItem | null>(null);
+
+  // Global Keyboard Shortcuts (Alt+Space / Ctrl+K for Command Palette)
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      // Toggle Command Palette
+      if (
+        (e.altKey && e.code === 'Space') ||
+        ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')
+      ) {
+        e.preventDefault();
+        soundEngine.playOpen();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcuts);
+    return () => window.removeEventListener('keydown', handleGlobalShortcuts);
+  }, []);
 
   // 1. Initial State Restoration from IndexedDB / BrowserPersistenceProvider
   useEffect(() => {
@@ -458,6 +485,14 @@ export default function App() {
       openApp('graphics', { file, path: file.path });
       return;
     }
+    if (targetAppId === 'sheet') {
+      openApp('sheet', { file, filePath: file.path });
+      return;
+    }
+    if (targetAppId === 'pdf-viewer') {
+      openApp('pdf-viewer', { file, filePath: file.path });
+      return;
+    }
     setActiveEditorFile(file);
     const existingEditor = windows.find((w) => w.appId === 'editor');
     if (existingEditor) {
@@ -631,14 +666,16 @@ export default function App() {
     );
   };
 
-  // Create default rocket file on Desktop
-  const handleCreateDesktopFile = () => {
-    handleCreateItem(
-      '/Desktop',
-      `module_${Date.now().toString().slice(-4)}.rocket`,
-      'file',
-      '// New Rocket module\nfn main() -> Int {\n    println("Hello from Rocket");\n    return 0;\n}\n'
-    );
+  // Create default rocket or text file on Desktop
+  const handleCreateDesktopFile = (extension: 'rocket' | 'txt' = 'rocket') => {
+    const timestamp = Date.now().toString().slice(-4);
+    const fileName =
+      extension === 'rocket' ? `script_${timestamp}.rocket` : `note_${timestamp}.txt`;
+    const defaultContent =
+      extension === 'rocket'
+        ? '# Rocket 2.1 Script\n\nfn main() -> Int:\n    print("Hello from RocketOS!")\n    return 0\n'
+        : 'Hello from RocketOS\n';
+    handleCreateItem('/Desktop', fileName, 'file', defaultContent);
   };
 
   // Create folder on Desktop
@@ -652,10 +689,32 @@ export default function App() {
 
   // Get desktop files for the desktop surface
   const getDesktopItems = (): FSItem[] => {
-    const desktopFolder =
-      RocketFS.getInstance().findItemByPath('/Desktop') ||
+    const findFolderByPath = (items: FSItem[], targetPath: string): FSItem | null => {
+      for (const it of items) {
+        if (it.path === targetPath && it.type === 'folder') return it;
+        if (it.children) {
+          const found = findFolderByPath(it.children, targetPath);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const stateDesktop =
+      findFolderByPath(fileSystem, '/Desktop') ||
+      findFolderByPath(fileSystem, '/home/ryan/Desktop') ||
+      fileSystem.find((item) => item.name === 'Desktop') ||
       fileSystem[0]?.children?.find((c) => c.name === 'Desktop');
-    return desktopFolder?.children || [];
+
+    if (stateDesktop?.children) {
+      return stateDesktop.children;
+    }
+
+    const rfsFolder =
+      RocketFS.getInstance().findItemByPath('/Desktop') ||
+      RocketFS.getInstance().findItemByPath('/home/ryan/Desktop');
+
+    return rfsFolder?.children || [];
   };
 
   // Render individual window content
@@ -669,6 +728,7 @@ export default function App() {
             trashItems={trashItems}
             onOpenFile={handleOpenFile}
             onOpenWith={(file, appId) => openApp(appId as any, { file, path: file.path })}
+            onQuickLook={(file) => setQuickLookItem(file)}
             onOpenTerminalAtPath={(path) => openApp('terminal', { cwd: path })}
             onCreateItem={handleCreateItem}
             onDeleteItem={handleDeleteItem}
@@ -699,6 +759,19 @@ export default function App() {
         );
       case 'notes':
         return <NotesApp />;
+      case 'sheet':
+        return <RocketSheetApp initialFilePath={win.extraData?.filePath || win.extraData?.path} />;
+      case 'calculator':
+        return <CalculatorApp />;
+      case 'pdf-viewer':
+        return <PdfViewerApp initialFilePath={win.extraData?.filePath || win.extraData?.path} />;
+      case 'backup':
+        return (
+          <BackupRestoreApp
+            onReboot={() => setIsBooted(false)}
+            onRefreshFileSystem={(newFs) => setFileSystem(newFs)}
+          />
+        );
       case 'rocket-studio':
         return <RocketStudio onLaunchApp={(appId, data) => openApp(appId as any, data)} />;
       case 'terminal':
@@ -761,8 +834,12 @@ export default function App() {
         currentWorkspace={currentWorkspace}
         onOpenApp={openApp}
         onOpenFile={handleOpenFile}
+        onQuickLook={(file) => setQuickLookItem(file)}
         onDeleteFile={handleDeleteItem}
         onCopyFile={handleCopyItem}
+        onCutFile={handleCutItem}
+        onPasteFile={() => handlePasteItem('/Desktop')}
+        onRenameFile={handleRenameItem}
         onReboot={() => setIsBooted(false)}
         onCreateDesktopFile={handleCreateDesktopFile}
         onCreateFolder={handleCreateDesktopFolder}
@@ -834,6 +911,24 @@ export default function App() {
         onOpenFile={handleOpenFile}
         onReboot={() => setIsBooted(false)}
         onOpenExplorerPath={(path) => openApp('explorer', { path })}
+      />
+
+      {/* Universal Command Palette (Alt+Space / Ctrl+K) */}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        onOpenApp={openApp}
+        onOpenFile={handleOpenFile}
+        onReboot={() => setIsBooted(false)}
+      />
+
+      {/* Native Spacebar File Quick Look Modal */}
+      <QuickLookModal
+        item={quickLookItem}
+        onClose={() => setQuickLookItem(null)}
+        onOpenWithApp={(appId, file) => {
+          handleOpenFile(file);
+        }}
       />
     </div>
   );

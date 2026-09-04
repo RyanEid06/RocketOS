@@ -6,158 +6,28 @@ export const INITIAL_FILE_SYSTEM: FSItem[] = [
     name: 'RocketFS Root (/)',
     type: 'folder',
     path: '/',
-    updatedAt: '2026-09-03',
+    updatedAt: '2026-09-04',
     children: [
       {
         id: 'desktop',
         name: 'Desktop',
         type: 'folder',
         path: '/Desktop',
-        updatedAt: '2026-09-03',
+        updatedAt: '2026-09-04',
         children: [
           {
             id: 'welcome-rocket',
             name: 'welcome.rocket',
             type: 'file',
             path: '/Desktop/welcome.rocket',
-            size: '85 B',
-            updatedAt: '2026-09-03',
-            content: `fn main() -> Int:
-    let greeting = "Welcome to RocketOS"
-    print(greeting)
-    return 0
-`
-          },
-          {
-            id: 'hello-rocket',
-            name: 'hello.rocket',
-            type: 'file',
-            path: '/Desktop/hello.rocket',
-            size: '90 B',
-            updatedAt: '2026-09-03',
-            content: `fn main() -> Int:
-    let greeting = "Hello from Rocket"
-    print(greeting)
-    return 0
-`
-          },
-          {
-            id: 'language-tour-rocket',
-            name: 'language_tour.rocket',
-            type: 'file',
-            path: '/Desktop/language_tour.rocket',
-            size: '755 B',
-            updatedAt: '2026-09-03',
-            content: `import std.collections
-import std.string
-
-struct Pair[T]:
-    first: T
-    second: T
-
-enum Message:
-    Number(Int)
-    Text(String)
-
-fn parse_and_increment(text: String) -> Result[Int, String]:
-    let value = string.parse_int(text)?
-    return Ok(value + 1)
+            size: '128 B',
+            updatedAt: '2026-09-04',
+            content: `# Welcome to RocketOS 2.1
+# Statically-typed, deterministic ARC, indentation-aware system
 
 fn main() -> Int:
-    let pair = Pair(10, 20)
-    let values = [pair.first, pair.second, 30]
-    let middle = values[1..3]
-    print(collections.slice_length(middle))
-
-    let result = parse_and_increment("41")
-    match result:
-        case Ok(value):
-            print(value)
-        case Err(error):
-            print(error)
-
-    let message = Text("done")
-    match message:
-        case Number(value):
-            print(value)
-        case Text(text):
-            print(text)
-
-    return 0
-`
-          },
-          {
-            id: 'concurrency-rocket',
-            name: 'ownership_concurrency.rocket',
-            type: 'file',
-            path: '/Desktop/ownership_concurrency.rocket',
-            size: '1.1 KB',
-            updatedAt: '2026-09-03',
-            content: `import std.buffer
-import std.ownership
-import std.sync
-import std.task
-
-struct Record:
-    value: Int
-
-async fn increment(value: Int) -> Result[Int, String]:
-    return Ok(value + 1)
-
-fn main() -> Int:
-    let record = Record(41)
-    let observer = ownership.downgrade(record)
-    match ownership.upgrade(observer):
-        case Some(live):
-            print(live.value)
-        case None:
-            return 1
-
-    let mutable = buffer.thaw([1, 2])
-    let grown = buffer.append(mutable, 3)
-    let frozen = buffer.freeze(grown)
-    print(frozen[2])
-
-    let pending = increment(record.value)
-    match task.join(pending):
-        case Ok(value):
-            print(value)
-        case Err(message):
-            print(message)
-            return 2
-
-    let initialized = sync.once_empty(0)
-    match sync.once_set(initialized, 7):
-        case Ok(won):
-            print(won)
-        case Err(message):
-            print(message)
-            return 3
-
-    match sync.once_get(initialized):
-        case Some(value):
-            print(value)
-        case None:
-            return 4
-
-    return 0
-`
-          },
-          {
-            id: 'fibonacci-rocket',
-            name: 'fibonacci.rocket',
-            type: 'file',
-            path: '/Desktop/fibonacci.rocket',
-            size: '154 B',
-            updatedAt: '2026-09-03',
-            content: `fn fib(n: Int) -> Int:
-    if n <= 1:
-        return n
-    return fib(n - 1) + fib(n - 2)
-
-fn main() -> Int:
-    let result = fib(10)
-    print(result)
+    let message = "Welcome to RocketOS"
+    print(message)
     return 0
 `
           },
@@ -166,64 +36,15 @@ fn main() -> Int:
             name: 'rocket.toml',
             type: 'file',
             path: '/Desktop/rocket.toml',
-            size: '180 B',
-            updatedAt: '2026-09-03',
+            size: '150 B',
+            updatedAt: '2026-09-04',
             content: `[package]
-name = "rocket_app"
+name = "workspace"
 version = "2.1.0"
 entry = "src/main.rocket"
 
-[target.windows-x64]
+[target.native]
 features = ["llvm", "raylib"]
-
-[target.linux-x64]
-features = ["llvm", "raylib"]
-
-[test]
-directory = "tests"
-`
-          },
-          {
-            id: 'rocket-readme',
-            name: 'README.md',
-            type: 'file',
-            path: '/Desktop/README.md',
-            size: '2.8 KB',
-            updatedAt: '2026-09-03',
-            content: `# Rocket Programming Language
-Repository: https://github.com/RyanEid06/Rocket
-Author: RyanEid06
-
-"Best and Fastest Coding language"
-
-Rocket is a high-performance, statically-typed, indentation-aware programming language with:
-- Genuine LLVM 22 backend for optimized native executables
-- Linked ABI-v1 runtime with deterministic ARC (thread-confined cheap ARC, promoted atomic ARC for shared values)
-- Indentation-aware syntax (colons + 4-space indent)
-- C++20 stage0 reproducible bootstrap fallback to self-hosted stage3
-- 4 accepted production targets: Windows x64, Linux x64, Linux ARM64, macOS ARM64
-- Rocket 3.0 Graphics & UI: raylib 6.0 adapter, rocket.motion easing, safe 2D geometry (WP14 complete, WP15 next)
-`
-          },
-          {
-            id: 'rocket3-status',
-            name: 'ROCKET_3_0_STATUS.txt',
-            type: 'file',
-            path: '/Desktop/ROCKET_3_0_STATUS.txt',
-            size: '1.4 KB',
-            updatedAt: '2026-09-03',
-            content: `[ROCKET 3.0 GRAPHICS & UI WORK PACKET STATUS]
-Source: docs/ROCKET_3_0_GRAPHICS_UI_IMPLEMENTATION_PLAN.md
-
-[x] WP10: Named Arguments (Complete)
-[x] WP11: Default Arguments (Complete)
-[x] WP11A: Complete Named-Callable Parity (Complete)
-[x] WP12: Complete Standard Math Module std.math (Complete)
-[x] WP13: Easing and Complete Motion rocket.motion (Complete)
-[x] WP14: Safe Raylib Geometry (Complete)
-[>] WP15: Advanced Textures and Filtering (CURRENT / NEXT)
-[ ] WP16: Render Targets & Textures (Pending)
-[ ] WP17: Scissor & Blend Modes (Pending)
 `
           }
         ]
@@ -233,88 +54,101 @@ Source: docs/ROCKET_3_0_GRAPHICS_UI_IMPLEMENTATION_PLAN.md
         name: 'src',
         type: 'folder',
         path: '/src',
-        updatedAt: '2026-09-03',
+        updatedAt: '2026-09-04',
         children: [
           {
             id: 'main-rocket',
             name: 'main.rocket',
             type: 'file',
             path: '/src/main.rocket',
-            size: '420 B',
-            updatedAt: '2026-09-03',
-            content: `import std.string
+            size: '260 B',
+            updatedAt: '2026-09-04',
+            content: `# Rocket Application Entry Point
+import std.string
 import std.math
-import rocket.motion
 
-fn compute_bounce(time: Float) -> Float:
-    let factor = math.sin(time * 3.14159)
-    return motion.ease_out_bounce(factor)
+fn calculate_hypotenuse(a: Float, b: Float) -> Float:
+    return math.sqrt(a * a + b * b)
 
 fn main() -> Int:
-    print("Rocket Application Engine Online")
-    let position = compute_bounce(0.75)
-    print(string.from_int(math.round(position * 100.0)))
+    let hypotenuse = calculate_hypotenuse(3.0, 4.0)
+    print("Hypotenuse: " + string.from_float(hypotenuse))
     return 0
 `
           },
           {
-            id: 'math-module-rocket',
+            id: 'math-demo-rocket',
             name: 'math_demo.rocket',
             type: 'file',
             path: '/src/math_demo.rocket',
-            size: '380 B',
-            updatedAt: '2026-09-03',
-            content: `import std.math
-
-fn calculate_hypotenuse(a: Float, b: Float) -> Float:
-    let sum_squares = math.pow(a, 2.0) + math.pow(b, 2.0)
-    return math.sqrt(sum_squares)
+            size: '220 B',
+            updatedAt: '2026-09-04',
+            content: `# Standard Math Library Demo
+import std.math
+import std.string
 
 fn main() -> Int:
-    let c = calculate_hypotenuse(3.0, 4.0)
-    print(c)
+    let val = math.sin(1.57079)
+    print("sin(pi/2) = " + string.from_float(val))
     return 0
 `
           }
         ]
       },
       {
-        id: 'downloads',
-        name: 'Downloads',
+        id: 'demos-folder',
+        name: 'demos',
         type: 'folder',
-        path: '/Downloads',
-        updatedAt: '2026-09-03',
+        path: '/demos',
+        updatedAt: '2026-09-04',
         children: [
           {
-            id: 'rocketc-bin',
-            name: 'rocketc-windows-x64-v2.1.0.zip',
+            id: 'demo-hello',
+            name: 'hello.rocket',
             type: 'file',
-            path: '/Downloads/rocketc-windows-x64-v2.1.0.zip',
-            size: '48.2 MB',
-            updatedAt: '2026-09-02',
-            content: `[BINARY ARCHIVE]
-Rocket 2.1 Release Package (SHA-256: ccc8a1a7ba33bbd6f0dd0ecfadfa341d589204aee182476e9f08cb25b34fedcc)
-Contents:
-- rocketc.exe (Stage3 Native Compiler)
-- rocket-lsp.exe (LSP Protocol 1.0 Server)
-- runtime/ (ABI v1 static and dynamic libraries)
-- include/ (LLVM 22.1.6 headers)
+            path: '/demos/hello.rocket',
+            size: '95 B',
+            updatedAt: '2026-09-04',
+            content: `# Hello World Demo
+fn main() -> Int:
+    print("Hello from Rocket 2.1!")
+    return 0
 `
           },
           {
-            id: 'vs-extension',
-            name: 'Rocket.Language.VisualStudio.vsix',
+            id: 'demo-fibonacci',
+            name: 'fibonacci.rocket',
             type: 'file',
-            path: '/Downloads/Rocket.Language.VisualStudio.vsix',
-            size: '1.4 MB',
-            updatedAt: '2026-09-01',
-            content: `[VISUAL STUDIO EXTENSION]
-Rocket Language Extension for Visual Studio Community 2026 v2.0.3
-Features:
-- GUI Build, Run, Test, Stop, and Debug
-- Nearest-package and standalone-file discovery
-- Native CodeView/PDB debugging
-- Integrated LSP error lists
+            path: '/demos/fibonacci.rocket',
+            size: '210 B',
+            updatedAt: '2026-09-04',
+            content: `# Fibonacci Calculation Demo
+import std.string
+
+fn fib(n: Int) -> Int:
+    if n <= 1:
+        return n
+    return fib(n - 1) + fib(n - 2)
+
+fn main() -> Int:
+    let result = fib(10)
+    print("fib(10) = " + string.from_int(result))
+    return 0
+`
+          },
+          {
+            id: 'demo-system',
+            name: 'system_info.rocket',
+            type: 'file',
+            path: '/demos/system_info.rocket',
+            size: '240 B',
+            updatedAt: '2026-09-04',
+            content: `# RocketOS System Architecture
+fn main() -> Int:
+    print("Operating System: RocketOS 2.1 LTS")
+    print("Architecture: x86_64 Long Mode")
+    print("Compiler: rocketc (LLVM 22.1.6 Backend)")
+    return 0
 `
           }
         ]
@@ -324,116 +158,72 @@ Features:
         name: 'Documents',
         type: 'folder',
         path: '/Documents',
-        updatedAt: '2026-09-03',
+        updatedAt: '2026-09-04',
         children: [
           {
-            id: 'phase19-audit',
-            name: 'PHASE_19_AUDIT_SUMMARY.md',
+            id: 'doc-budget',
+            name: 'Quarterly_Budget.csv',
             type: 'file',
-            path: '/Documents/PHASE_19_AUDIT_SUMMARY.md',
-            size: '2.4 KB',
-            updatedAt: '2026-09-03',
-            content: `# Rocket Phase 19 Portability Acceptance Audit
-Status: CLOSED & ACCEPTED (2026-08-29)
+            path: '/Documents/Quarterly_Budget.csv',
+            size: '340 B',
+            updatedAt: '2026-09-04',
+            content: `Category,Q1 Budget,Q1 Actual,Variance,Status
+Kernel Dev,$45000,$42500,$2500,On Target
+LLVM Backend,$38000,$37200,$800,On Target
+GUI & Shell,$28000,$29100,-$1100,Review
+VFS Engine,$22000,$19800,$2200,Under Budget
+Cloud Hosting,$12000,$11400,$600,On Target
+Total,$145000,$140000,$5000,Healthy`
+          },
+          {
+            id: 'doc-spec',
+            name: 'Rocket_2.1_Specification.pdf',
+            type: 'file',
+            path: '/Documents/Rocket_2.1_Specification.pdf',
+            size: '12 KB',
+            updatedAt: '2026-09-04',
+            content: `Rocket 2.1 Language Specification & Runtime ABI v1
+Author: RyanEid06 / Rocket Research
+Compiler: rocketc (LLVM 22.1.6 Backend)
+Architecture: Deterministic ARC + Atomic Graph Promotion`
+          },
+          {
+            id: 'doc-notes',
+            name: 'Sprint_Goals.md',
+            type: 'file',
+            path: '/Documents/Sprint_Goals.md',
+            size: '420 B',
+            updatedAt: '2026-09-04',
+            content: `# RocketOS Sprint Goals & Work Plan
 
-Accepted Production Targets (24/24 Requirements Met):
-1. Windows x64 (x86_64-pc-windows-msvc) - 222/222 CTest passed
-2. Linux x64 (x86_64-unknown-linux-gnu) - CI Run 33194302234 passed
-3. Linux ARM64 (aarch64-unknown-linux-gnu) - CI Run 33194302234 passed
-4. macOS ARM64 (aarch64-apple-darwin) - CI Run 33194302234 passed
-
-Key Architectural Boundaries:
-- Dynamic loading: No arbitrary dlopen/LoadLibrary; native dependencies declared in rocket.toml
-- Foreign ABIs: Platform C ABI only; non-standard calling conventions excluded
-- Stage0 fallback: Reproducible C++20 transpiler preserved when LLVM is disabled
+## Deliverables
+- [x] Command Palette with spotlight launcher
+- [x] Lightweight Office Spreadsheet & Docs
+- [x] Spacebar Quick Look peek engine
+- [x] Window Snapping & Workspace Tiling
+- [x] Notification Center & Focus DND mode
+- [x] Dual-Engine Programmer & Scientific Calculator
+- [x] Snapshot Backup & Restore Center
+- [x] Ambient Focus Audio Generator
 `
           }
         ]
       },
       {
-        id: 'drivers-subsystem',
-        name: 'drivers',
+        id: 'downloads',
+        name: 'Downloads',
         type: 'folder',
-        path: '/drivers',
-        updatedAt: '2026-09-03',
-        children: [
-          {
-            id: 'driver-nvme',
-            name: 'nvme_vfs.sys',
-            type: 'file',
-            path: '/drivers/nvme_vfs.sys',
-            size: '4.2 KB',
-            updatedAt: '2026-09-03',
-            content: `[RocketOS Driver Subsystem]
-Device: Virtual NVMe Block Controller
-Provider: IndexedDB Storage Adapter v1.0
-PCI ID: 0x1B36:0x0010
-Status: ACTIVE / MOUNTED
-Base IO: 0x3F8, IRQ: 14
-Sector Size: 4096 bytes
-`
-          },
-          {
-            id: 'driver-audio',
-            name: 'hdaudio_synth.sys',
-            type: 'file',
-            path: '/drivers/hdaudio_synth.sys',
-            size: '2.8 KB',
-            updatedAt: '2026-09-03',
-            content: `[RocketOS Driver Subsystem]
-Device: Web Audio Procedural Synthesizer
-Sampling Rate: 48000 Hz / Stereo
-Channels: 2 (PCM Waveform Oscillators)
-Status: ACTIVE
-`
-          },
-          {
-            id: 'driver-gpu',
-            name: 'liquid_gpu.sys',
-            type: 'file',
-            path: '/drivers/liquid_gpu.sys',
-            size: '5.1 KB',
-            updatedAt: '2026-09-03',
-            content: `[RocketOS Driver Subsystem]
-Device: Liquid Glass Compositor Pipeline
-Acceleration: WebGL / CSS GPU Layers
-Target Refresh: 60Hz
-Status: ACCELERATED
-`
-          }
-        ]
+        path: '/Downloads',
+        updatedAt: '2026-09-04',
+        children: []
       },
       {
-        id: 'kernel-subsystem',
-        name: 'kernel',
+        id: 'pictures',
+        name: 'Pictures',
         type: 'folder',
-        path: '/kernel',
-        updatedAt: '2026-09-03',
-        children: [
-          {
-            id: 'boot-rocket',
-            name: 'boot_handoff.rocket',
-            type: 'file',
-            path: '/kernel/boot_handoff.rocket',
-            size: '890 B',
-            updatedAt: '2026-09-03',
-            content: `// Rocket Kernel Boot Handoff
-// Native x86_64 Long Mode entry
-
-struct MultibootInfo:
-    flags: Int
-    mem_lower: Int
-    mem_upper: Int
-    boot_device: Int
-    cmdline: String
-
-fn kmain(info_ptr: Int) -> Int:
-    print("Rocket Kernel Handoff Activated")
-    print("Initializing ABI-v1 Runtime on CPU Core 0...")
-    return 0
-`
-          }
-        ]
+        path: '/Pictures',
+        updatedAt: '2026-09-04',
+        children: []
       }
     ]
   }
