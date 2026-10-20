@@ -1,0 +1,30 @@
+#!/bin/bash
+# ==============================================================================
+# RocketOS Phase 2 Chroot Configuration Hook
+# Executed by live-build inside the target chroot rootfs
+# ==============================================================================
+set -eu
+
+echo "[RocketOS-Hook] Configuring RocketOS system identity and boot probe..."
+
+# Ensure boot probe permissions
+if [ -f /usr/local/bin/rocketos-boot-probe ]; then
+    chmod 755 /usr/local/bin/rocketos-boot-probe
+fi
+
+# Enable systemd boot verification probe service
+if [ -f /etc/systemd/system/rocketos-boot-probe.service ]; then
+    chmod 644 /etc/systemd/system/rocketos-boot-probe.service
+    systemctl enable rocketos-boot-probe.service 2>/dev/null || true
+fi
+
+# Ensure permissions on os-release and hostname
+chmod 644 /etc/os-release /etc/issue /etc/issue.net /etc/hostname /etc/hosts 2>/dev/null || true
+
+# Symlink /etc/os-release to /usr/lib/os-release if appropriate
+if [ ! -e /usr/lib/os-release ]; then
+    mkdir -p /usr/lib
+    ln -sf /etc/os-release /usr/lib/os-release
+fi
+
+echo "[RocketOS-Hook] RocketOS Phase 2 configuration applied successfully."

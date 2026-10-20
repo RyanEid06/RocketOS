@@ -1,0 +1,15 @@
+[Unit]
+Description=RocketOS Phase 2 Boot Success Probe
+Documentation=https://github.com/RyanEid06/RocketOS
+After=multi-user.target systemd-journald.service
+Wants=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/rocketos-boot-probe
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

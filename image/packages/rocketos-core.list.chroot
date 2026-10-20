@@ -1,0 +1,41 @@
+# ==============================================================================
+# RocketOS Phase 2 Foundation Package Manifest
+# Base Distribution: Debian 13 "Trixie" (amd64)
+# ==============================================================================
+
+# Core Linux Kernel & Live Boot Infrastructure
+linux-image-amd64
+live-boot
+live-config
+live-config-systemd
+
+# Init System & Service Management
+systemd
+systemd-sysv
+dbus
+
+# Essential Shell & POSIX Utilities
+bash
+coreutils
+util-linux
+procps
+kmod
+less
+nano
+
+# Networking Foundations
+iproute2
+iputils-ping
+ca-certificates
+network-manager
+curl
+wget
+
+# Storage & Filesystem Utilities
+e2fsprogs
+dosfstools
+
+# Hardware Inspection & Diagnostics (Lightweight)
+pciutils
+usbutils
+lsof

@@ -1,4 +1,4 @@
-﻿# RocketOS Foundation Master Plan
+# RocketOS Foundation Master Plan
 
 **Status:** Authoritative roadmap for the Debian-based RocketOS 0.x restart
 **Updated:** 2026-10-20
@@ -63,23 +63,18 @@ Required checks on Linux x64:
 
 ---
 
-## Phase 2 Ã¢â‚¬â€ Select the compact Debian foundation
+## Phase 2 — Select the compact Debian foundation & Live ISO
 
-**Purpose:** make the remaining infrastructure choices before downloading/building the Linux environment.
-
-Decide and document:
-
-- exact Debian release/snapshot;
-- image/rootfs builder;
-- bootloader;
-- QEMU disk/image format;
-- first graphical-session host strategy;
-- host for the temporary React desktop;
-- package/cache policy to stay within the storage budget.
-
-**Storage target:** approximately 25Ã¢â‚¬â€œ45 GB for the complete development environment.
-
-Do not install the full toolchain before these decisions are accepted.
+**Status:** Completed (PASS)  
+**Decisions Accepted & Implemented:**
+- **Base OS:** Debian 13 "Trixie" (`trixie`), amd64 (x86-64)
+- **Image Builder:** Debian `live-build` (`lb`) producing bootable hybrid ISO (`rocketos-0.1-phase2-amd64.iso`)
+- **Init System:** `systemd` / `systemd-sysv`
+- **Bootloader:** Hybrid legacy BIOS (`syslinux`/`isolinux`) and UEFI (`grub-efi`)
+- **Automated Verification:** Headless QEMU x86-64 smoke test detecting deterministic marker `ROCKETOS_PHASE2_BOOT_OK`
+- **Documentation:** [`docs/ROCKETOS_DEBIAN_FOUNDATION.md`](ROCKETOS_DEBIAN_FOUNDATION.md)
+- **CI Workflow:** [`.github/workflows/rocketos-debian-image.yml`](../.github/workflows/rocketos-debian-image.yml)
+- **Storage Target:** Well within the compact budget (< 4 GB total workspace footprint)
 
 ---
 

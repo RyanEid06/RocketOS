@@ -1,0 +1,13 @@
+NAME="RocketOS"
+ID=rocketos
+VERSION="0.1 Alpha"
+VERSION_ID="0.1"
+ID_LIKE=debian
+PRETTY_NAME="RocketOS 0.1 Alpha"
+ANSI_COLOR="1;34"
+HOME_URL="https://github.com/RyanEid06/RocketOS"
+SUPPORT_URL="https://github.com/RyanEid06/RocketOS/issues"
+BUG_REPORT_URL="https://github.com/RyanEid06/RocketOS/issues"
+ROCKETOS_BASE_CODENAME="trixie"
+ROCKETOS_ARCHITECTURE="amd64"
+ROCKETOS_FOUNDATION="Debian GNU/Linux 13 (Trixie)"

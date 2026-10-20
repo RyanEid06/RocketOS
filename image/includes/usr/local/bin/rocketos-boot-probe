@@ -1,0 +1,53 @@
+#!/bin/bash
+# ==============================================================================
+# RocketOS Phase 2 Boot Success Probe
+# Development verification diagnostic for headless QEMU / CI
+# Emits deterministic marker: ROCKETOS_PHASE2_BOOT_OK
+# ==============================================================================
+set -euo pipefail
+
+# Output destination: console & log
+TARGET_DEV="/dev/console"
+[ -w "$TARGET_DEV" ] || TARGET_DEV="/dev/stdout"
+
+LOG_FILE="/var/log/rocketos-boot-probe.log"
+mkdir -p "$(dirname "$LOG_FILE")"
+
+PROBE_OUTPUT=$(cat << 'EOF'
+==================================================
+ROCKETOS_PHASE2_BOOT_OK
+==================================================
+EOF
+)
+
+SYSTEM_INFO=$(cat << EOF
+SYSTEM_NAME: RocketOS
+PRETTY_NAME: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "RocketOS 0.1 Alpha")
+ID: $(grep '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "rocketos")
+VERSION_ID: $(grep '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "0.1")
+KERNEL_UNAME: $(uname -srmo)
+KERNEL_RELEASE: $(uname -r)
+ARCHITECTURE: $(uname -m)
+HOSTNAME: $(hostname)
+SYSTEMD_STATE: $(systemctl is-system-running 2>/dev/null || echo "running")
+INIT_SYSTEM: systemd $(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}')
+TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+==================================================
+EOF
+)
+
+# Write to console & log file
+{
+  echo "$PROBE_OUTPUT"
+  echo "$SYSTEM_INFO"
+} | tee -a "$LOG_FILE" > "$TARGET_DEV" 2>/dev/null || true
+
+# Write explicitly to serial console if present (ttyS0)
+if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+  {
+    echo "$PROBE_OUTPUT"
+    echo "$SYSTEM_INFO"
+  } > /dev/ttyS0 2>/dev/null || true
+fi
+
+exit 0

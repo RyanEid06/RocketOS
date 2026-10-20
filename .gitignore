@@ -9,7 +9,25 @@ coverage/
 .rocketos-data/
 .rocketos-test-data/
 *.iso
+*.iso.sha256
+*.manifest
 *.img
 *.qcow2
 *.vdi
 *.vmdk
+
+# Phase 2 Live Build and Image Artifacts
+artifacts/
+image/build/
+image/.build/
+.build/
+binary/
+chroot/
+cache/
+auto/
+config/binary
+config/bootstrap
+config/chroot
+config/common
+config/source
+
