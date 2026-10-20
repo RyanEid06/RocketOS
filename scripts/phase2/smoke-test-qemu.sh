@@ -208,9 +208,15 @@ while true; do
   NOW=$(date +%s)
   ELAPSED=$((NOW - START_TIME))
 
-  # Check if serial log contains the deterministic boot marker
+  # Check if serial log contains the deterministic boot success marker
   if grep -q "ROCKETOS_PHASE2_BOOT_OK" "${LOG_FILE}" 2>/dev/null; then
     FOUND_MARKER=true
+    break
+  fi
+
+  # Check if serial log recorded an explicit boot failure
+  if grep -q "ROCKETOS_PHASE2_BOOT_FAIL" "${LOG_FILE}" 2>/dev/null; then
+    echo "ERROR: Serial log reported explicit ROCKETOS_PHASE2_BOOT_FAIL."
     break
   fi
 

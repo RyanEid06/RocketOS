@@ -1,53 +1,117 @@
 #!/bin/bash
 # ==============================================================================
 # RocketOS Phase 2 Boot Success Probe
-# Development verification diagnostic for headless QEMU / CI
-# Emits deterministic marker: ROCKETOS_PHASE2_BOOT_OK
+# Validates required system state before emitting ROCKETOS_PHASE2_BOOT_OK
 # ==============================================================================
 set -euo pipefail
 
-# Output destination: console & log
 TARGET_DEV="/dev/console"
 [ -w "$TARGET_DEV" ] || TARGET_DEV="/dev/stdout"
-
 LOG_FILE="/var/log/rocketos-boot-probe.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
-PROBE_OUTPUT=$(cat << 'EOF'
+emit_fail() {
+  local reason="$1"
+  local output="==================================================
+ROCKETOS_PHASE2_BOOT_FAIL
 ==================================================
+FAILURE_REASON: ${reason}
+TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+=================================================="
+
+  echo "${output}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
+  if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+    echo "${output}" > /dev/ttyS0 2>/dev/null || true
+  fi
+  exit 1
+}
+
+# 1. Verify kernel is running and responsive
+if [ ! -f /proc/version ]; then
+  emit_fail "/proc/version not found; kernel virtual filesystem is not accessible"
+fi
+
+KERNEL_UNAME="$(uname -srmo 2>/dev/null || true)"
+if [[ -z "${KERNEL_UNAME}" ]]; then
+  emit_fail "uname command failed to report kernel information"
+fi
+
+KERNEL_RELEASE="$(uname -r 2>/dev/null || true)"
+
+# 2. Verify architecture is x86_64
+ARCH="$(uname -m 2>/dev/null || true)"
+if [[ "${ARCH}" != "x86_64" ]]; then
+  emit_fail "Architecture is '${ARCH}', expected 'x86_64'"
+fi
+
+# 3. Verify PID 1 / init system is systemd
+INIT_NAME=""
+if [ -r /proc/1/comm ]; then
+  INIT_NAME="$(cat /proc/1/comm 2>/dev/null || true)"
+fi
+if [[ -z "${INIT_NAME}" ]]; then
+  INIT_NAME="$(ps -p 1 -o comm= 2>/dev/null || true)"
+fi
+if [[ "${INIT_NAME}" != "systemd" ]]; then
+  emit_fail "PID 1 is '${INIT_NAME}', expected 'systemd'"
+fi
+
+# 4. Verify systemd health state (multi-user.target reached and active)
+if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
+  sleep 2
+  if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
+    emit_fail "systemd multi-user.target is not active"
+  fi
+fi
+
+SYSTEMD_STATE="$(systemctl is-system-running 2>/dev/null || true)"
+if [[ "${SYSTEMD_STATE}" != "running" && "${SYSTEMD_STATE}" != "degraded" ]]; then
+  emit_fail "systemd state is '${SYSTEMD_STATE}', expected 'running' or 'degraded'"
+fi
+
+# 5. Verify /etc/os-release identity
+if [ ! -f /etc/os-release ]; then
+  emit_fail "/etc/os-release does not exist"
+fi
+
+OS_ID="$(grep '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+if [[ "${OS_ID}" != "rocketos" ]]; then
+  emit_fail "/etc/os-release ID is '${OS_ID}', expected 'rocketos'"
+fi
+
+OS_ID_LIKE="$(grep '^ID_LIKE=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+if [[ ! "${OS_ID_LIKE}" =~ (^|[[:space:]])debian([[:space:]]|$) ]]; then
+  emit_fail "/etc/os-release ID_LIKE is '${OS_ID_LIKE}', expected to contain 'debian'"
+fi
+
+PRETTY_NAME="$(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+VERSION_ID="$(grep '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+SYSTEMD_VERSION="$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}' || true)"
+
+# ALL VALIDATIONS PASSED -> EMIT ROCKETOS_PHASE2_BOOT_OK
+SUCCESS_OUTPUT="==================================================
 ROCKETOS_PHASE2_BOOT_OK
 ==================================================
-EOF
-)
-
-SYSTEM_INFO=$(cat << EOF
 SYSTEM_NAME: RocketOS
-PRETTY_NAME: $(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "RocketOS 0.1 Alpha")
-ID: $(grep '^ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "rocketos")
-VERSION_ID: $(grep '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "0.1")
-KERNEL_UNAME: $(uname -srmo)
-KERNEL_RELEASE: $(uname -r)
-ARCHITECTURE: $(uname -m)
+PRETTY_NAME: ${PRETTY_NAME}
+ID: ${OS_ID}
+ID_LIKE: ${OS_ID_LIKE}
+VERSION_ID: ${VERSION_ID}
+KERNEL_UNAME: ${KERNEL_UNAME}
+KERNEL_RELEASE: ${KERNEL_RELEASE}
+ARCHITECTURE: ${ARCH}
 HOSTNAME: $(hostname)
-SYSTEMD_STATE: $(systemctl is-system-running 2>/dev/null || echo "running")
-INIT_SYSTEM: systemd $(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}')
+SYSTEMD_STATE: ${SYSTEMD_STATE}
+INIT_SYSTEM: systemd ${SYSTEMD_VERSION}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
-==================================================
-EOF
-)
+=================================================="
 
-# Write to console & log file
 {
-  echo "$PROBE_OUTPUT"
-  echo "$SYSTEM_INFO"
-} | tee -a "$LOG_FILE" > "$TARGET_DEV" 2>/dev/null || true
+  echo "${SUCCESS_OUTPUT}"
+} | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
 
-# Write explicitly to serial console if present (ttyS0)
 if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
-  {
-    echo "$PROBE_OUTPUT"
-    echo "$SYSTEM_INFO"
-  } > /dev/ttyS0 2>/dev/null || true
+  echo "${SUCCESS_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
 fi
 
 exit 0

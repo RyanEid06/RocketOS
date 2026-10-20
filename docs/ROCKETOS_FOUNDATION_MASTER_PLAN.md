@@ -78,25 +78,14 @@ Required checks on Linux x64:
 
 ---
 
-## Phase 3 Ã¢â‚¬â€ Minimal Debian boot
+## Phase 3 — (Scope to be locked by architecture reviewer after Phase 2)
 
-**Purpose:** replace the deleted BusyBox experiment with a reproducible real Debian base.
+**Note:** The minimal Debian 13 bootable live image and automated QEMU boot verification were incorporated into and completed by Phase 2. The previous duplicate "Minimal Debian boot" placeholder is superseded.
 
-Deliverables:
-
-- deterministic minimal root filesystem;
-- Linux kernel and Debian-provided drivers/firmware appropriate to the VM target;
-- systemd boot to a known target;
-- networking baseline;
-- reproducible image build;
-- QEMU boot test;
-- documented disk usage.
-
-This phase does **not** need the final RocketOS UI yet.
-
-**Exit gate:** clean build -> boot -> shutdown/reboot succeeds in QEMU.
+The exact scope, deliverables, and architecture for Phase 3 (e.g. system service integration, hardware networking/audio foundations) will be locked by the project owner / architecture reviewer following Phase 2 acceptance. Agents must not independently redesign future phases or begin Phase 3 prematurely.
 
 ---
+
 
 ## Phase 4 Ã¢â‚¬â€ Run the protected RocketOS desktop on Debian
 

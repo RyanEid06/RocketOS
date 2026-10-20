@@ -97,14 +97,12 @@ if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
   exit 1
 fi
 
-# Verify debootstrap has a script for trixie
+# Verify debootstrap legitimately supports trixie
 if [[ ! -e /usr/share/debootstrap/scripts/trixie ]]; then
-  echo "Notice: /usr/share/debootstrap/scripts/trixie missing. Creating symlink from sid..."
-  if [[ -e /usr/share/debootstrap/scripts/sid ]]; then
-    ln -sf sid /usr/share/debootstrap/scripts/trixie
-  elif [[ -e /usr/share/debootstrap/scripts/bookworm ]]; then
-    ln -sf bookworm /usr/share/debootstrap/scripts/trixie
-  fi
+  echo "ERROR: debootstrap does not legitimately support suite 'trixie' (/usr/share/debootstrap/scripts/trixie not found)." >&2
+  echo "RocketOS strictly requires legitimate Debian 13 Trixie support without host symlink hacks." >&2
+  echo "Please install or update debootstrap to a version providing official 'trixie' support." >&2
+  exit 1
 fi
 
 # ------------------------------------------------------------------------------
@@ -155,14 +153,18 @@ lb config \
   --architectures amd64 \
   --archive-areas "main contrib non-free-firmware" \
   --parent-archive-areas "main contrib non-free-firmware" \
-  --mirror-bootstrap "http://deb.debian.org/debian" \
-  --mirror-chroot "http://deb.debian.org/debian" \
-  --mirror-binary "http://deb.debian.org/debian" \
-  --parent-mirror-bootstrap "http://deb.debian.org/debian" \
-  --parent-mirror-chroot "http://deb.debian.org/debian" \
-  --parent-mirror-binary "http://deb.debian.org/debian" \
-  --security false \
-  --updates false \
+  --mirror-bootstrap "https://deb.debian.org/debian" \
+  --mirror-chroot "https://deb.debian.org/debian" \
+  --mirror-binary "https://deb.debian.org/debian" \
+  --mirror-chroot-security "https://deb.debian.org/debian-security" \
+  --mirror-binary-security "https://deb.debian.org/debian-security" \
+  --parent-mirror-bootstrap "https://deb.debian.org/debian" \
+  --parent-mirror-chroot "https://deb.debian.org/debian" \
+  --parent-mirror-binary "https://deb.debian.org/debian" \
+  --parent-mirror-chroot-security "https://deb.debian.org/debian-security" \
+  --parent-mirror-binary-security "https://deb.debian.org/debian-security" \
+  --security true \
+  --updates true \
   --binary-images iso-hybrid \
   --bootloaders "syslinux,grub-efi" \
   --bootappend-live "boot=live components quiet console=ttyS0,115200 console=tty0" \
