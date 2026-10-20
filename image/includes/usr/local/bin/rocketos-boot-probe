@@ -57,16 +57,36 @@ if [[ "${INIT_NAME}" != "systemd" ]]; then
 fi
 
 # 4. Verify systemd health state (multi-user.target reached and active)
-if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
-  sleep 2
-  if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
-    emit_fail "systemd multi-user.target is not active"
+for _ in {1..30}; do
+  if systemctl is-active --quiet multi-user.target 2>/dev/null; then
+    break
   fi
+  sleep 1
+done
+
+if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
+  emit_fail "systemd multi-user.target is not active"
 fi
 
+# Wait for systemd startup transactions to settle
 SYSTEMD_STATE="$(systemctl is-system-running 2>/dev/null || true)"
+for _ in {1..30}; do
+  if [[ "${SYSTEMD_STATE}" == "running" || "${SYSTEMD_STATE}" == "degraded" ]]; then
+    break
+  fi
+  # If the only active startup job is this probe itself, systemd has settled
+  OTHER_JOBS="$(systemctl list-jobs 2>/dev/null | grep -v 'rocketos-boot-probe.service' | grep -E 'start|waiting' || true)"
+  if [[ -z "${OTHER_JOBS}" ]]; then
+    SYSTEMD_STATE="running"
+    break
+  fi
+  sleep 1
+  SYSTEMD_STATE="$(systemctl is-system-running 2>/dev/null || true)"
+done
+
 if [[ "${SYSTEMD_STATE}" != "running" && "${SYSTEMD_STATE}" != "degraded" ]]; then
-  emit_fail "systemd state is '${SYSTEMD_STATE}', expected 'running' or 'degraded'"
+  ACTIVE_JOBS="$(systemctl list-jobs 2>/dev/null | tr '\n' ';' || true)"
+  emit_fail "systemd state is '${SYSTEMD_STATE}', expected 'running' or 'degraded' (active jobs: ${ACTIVE_JOBS})"
 fi
 
 # 5. Verify /etc/os-release identity

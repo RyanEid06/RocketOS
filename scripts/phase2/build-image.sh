@@ -55,6 +55,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Ensure paths are absolute before changing working directory
+mkdir -p "${OUTPUT_DIR}"
+OUTPUT_DIR="$(cd "${OUTPUT_DIR}" && pwd)"
+mkdir -p "${WORK_DIR}"
+WORK_DIR="$(cd "${WORK_DIR}" && pwd)"
+
 echo "=================================================================="
 echo " RocketOS Phase 2 — Debian 13 (Trixie) Live ISO Builder"
 echo "=================================================================="
@@ -79,7 +85,7 @@ fi
 # Dependency Verification
 # ------------------------------------------------------------------------------
 MISSING_DEPS=()
-for cmd in lb debootstrap xorriso mcopy mkfs.vfat sha256sum; do
+for cmd in lb debootstrap xorriso mcopy mkfs.vfat mksquashfs sha256sum; do
   if ! command -v "${cmd}" >/dev/null 2>&1; then
     MISSING_DEPS+=("${cmd}")
   fi
@@ -93,7 +99,7 @@ if [[ ${#MISSING_DEPS[@]} -gt 0 ]]; then
   echo "" >&2
   echo "Install them using:" >&2
   echo "  sudo apt-get update" >&2
-  echo "  sudo apt-get install -y live-build debootstrap xorriso mtools dosfstools" >&2
+  echo "  sudo apt-get install -y live-build debootstrap xorriso mtools dosfstools squashfs-tools" >&2
   exit 1
 fi
 
@@ -141,6 +147,12 @@ cp -r "${IMAGE_DIR}/includes/"* config/includes.chroot/
 cp "${IMAGE_DIR}/hooks/"*.hook.chroot config/hooks/live/
 cp "${IMAGE_DIR}/hooks/"*.hook.chroot config/hooks/normal/
 chmod +x config/hooks/live/*.hook.chroot config/hooks/normal/*.hook.chroot 2>/dev/null || true
+
+# Ingest bootloader overrides if present
+if [[ -d "${IMAGE_DIR}/bootloaders" ]]; then
+  mkdir -p config/bootloaders
+  cp -r "${IMAGE_DIR}/bootloaders/"* config/bootloaders/
+fi
 
 # ------------------------------------------------------------------------------
 # Run lb config

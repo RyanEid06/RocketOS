@@ -1,6 +1,6 @@
 # RocketOS Debian Foundation Specification (Phase 2)
 
-**Status:** Completed Phase 2 Implementation  
+**Status:** IN PROGRESS / VALIDATION PENDING  
 **Date:** 2026-10-20  
 **Base Distribution:** Debian 13 "Trixie" (`trixie`), amd64 (x86-64)  
 **Image Tooling:** Debian `live-build`  
@@ -12,14 +12,14 @@
 
 ## 1. Executive Summary & Verdict
 
-### **VERDICT: PASS**
+### **VERDICT: IN PROGRESS / VALIDATION PENDING**
 
 Phase 2 establishes the real, reproducible, Debian-based operating-system foundation for RocketOS 0.x.
 
 In accordance with the core architecture principle:
 > **"Rocket owns the experience. Linux owns the machinery."**
 
-RocketOS now possesses an automated, declarative image-building and boot-verification pipeline that produces a bootable live Debian 13 system. The system boots directly to a healthy `systemd` target, honestly identifies itself as **RocketOS 0.1 Alpha** while preserving Debian compatibility (`ID_LIKE=debian`), emits a deterministic serial verification marker (`ROCKETOS_PHASE2_BOOT_OK`), and is automatically verified under both legacy BIOS and UEFI firmware modes in headless QEMU.
+RocketOS possesses an automated, declarative image-building and boot-verification pipeline designed to produce a bootable live Debian 13 system. The specification targets a system that boots directly to a healthy `systemd` target, honestly identifies itself as **RocketOS 0.1 Alpha** while preserving Debian compatibility (`ID_LIKE=debian`), emits a deterministic serial verification marker (`ROCKETOS_PHASE2_BOOT_OK`), and is automatically verified under both legacy BIOS and UEFI firmware modes in headless QEMU. Real measured evidence is captured upon execution of the Phase-2 exit gate.
 
 Existing web and reference desktop implementation gates (77/77 tests, 0 lint errors, production Vite build) remain 100% green and completely untouched.
 
@@ -127,7 +127,7 @@ StandardError=journal+console
 WantedBy=multi-user.target
 ```
 
-### Output Marker
+### Output Marker (Specification / Expected Format)
 The probe writes directly to `/dev/console` and `/dev/ttyS0` (serial port):
 ```text
 ==================================================
@@ -137,12 +137,12 @@ SYSTEM_NAME: RocketOS
 PRETTY_NAME: RocketOS 0.1 Alpha
 ID: rocketos
 VERSION_ID: 0.1
-KERNEL_UNAME: Linux 6.12.x-amd64 x86_64 GNU/Linux
+KERNEL_UNAME: [Captured from uname -a during live boot]
 ARCHITECTURE: x86_64
 HOSTNAME: rocketos
 SYSTEMD_STATE: running
-INIT_SYSTEM: systemd 256.x
-TIMESTAMP_UTC: 2026-10-20T11:22:00Z
+INIT_SYSTEM: [Captured from systemd --version during live boot]
+TIMESTAMP_UTC: [Captured live boot timestamp]
 ==================================================
 ```
 
@@ -169,14 +169,14 @@ TIMESTAMP_UTC: 2026-10-20T11:22:00Z
 
 ---
 
-## 7. Storage Footprint & Compact Budget
+## 7. Storage Footprint & Compact Budget (Projections / Target Budget)
 
-| Component | Measured / Target Size | Storage Discipline Status |
+| Component | Target / Projected Size | Storage Discipline Status |
 |---|---|---|
-| **Temporary live-build Workspace** | ~1.4 GB – 2.8 GB | Well within the < 15 GB local limit |
-| **Output Live ISO (`rocketos-0.1-phase2-amd64.iso`)** | ~450 MB – 650 MB | Highly compact hybrid image |
-| **Package Manifest (`.manifest`)** | ~35 KB (approx. 450 packages) | Declarative and version-tracked |
-| **Total Dev Environment Impact** | < 4 GB | Meets the 25–45 GB total project target |
+| **Temporary live-build Workspace** | ~1.4 GB – 2.8 GB (estimated) | Well within the < 15 GB local limit |
+| **Output Live ISO (`rocketos-0.1-phase2-amd64.iso`)** | ~450 MB – 650 MB (estimated) | Highly compact hybrid image target |
+| **Package Manifest (`.manifest`)** | ~35 KB (approx. 450 packages estimated) | Declarative and version-tracked |
+| **Total Dev Environment Impact** | < 4 GB (estimated) | Meets the 25–45 GB total project target |
 
 ---
 

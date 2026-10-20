@@ -1,8 +1,8 @@
 [Unit]
 Description=RocketOS Phase 2 Boot Success Probe
 Documentation=https://github.com/RyanEid06/RocketOS
+DefaultDependencies=no
 After=multi-user.target systemd-journald.service
-Wants=multi-user.target
 
 [Service]
 Type=oneshot

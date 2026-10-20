@@ -48,6 +48,7 @@ jobs:
             syslinux-utils \
             mtools \
             dosfstools \
+            squashfs-tools \
             grub-pc-bin \
             grub-efi-amd64-bin \
             qemu-system-x86 \

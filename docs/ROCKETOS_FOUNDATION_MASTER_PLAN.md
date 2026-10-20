@@ -65,7 +65,7 @@ Required checks on Linux x64:
 
 ## Phase 2 — Select the compact Debian foundation & Live ISO
 
-**Status:** Completed (PASS)  
+**Status:** IN PROGRESS / VALIDATION PENDING  
 **Decisions Accepted & Implemented:**
 - **Base OS:** Debian 13 "Trixie" (`trixie`), amd64 (x86-64)
 - **Image Builder:** Debian `live-build` (`lb`) producing bootable hybrid ISO (`rocketos-0.1-phase2-amd64.iso`)
