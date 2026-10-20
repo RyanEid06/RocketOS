@@ -24,7 +24,7 @@ The project must become more real at every phase. Do not replace functioning beh
 
 ---
 
-## Phase 0 Ã¢â‚¬â€ Repository reset and architecture freeze
+## Phase 0 — Repository reset and architecture freeze
 
 **Purpose:** remove misleading obsolete architecture artifacts and establish one source of truth.
 
@@ -45,7 +45,7 @@ No application/core behavior is intentionally changed in this phase.
 
 ---
 
-## Phase 1 Ã¢â‚¬â€ Rocket native compatibility gate
+## Phase 1 — Rocket native compatibility gate
 
 **Purpose:** prove exactly what the current Rocket toolchain can supply before RocketOS depends on it.
 
@@ -88,7 +88,7 @@ The exact scope, deliverables, and architecture for Phase 3 (e.g. system service
 ---
 
 
-## Phase 4 Ã¢â‚¬â€ Run the protected RocketOS desktop on Debian
+## Phase 4 — Run the protected RocketOS desktop on Debian
 
 **Purpose:** make the current design run as a real Linux session before rewriting it.
 
@@ -103,7 +103,7 @@ Deliverables:
 
 ---
 
-## Phase 5 Ã¢â‚¬â€ Replace fake platform data with real Linux adapters
+## Phase 5 — Replace fake platform data with real Linux adapters
 
 **Purpose:** turn the desktop from a simulation into a real system interface.
 
@@ -125,7 +125,7 @@ Keep fake/demo data only when clearly marked and useful for preview mode.
 
 ---
 
-## Phase 6 Ã¢â‚¬â€ Stabilize the RocketOS core boundary
+## Phase 6 — Stabilize the RocketOS core boundary
 
 **Purpose:** stop UI code from bypassing the provider/core contract.
 
@@ -141,7 +141,7 @@ Deliverables:
 
 ---
 
-## Phase 7 Ã¢â‚¬â€ Migrate core domains to Rocket incrementally
+## Phase 7 — Migrate core domains to Rocket incrementally
 
 **Purpose:** increase real Rocket ownership without destabilizing the OS.
 
@@ -166,7 +166,7 @@ Migration rule:
 
 ---
 
-## Phase 8 Ã¢â‚¬â€ Rocket desktop enablement
+## Phase 8 — Rocket desktop enablement
 
 **Purpose:** add reusable Rocket capabilities required by the protected desktop design.
 
@@ -189,7 +189,7 @@ Do not create RocketOS-only hacks when a reusable Rocket library/runtime feature
 
 ---
 
-## Phase 9 Ã¢â‚¬â€ Native Rocket app migration
+## Phase 9 — Native Rocket app migration
 
 Start with applications whose requirements fit Rocket's proven capabilities, not merely apps that look visually simple.
 
@@ -205,7 +205,7 @@ Each native app must match the design contract before the React version is retir
 
 ---
 
-## Phase 10 Ã¢â‚¬â€ Native Rocket shell migration
+## Phase 10 — Native Rocket shell migration
 
 Only after the native app/UI stack is proven:
 
@@ -223,7 +223,7 @@ The carousel behavior and existing desktop identity are requirements, not option
 
 ---
 
-## Phase 11 Ã¢â‚¬â€ Remove temporary web/runtime layers
+## Phase 11 — Remove temporary web/runtime layers
 
 Remove components only when equivalent native functionality is proven:
 
@@ -236,7 +236,7 @@ Web preview tooling may remain as a development mode if useful.
 
 ---
 
-## Phase 12 Ã¢â‚¬â€ VM acceptance
+## Phase 12 — VM acceptance
 
 Primary engineering target: **QEMU x86-64**.
 Secondary compatibility target: **VirtualBox x86-64**.
@@ -256,7 +256,7 @@ Acceptance includes:
 
 ---
 
-## Phase 13 Ã¢â‚¬â€ Physical hardware
+## Phase 13 — Physical hardware
 
 After VM acceptance:
 
@@ -269,4 +269,4 @@ After VM acceptance:
 
 ## Definition of success for RocketOS 0.x
 
-RocketOS 0.x succeeds when it is a reproducible Debian-based OS that boots on supported VM/hardware targets, presents the protected RocketOS desktop/app experience, uses real Linux system services rather than simulated hardware, and contains an increasing amount of native Rocket code without making the system fragile for language purity.
+RocketOS 0.x succeeds when it is a declarative, repeatably buildable Debian-based OS that boots on supported VM/hardware targets, presents the protected RocketOS desktop/app experience, uses real Linux system services rather than simulated hardware, and contains an increasing amount of native Rocket code without making the system fragile for language purity.

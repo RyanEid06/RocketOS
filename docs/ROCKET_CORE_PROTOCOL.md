@@ -1,4 +1,4 @@
-﻿# RocketOS Core Protocol
+# RocketOS Core Protocol
 
 **Status:** Draft logical contract for RocketOS 0.x
 **Protocol generation:** v1

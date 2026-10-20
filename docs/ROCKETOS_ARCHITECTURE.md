@@ -1,4 +1,4 @@
-﻿# RocketOS Architecture Specification
+# RocketOS Architecture Specification
 
 **Status:** Canonical architecture for RocketOS 0.x
 **Updated:** 2026-10-20
@@ -160,7 +160,7 @@ Development/testing progression:
 5. bootable installer/image;
 6. physical x86-64 laptop testing.
 
-Development workspace target: approximately **25Ã¢â‚¬â€œ45 GB**.
+Development workspace target: approximately **25–45 GB**.
 
 ## 9. Explicitly rejected 0.x directions
 

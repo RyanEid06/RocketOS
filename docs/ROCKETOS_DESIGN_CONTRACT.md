@@ -1,4 +1,4 @@
-﻿# RocketOS Design Contract
+# RocketOS Design Contract
 
 **Status:** Protected product-design reference
 **Reference baseline:** 2026-10-20

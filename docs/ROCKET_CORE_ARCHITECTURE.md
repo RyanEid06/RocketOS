@@ -1,4 +1,4 @@
-﻿# RocketOS Core Architecture
+# RocketOS Core Architecture
 
 **Status:** Transitional architecture for RocketOS 0.x
 **Updated:** 2026-10-20

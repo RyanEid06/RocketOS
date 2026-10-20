@@ -1,4 +1,4 @@
-﻿# RocketOS Agent Instructions
+# RocketOS Agent Instructions
 
 These rules apply to any AI/code agent working in this repository.
 
@@ -88,7 +88,7 @@ When migrating a subsystem, old and new implementations should pass the same beh
 
 ## 8. Storage guard
 
-The intended RocketOS development environment is roughly 25Ã¢â‚¬â€œ45 GB.
+The intended RocketOS development environment is roughly 25–45 GB.
 
 Before starting any single operation expected to consume more than 20 GB of additional disk space, stop and ask for approval. Do not introduce a 100+ GB source/build workflow without explicit approval.
 
