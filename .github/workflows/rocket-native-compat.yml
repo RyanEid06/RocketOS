@@ -24,10 +24,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci || npm install
+        run: npm install
 
       - name: Run RocketOS test suite
         run: npm test
@@ -38,17 +37,36 @@ jobs:
       - name: Run RocketOS production build
         run: npm run build
 
-      - name: Run Rocket code compatibility audit harness
-        run: npx tsx scripts/phase1/audit-rocket-files.ts
+      - name: Install native build prerequisites for Rocket compiler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake libcurl4-openssl-dev libssl-dev libicu-dev \
+            libx11-dev libxcursor-dev libxi-dev libxinerama-dev libxrandr-dev libgl1-mesa-dev libasound2-dev
 
       - name: Clone authoritative Rocket repository at pinned commit
         run: |
           git clone --depth 1 https://github.com/RyanEid06/Rocket.git /tmp/rocket-pinned
           cd /tmp/rocket-pinned
+          git fetch --depth 1 origin 3d62e5407b199a5b9318f3d9f6ccd090af8e45a9
           git checkout 3d62e5407b199a5b9318f3d9f6ccd090af8e45a9
           echo "Checked out authoritative Rocket at $(git rev-parse HEAD)"
 
-      - name: Verify pinned Rocket toolchain metadata
+      - name: Download raylib dependency and build pinned rocketc compiler
         run: |
-          grep -i "project(Rocket VERSION" /tmp/rocket-pinned/CMakeLists.txt
-          cat /tmp/rocket-pinned/dependencies/manifest.json | grep -E '("version"|"url")' | head -n 20
+          cd /tmp/rocket-pinned
+          python3 -c '
+          import sys, json
+          sys.path.insert(0, "dependencies")
+          import bootstrap
+          manifest = json.loads(bootstrap.MANIFEST.read_text())
+          bootstrap.install(manifest["shared"]["raylib"], "src/raylib.h")
+          '
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DROCKETC_ENABLE_LLVM=OFF
+          make -C build rocketc -j$(nproc) || cmake --build build --target rocketc -j$(nproc)
+          ./build/rocketc --version
+
+      - name: Run Rocket compatibility audit and actual compilation verification
+        run: |
+          export ROCKETC=/tmp/rocket-pinned/build/rocketc
+          npx tsx scripts/phase1/audit-rocket-files.ts

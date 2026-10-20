@@ -1,17 +1,86 @@
 import fs from 'fs';
 import path from 'path';
+import { spawnSync } from 'child_process';
+
+export type StaticCompatibility = 'NO_OBVIOUS_DRIFT' | 'SOURCE_DRIFT_DETECTED';
+export type ActualCompilation = 'PASS' | 'FAIL' | 'NOT_TESTED';
+
+export const REPRESENTATIVE_FILES: string[] = [
+  'demos/hello.rocket',
+  'rocket/filesystem/path.rocket',
+  'rocket/filesystem/permissions.rocket',
+  'rocket/process/manager.rocket',
+  'rocket/services/settings.rocket',
+  'rocket/search/search_indexer.rocket',
+  'rocket/notifications/notification_engine.rocket',
+  'rocket/windowing/manager.rocket',
+  'rocket/core-host/rocket_core_main.rocket',
+];
+
+export interface CompileExecutionResult {
+  status: ActualCompilation;
+  exitCode: number | null;
+  diagnostic: string | null;
+  rawOutput: string;
+}
 
 export interface AuditResult {
   file: string;
   domain: string;
-  compiles: 'YES' | 'NO';
-  failureCategory: string;
+  staticCompatibility: StaticCompatibility;
+  actualCompilation: ActualCompilation;
+  driftCategory: string;
   migrationComplexity: 'LOW' | 'MEDIUM' | 'HIGH';
   blockingFeature: string;
+  exitCode: number | null;
+  diagnostic: string | null;
   notes: string;
 }
 
-export function auditRocketFile(filePath: string, relativePath: string): AuditResult {
+export function executeRocketc(rocketcPath: string, filePath: string): CompileExecutionResult {
+  if (!fs.existsSync(rocketcPath)) {
+    return {
+      status: 'NOT_TESTED',
+      exitCode: null,
+      diagnostic: `rocketc binary not found at ${rocketcPath}`,
+      rawOutput: '',
+    };
+  }
+
+  const run = spawnSync(rocketcPath, ['check', filePath], {
+    encoding: 'utf-8',
+    timeout: 15000,
+  });
+
+  const rawOutput = ((run.stdout || '') + '\n' + (run.stderr || '')).trim();
+  const exitCode = run.status;
+
+  if (exitCode === 0) {
+    return {
+      status: 'PASS',
+      exitCode: 0,
+      diagnostic: 'check succeeded',
+      rawOutput,
+    };
+  }
+
+  // Extract first informative error line
+  const lines = rawOutput.split('\n').map((l) => l.trim()).filter(Boolean);
+  const errorLine = lines.find((l) => l.includes('error[') || l.includes('error:')) || lines[0] || 'compilation failed';
+
+  return {
+    status: 'FAIL',
+    exitCode: exitCode ?? 1,
+    diagnostic: errorLine,
+    rawOutput,
+  };
+}
+
+export function auditRocketFile(
+  filePath: string,
+  relativePath: string,
+  rocketcPath?: string | null
+): AuditResult {
   const content = fs.readFileSync(filePath, 'utf-8');
   const lines = content.split('\n');
 
@@ -37,31 +106,31 @@ export function auditRocketFile(filePath: string, relativePath: string): AuditRe
 
   const issues: string[] = [];
 
-  // Check 1: Stale comment syntax (//)
+  // Static check 1: Stale comment syntax (//)
   const hasSlashComments = lines.some((l) => /^\s*\/\//.test(l) || /\S+\s+\/\//.test(l));
   if (hasSlashComments) {
     issues.push('stale comment syntax (uses // instead of #)');
   }
 
-  // Check 2: Removed/renamed collection type (List)
+  // Static check 2: Removed/renamed collection type (List)
   const hasListType = /\bList\s*\[/.test(content);
   if (hasListType) {
     issues.push('removed collection type (List[T] instead of Array[T])');
   }
 
-  // Check 3: Illegal Rust-style mutation (let mut)
+  // Static check 3: Illegal Rust-style mutation (let mut)
   const hasLetMut = /\blet\s+mut\b/.test(content);
   if (hasLetMut) {
     issues.push('illegal mutation syntax (let mut instead of var)');
   }
 
-  // Check 4: Inline ternary if expressions (if x: a else: b)
+  // Static check 4: Inline ternary if expressions (if x: a else: b)
   const hasInlineTernary = lines.some((l) => /=\s*if\s+.+:\s*.+\s+else:\s*.+/.test(l));
   if (hasInlineTernary) {
     issues.push('unsupported inline ternary if expression');
   }
 
-  // Check 5: Nonexistent string / stdlib APIs
+  // Static check 5: Nonexistent string / stdlib APIs
   if (content.includes('string.from_bool')) {
     issues.push('nonexistent API: std.string has no from_bool');
   }
@@ -75,48 +144,52 @@ export function auditRocketFile(filePath: string, relativePath: string): AuditRe
     issues.push('nonexistent API: map.new() (use std.collections)');
   }
 
-  // Check 6: Unlabeled enum payloads (Rocket 3 requires labeled enum payload declarations)
-  if (/\bcase\s+[A-Za-z0-9_]+\s*\([A-Za-z0-9_]+\)/.test(content) || /\b[A-Za-z0-9_]+\([A-Z][a-zA-Z0-9_]*\)/.test(content)) {
+  // Static check 6: Unlabeled enum payloads (Rocket 3 requires labeled enum payload declarations)
+  if (
+    /\bcase\s+[A-Za-z0-9_]+\s*\([A-Za-z0-9_]+\)/.test(content) ||
+    /\b[A-Za-z0-9_]+\([A-Z][a-zA-Z0-9_]*\)/.test(content)
+  ) {
     if (relativePath.includes('contract.rocket')) {
       issues.push('unlabeled enum payload (Rocket 3 requires labeled enum payloads)');
     }
   }
 
-  // Check 7: Octal literal notation
+  // Static check 7: Octal literal notation
   if (/0o[0-7]+/.test(content)) {
     issues.push('octal literal notation (0o prefix non-standard in Rocket core)');
   }
 
-  // Check 8: Missing main in executable root module vs library module
+  // Static check 8: Missing main in executable root module vs library module
   const hasMain = /fn\s+main\s*\(\s*\)\s*->\s*Int\s*:/.test(content);
   if (relativePath.startsWith('demos/') && !hasMain) {
     issues.push('missing executable entrypoint fn main() -> Int:');
   }
 
-  // Evaluate compilation verdict and complexity
-  const compiles = issues.length === 0 ? 'YES' : 'NO';
-  let failureCategory = 'NONE';
+  const staticCompatibility: StaticCompatibility =
+    issues.length === 0 ? 'NO_OBVIOUS_DRIFT' : 'SOURCE_DRIFT_DETECTED';
+
+  let driftCategory = 'NONE';
   let migrationComplexity: 'LOW' | 'MEDIUM' | 'HIGH' = 'LOW';
   let blockingFeature = 'NONE';
 
-  if (compiles === 'NO') {
+  if (staticCompatibility === 'SOURCE_DRIFT_DETECTED') {
     if (issues.length === 1 && issues[0].includes('stale comment')) {
-      failureCategory = 'STALE_COMMENT_SYNTAX';
+      driftCategory = 'STALE_COMMENT_SYNTAX';
       migrationComplexity = 'LOW';
     } else if (issues.some((i) => i.includes('removed collection'))) {
-      failureCategory = 'COLLECTION_TYPE_MISMATCH';
+      driftCategory = 'COLLECTION_TYPE_MISMATCH';
       migrationComplexity = 'MEDIUM';
     } else if (issues.some((i) => i.includes('nonexistent API'))) {
-      failureCategory = 'NONEXISTENT_STDLIB_API';
+      driftCategory = 'NONEXISTENT_STDLIB_API';
       migrationComplexity = 'MEDIUM';
     } else if (issues.some((i) => i.includes('unsupported inline ternary'))) {
-      failureCategory = 'SYNTAX_SPEC_MISMATCH';
+      driftCategory = 'SYNTAX_SPEC_MISMATCH';
       migrationComplexity = 'MEDIUM';
     } else if (issues.some((i) => i.includes('illegal mutation'))) {
-      failureCategory = 'ILLEGAL_MUTATION_SYNTAX';
+      driftCategory = 'ILLEGAL_MUTATION_SYNTAX';
       migrationComplexity = 'LOW';
     } else {
-      failureCategory = 'MULTIPLE_SYNTAX_REGRESSIONS';
+      driftCategory = 'MULTIPLE_SYNTAX_REGRESSIONS';
       migrationComplexity = 'HIGH';
     }
 
@@ -127,19 +200,56 @@ export function auditRocketFile(filePath: string, relativePath: string): AuditRe
     }
   }
 
+  // Actual rocketc compilation check if rocketc is available and file is representative (or requested)
+  let actualCompilation: ActualCompilation = 'NOT_TESTED';
+  let exitCode: number | null = null;
+  let diagnostic: string | null = null;
+
+  if (rocketcPath && fs.existsSync(rocketcPath)) {
+    const isRepresentative = REPRESENTATIVE_FILES.includes(relativePath);
+    if (isRepresentative) {
+      const execResult = executeRocketc(rocketcPath, filePath);
+      actualCompilation = execResult.status;
+      exitCode = execResult.exitCode;
+      diagnostic = execResult.diagnostic;
+    }
+  }
+
   return {
     file: relativePath,
     domain,
-    compiles,
-    failureCategory,
+    staticCompatibility,
+    actualCompilation,
+    driftCategory,
     migrationComplexity,
     blockingFeature,
-    notes: issues.length === 0 ? 'Conforms to Rocket 3.0 specification' : issues.join('; '),
+    exitCode,
+    diagnostic,
+    notes:
+      issues.length === 0
+        ? 'No obvious syntax or stdlib pattern drift detected'
+        : issues.join('; '),
   };
 }
 
-export function runAudit(rootDir: string = '.'): AuditResult[] {
+export function resolveRocketcPath(): string | null {
+  if (process.env.ROCKETC && fs.existsSync(process.env.ROCKETC)) {
+    return process.env.ROCKETC;
+  }
+  const defaultLocations = [
+    '/tmp/rocket-pinned/build/rocketc',
+    '/tmp/rocketc',
+    path.join(process.cwd(), 'build/rocketc'),
+  ];
+  for (const loc of defaultLocations) {
+    if (fs.existsSync(loc)) return loc;
+  }
+  return null;
+}
+
+export function runAudit(rootDir: string = '.', rocketcPath?: string | null): AuditResult[] {
   const results: AuditResult[] = [];
+  const compiler = rocketcPath !== undefined ? rocketcPath : resolveRocketcPath();
 
   function walk(dir: string) {
     const entries = fs.readdirSync(path.join(rootDir, dir), { withFileTypes: true });
@@ -150,7 +260,7 @@ export function runAudit(rootDir: string = '.'): AuditResult[] {
           walk(rel);
         }
       } else if (ent.isFile() && ent.name.endsWith('.rocket')) {
-        results.push(auditRocketFile(path.join(rootDir, rel), rel));
+        results.push(auditRocketFile(path.join(rootDir, rel), rel, compiler));
       }
     }
   }
@@ -163,22 +273,59 @@ export function runAudit(rootDir: string = '.'): AuditResult[] {
 
 const isMain = process.argv[1]?.includes('audit-rocket-files');
 if (isMain) {
-  const results = runAudit('.');
-  console.log('='.repeat(90));
-  console.log('ROCKETOS PHASE 1: ROCKET CODE COMPATIBILITY AUDIT');
-  console.log('='.repeat(90));
+  const compiler = resolveRocketcPath();
+  const results = runAudit('.', compiler);
+
+  console.log('='.repeat(92));
+  console.log('ROCKETOS PHASE 1: ROCKET CODE COMPATIBILITY & STATIC DRIFT AUDIT');
+  console.log('='.repeat(92));
   console.log(`Total .rocket files audited: ${results.length}`);
-  const passCount = results.filter((r) => r.compiles === 'YES').length;
-  const failCount = results.filter((r) => r.compiles === 'NO').length;
-  console.log(`Conforming (Compiles cleanly): ${passCount}`);
-  console.log(`Divergent (Requires migration): ${failCount}`);
-  console.log('-'.repeat(90));
+  const noDriftCount = results.filter((r) => r.staticCompatibility === 'NO_OBVIOUS_DRIFT').length;
+  const driftCount = results.filter((r) => r.staticCompatibility === 'SOURCE_DRIFT_DETECTED').length;
+  console.log(`Static Analysis (Pattern Drift):`);
+  console.log(`  - NO_OBVIOUS_DRIFT:       ${noDriftCount}`);
+  console.log(`  - SOURCE_DRIFT_DETECTED:  ${driftCount}`);
+
+  const passCount = results.filter((r) => r.actualCompilation === 'PASS').length;
+  const failCount = results.filter((r) => r.actualCompilation === 'FAIL').length;
+  const notTestedCount = results.filter((r) => r.actualCompilation === 'NOT_TESTED').length;
+  console.log(`Actual rocketc Compilation (Pinned commit 3d62e54):`);
+  console.log(`  - PASS:                   ${passCount}`);
+  console.log(`  - FAIL:                   ${failCount}`);
+  console.log(`  - NOT_TESTED:             ${notTestedCount}`);
+  if (compiler) {
+    console.log(`  - Compiler Binary:        ${compiler}`);
+  } else {
+    console.log(`  - Compiler Binary:        NONE (rocketc not found in environment; actual compilation NOT_TESTED)`);
+  }
+  console.log('-'.repeat(92));
 
   for (const r of results) {
-    console.log(`[${r.compiles}] ${r.file} (${r.domain})`);
-    if (r.compiles === 'NO') {
-      console.log(`     Category: ${r.failureCategory} | Complexity: ${r.migrationComplexity}`);
-      console.log(`     Notes: ${r.notes}`);
+    const staticTag = `STATIC: ${r.staticCompatibility}`;
+    const actualTag =
+      r.actualCompilation === 'NOT_TESTED'
+        ? 'ACTUAL: NOT_TESTED'
+        : `ACTUAL: ${r.actualCompilation} (exit ${r.exitCode})`;
+
+    console.log(`[${staticTag} | ${actualTag}] ${r.file} (${r.domain})`);
+    if (r.staticCompatibility === 'SOURCE_DRIFT_DETECTED') {
+      console.log(`     Drift Category: ${r.driftCategory} | Complexity: ${r.migrationComplexity}`);
+      console.log(`     Drift Notes:    ${r.notes}`);
+    }
+    if (r.diagnostic) {
+      console.log(`     Compiler Output: ${r.diagnostic}`);
     }
   }
+
+  // Verify representative files requirement
+  console.log('='.repeat(92));
+  console.log('REPRESENTATIVE MODULES COMPILATION MATRIX:');
+  console.log('='.repeat(92));
+  const representativeResults = results.filter((r) => REPRESENTATIVE_FILES.includes(r.file));
+  for (const rep of representativeResults) {
+    console.log(
+      `  * ${rep.file.padEnd(48)}: ${rep.actualCompilation.padEnd(10)} (exit ${String(rep.exitCode).padEnd(4)}) -> ${rep.diagnostic || 'N/A'}`
+    );
+  }
+  console.log('-'.repeat(92));
 }
