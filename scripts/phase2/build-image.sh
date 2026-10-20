@@ -188,7 +188,8 @@ lb config \
   --initsystem systemd \
   --apt-indices false \
   --memtest none \
-  --win32-loader false
+  --win32-loader false \
+  --build-with-chroot false
 
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "DRY RUN: Configuration prepared successfully at ${WORK_DIR}."

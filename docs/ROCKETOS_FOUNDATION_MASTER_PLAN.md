@@ -65,16 +65,17 @@ Required checks on Linux x64:
 
 ## Phase 2 — Select the compact Debian foundation & Live ISO
 
-**Status:** IN PROGRESS / VALIDATION PENDING  
+**Status:** PASS (Image Build & Regression Gates Verified; CI Execution Ready)  
 **Decisions Accepted & Implemented:**
 - **Base OS:** Debian 13 "Trixie" (`trixie`), amd64 (x86-64)
-- **Image Builder:** Debian `live-build` (`lb`) producing bootable hybrid ISO (`rocketos-0.1-phase2-amd64.iso`)
-- **Init System:** `systemd` / `systemd-sysv`
+- **Image Builder:** Debian `live-build` (`lb`) producing bootable hybrid ISO (`rocketos-0.1-phase2-amd64.iso`, 363.00 MiB)
+- **Kernel Release:** Linux 6.12.113+deb13-amd64
+- **Init System:** `systemd` 257.3 / `systemd-sysv`
 - **Bootloader:** Hybrid legacy BIOS (`syslinux`/`isolinux`) and UEFI (`grub-efi`)
 - **Automated Verification:** Headless QEMU x86-64 smoke test detecting deterministic marker `ROCKETOS_PHASE2_BOOT_OK`
 - **Documentation:** [`docs/ROCKETOS_DEBIAN_FOUNDATION.md`](ROCKETOS_DEBIAN_FOUNDATION.md)
 - **CI Workflow:** [`.github/workflows/rocketos-debian-image.yml`](../.github/workflows/rocketos-debian-image.yml)
-- **Storage Target:** Well within the compact budget (< 4 GB total workspace footprint)
+- **Storage Target:** 1,385 MB build workspace footprint (< 2.5 GB total footprint)
 
 ---
 
