@@ -1,124 +1,189 @@
-# ROCKETOS ARCHITECTURE SPECIFICATION
-**System Blueprint & Component Interconnects**
-*Document Version: 1.0.0 — Phase 1: Core Subsystems*
+﻿# RocketOS Architecture Specification
 
----
+**Status:** Canonical architecture for RocketOS 0.x
+**Updated:** 2026-10-20
 
-## 1. Architectural Overview
+## 1. Core principle
 
-RocketOS is structured in four decoupled layers:
+> **Rocket owns the experience. Linux owns the machinery.**
+
+RocketOS is a Debian-based operating-system project. It is not a custom bare-metal kernel and not a Yocto distribution.
+
+The project deliberately reuses mature open-source Linux infrastructure for low-level system work while preserving a distinct RocketOS shell, application suite, system behavior, and visual identity.
+
+## 2. Layered target
+
+```text
++------------------------------------------------------------------+
+| RocketOS experience                                               |
+| Desktop, carousel dock, taskbar, launcher, workspaces, apps, UX   |
+| Initially React/TypeScript; progressively native Rocket           |
++-------------------------------+----------------------------------+
+                                |
++-------------------------------v----------------------------------+
+| RocketOS Core / platform-neutral contracts                        |
+| Settings, search, app registry, policy, domain logic, adapters    |
+| TypeScript and Rocket coexist during migration                    |
++-------------------------------+----------------------------------+
+                                |
++-------------------------------v----------------------------------+
+| Thin native integration boundary                                  |
+| C/C++ only where Rocket cannot safely expose a Linux API/callback |
++-------------------------------+----------------------------------+
+                                |
++-------------------------------v----------------------------------+
+| Debian/Linux userspace                                             |
+| systemd, D-Bus, polkit, NetworkManager, BlueZ, PipeWire/ALSA,     |
+| Mesa/DRM, Wayland foundations, libinput, package tools, etc.      |
++-------------------------------+----------------------------------+
+                                |
++-------------------------------v----------------------------------+
+| Linux kernel, upstream drivers, firmware, filesystems, hardware   |
++------------------------------------------------------------------+
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    User Shell (React 19)                    │
-│   Desktop  │  WindowFrame  │  CarouselDock  │    Taskbar    │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ UI Events & Rendering
-┌──────────────────────────────▼──────────────────────────────┐
-│                    RocketOS Core Services                   │
-│   SystemManifest      │  AppRegistry       │ WindowManager  │
-│   FileSystemService   │  SettingsService   │ SearchService  │
-│   ClipboardService    │  NotificationSvc   │ PinningService │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Domain Operations
-┌──────────────────────────────▼──────────────────────────────┐
-│                 Platform Boundary & Providers               │
-│               PlatformProvider (Real / Simulated)           │
-│           BrowserPersistenceProvider (IndexedDB Schema v1)  │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Language & Spec Authority
-┌──────────────────────────────▼──────────────────────────────┐
-│                 Rocket Domain Modules (rocket/)             │
-│    VFS & Path  │  Search  │  Registry  │ Manifest │ Windows │
-└─────────────────────────────────────────────────────────────┘
+
+## 3. Responsibility matrix
+
+### Debian/Linux responsibility
+
+Use existing Debian/upstream components for:
+
+- Linux kernel, scheduling, virtual memory, process primitives;
+- CPU/GPU/network/storage/USB/input drivers;
+- firmware distribution;
+- real filesystems and block devices;
+- system boot/service primitives;
+- D-Bus and system IPC foundations;
+- user/session/privilege foundations where appropriate;
+- networking and Wi-Fi backend;
+- Bluetooth backend;
+- audio backend;
+- Mesa/DRM/KMS graphics stack;
+- Wayland protocol/foundation;
+- input backend;
+- package backend and dependency resolution;
+- hardware discovery and system telemetry sources.
+
+RocketOS should adapt these systems. It should not reimplement them merely for language purity.
+
+### RocketOS responsibility
+
+RocketOS owns:
+
+- desktop composition and identity;
+- taskbar and launcher;
+- centered/carousel dock behavior;
+- window-management policy and RocketOS window UX;
+- workspaces and Mission Control-style overview;
+- notifications UX and quick settings;
+- Settings frontend and RocketOS policy;
+- Files frontend;
+- Terminal frontend and Rocket-specific tooling UX;
+- Store frontend;
+- search/index UX;
+- first-party apps;
+- login/session and installer experience;
+- visual language, motion, theming, and branding;
+- RocketOS-specific core/domain policy.
+
+The implementation language for RocketOS-owned code can be transitional. The destination is increasing native Rocket ownership, not an immediate rewrite at any cost.
+
+## 4. Current implementation reality
+
+The current working desktop is React 19 + TypeScript 5.8 + Vite 6.
+
+This is a strong visual/interaction prototype and remains the reference implementation for the desktop and 48 app frontends. It is **not** evidence that the project already has a native Linux desktop.
+
+Current TypeScript services, browser persistence, mock process/service models, and fake hardware data exist to make the prototype usable. They are migration sources, not the final Linux backend.
+
+The `rocket/` directory contains Rocket migration/prototype modules. They are not currently compiled into the production Vite application and must be checked against the actual current Rocket compiler before being promoted to authoritative native code.
+
+## 5. Rocket's role
+
+Rocket is retained as a first-class language for RocketOS.
+
+The reviewed Rocket repository proves native compilation for Linux x64/ARM64 and contains a genuine LLVM backend. However, the current Rocket UI/FFI surface does not yet cover every requirement of the existing RocketOS desktop, including some desktop-oriented scrolling/input/control behavior and retained callback-heavy integrations.
+
+Therefore:
+
+- use Rocket now where it is reliable and testable;
+- keep complex React/TypeScript UI until native parity exists;
+- extend Rocket deliberately when a missing capability is reusable and justified;
+- use a thin C/C++ adapter where Linux APIs require callback/event patterns Rocket cannot safely expose yet;
+- never build a second full desktop in C++.
+
+The Rocket repository, not this repository, is authoritative for current Rocket syntax/version/toolchain information.
+
+## 6. UI and compositor boundary
+
+RocketOS owns compositor/window **policy and UX**, but RocketOS 0.x does not require the compositor implementation itself to be 100% Rocket.
+
+The initial Linux graphical host may use existing Wayland infrastructure plus a narrow native integration layer while the React desktop remains the shell. As Rocket gains sufficient desktop capabilities, shell components can migrate natively.
+
+The exact initial compositor/host technology is **not selected in this document**.
+
+## 7. Core/provider boundary
+
+The long-term UI must not be permanently coupled to browser-only services.
+
+The intended direction is:
+
+```text
+UI
+ |
+ v
+ICoreProvider / language-neutral RocketOS API
+ |                         |
+ | temporary               | progressively native
+ v                         v
+TypeScript implementation  Rocket implementation
+           \               /
+            v             v
+             Linux adapters
+                  |
+                  v
+              Debian/Linux
 ```
 
----
+`BrowserFallbackCoreProvider` remains useful for AI Studio/web preview. It must not be mistaken for the real installed-OS backend.
 
-## 2. Core Subsystems
+## 8. Build and runtime targets
 
-### 2.1 SystemManifest (`src/core/manifest/SystemManifest.ts` & `rocket/core/manifest.rocket`)
-- **Responsibility**: Authoritative single source of truth for OS identity, kernel version, compiler build, simulated hardware specifications (CPU, RAM, Storage, PML4 paging status), and environment telemetry.
-- **Rules**: Eliminates fragmented, contradictory hardcoded strings across `SettingsApp`, `SystemMonitorApp`, `ThisPC`, and `Terminal`.
+Primary architecture: **x86-64 first**.
 
-### 2.2 AppRegistry (`src/core/apps/AppRegistry.ts` & `rocket/services/registry.rocket`)
-- **Responsibility**: Central metadata catalog of all registered applications in RocketOS.
-- **Fields**:
-  - `id`: Unique identifier (`AppId`).
-  - `displayName`: Localized or default title.
-  - `description`: Application summary.
-  - `icon`: Icon component reference.
-  - `glyph`: Single character/emoji glyph.
-  - `isSingleton`: Whether opening an already open app focuses the window or creates a new one.
-  - `defaultBounds`: Initial width and height.
-  - `minBounds`: Minimum resize constraints.
-  - `category`: App classification (`system`, `developer`, `productivity`, `media`, `utilities`).
-  - `keywords`: Searchable tokens for the universal search indexer.
-  - `supportedExtensions`: File formats handled by this application.
+Development/testing progression:
 
-### 2.3 WindowManager (`src/core/windowing/WindowManager.ts` & `rocket/windowing/manager.rocket`)
-- **Responsibility**: Pure state machine managing window lifecycles independent of React rendering.
-- **Features**:
-  - Window creation, closing, minimize, maximize, and restoring.
-  - Z-index stacking order and active window tracking.
-  - Workspace filtering: only windows matching `currentWorkspace` (or sticky windows) are visible.
-  - Screen boundary clamping and 3-corner snap geometry calculation.
+1. browser preview for rapid UI iteration;
+2. native Linux host development;
+3. QEMU as the primary VM engineering target;
+4. VirtualBox as a secondary compatibility target;
+5. bootable installer/image;
+6. physical x86-64 laptop testing.
 
-### 2.4 FileSystemService (`src/core/filesystem/FileSystemService.ts` & `rocket/filesystem/vfs.rocket`)
-- **Responsibility**: Virtual file system supporting hierarchical trees of files and folders.
-- **Features**:
-  - Path normalization and validation.
-  - Recursive search through all levels of the tree.
-  - Deep clone copy for folders, regenerating item IDs and updating relative child paths.
-  - Atomic Cut/Paste (move) semantics.
-  - Safe rename with duplicate collision handling.
-  - Recycle bin with original-path metadata preservation and parent-fallback restoration.
-  - Dynamic, locale-aware timestamps for file mutations.
+Development workspace target: approximately **25Ã¢â‚¬â€œ45 GB**.
 
-### 2.5 Persistence Subsystem (`src/core/persistence/` & `src/platform/browser/`)
-- **Contract**: `PersistenceProvider` interface.
-- **Implementation**: `BrowserPersistenceProvider` using IndexedDB (`rocket-os-db`) with store `system_store`.
-- **Schema Versioning**: `RocketDataSchemaVersion = 1`.
-- **Managed Collections**:
-  - `vfs`: Virtual file system state.
-  - `trash`: Recycle bin contents.
-  - `notes`: Scratchpad notes and checklists.
-  - `paint`: Saved artwork documents.
-  - `settings`: System preferences (wallpaper, volume, accents).
-  - `pinned`: Pinned application IDs in order.
-  - `workspaces`: Active and configured virtual desktops.
-  - `window_session`: Restorable window bounds and active instances.
+## 9. Explicitly rejected 0.x directions
 
-### 2.6 SoundEngine (`src/utils/audio.ts`)
-- **Responsibility**: Procedural Web Audio API synthesizer.
-- **Features**:
-  - Global `volume` (0–100) scaling and `isMuted` suppression.
-  - Sound effect hooks: window open, minimize, restore, snap, pin/unpin, workspace switch, recycle bin delete.
-  - Clean fallbacks for suspended browser audio contexts.
+Do not reintroduce these without an explicit architecture decision:
 
-### 2.7 SearchService (`src/core/search/SearchService.ts` & `rocket/commands/search.rocket`)
-- **Responsibility**: Centralized recursive query engine across apps, files, directories, and settings.
-- **Optimization**: Recursively indexes VFS nodes without loading unneeded document bodies.
+- custom Rocket bare-metal kernel;
+- Rocket-written Wi-Fi/GPU/NVMe/USB drivers as the default path;
+- direct IDT/page-table work for RocketOS 0.x;
+- Yocto/BitBake as the base build system;
+- a giant source rebuild of Debian/Linux infrastructure;
+- a C++ rewrite of the RocketOS desktop;
+- deleting the React reference UI before native parity is proven.
 
----
+## 10. Decisions intentionally deferred
 
-## 3. Platform Capabilities & Boundary
-The `PlatformProvider` defines how RocketOS distinguishes browser primitives from simulated hardware:
-- `filesystem`: `REAL_PERSISTENT` (Backed by IndexedDB via VFS).
-- `windowManager`: `REAL_BROWSER` (Rendered inside browser viewport).
-- `audio`: `REAL_BROWSER` (Procedural Web Audio API).
-- `networkStatus`: `REAL_BROWSER` (`navigator.onLine`).
-- `cpuTelemetry`: `SIMULATED` (Simulated multi-core load algorithms).
-- `pml4MemoryMap`: `SIMULATED` (Realistic x86_64 kernel paging table simulator).
-- `nativeKernel`: `UNAVAILABLE` (Running in sandboxed browser container).
+A dedicated work packet must select each of these after the reset:
 
----
+- exact Debian release/snapshot;
+- image construction method;
+- bootloader;
+- graphical session/compositor host;
+- React desktop host for the first native Debian image;
+- system IPC transport;
+- packaging/update strategy for RocketOS-owned components.
 
-## 4. Shell Component Modularization
-`src/shell/taskbar/` decomposes the previous monolithic `Taskbar.tsx`:
-- `Taskbar.tsx`: Outer bar, app launcher strip, system tray container.
-- `StartMenu.tsx`: Pinned apps launcher, user header, power controls.
-- `SearchPanel.tsx`: Universal recursive search flyout with filter tabs.
-- `QuickSettings.tsx`: Control center tiles for WiFi, Night Light, Volume slider.
-- `ClockPanel.tsx`: Calendar grid, live clock, locale settings shortcut.
-- `WorkspaceSwitcher.tsx`: Virtual desktop manager and window count badges.
-- `NotificationCenter.tsx`: Flyout displaying system notifications.
+No implementation agent may silently choose one and convert it into project policy.

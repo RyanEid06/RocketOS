@@ -1,109 +1,138 @@
-# RocketOS Core Architecture (Phase 7 Specification)
+﻿# RocketOS Core Architecture
 
-## 1. Architectural Vision
+**Status:** Transitional architecture for RocketOS 0.x
+**Updated:** 2026-10-20
 
-RocketOS operates under a clear, disciplined architectural model:
-**The user interface is React/TypeScript for high-fidelity browser previewing and developer productivity, while the operating-system core is canonically specified and authored in Rocket (`.rocket`).**
+## 1. Reality first
 
-```
-+-------------------------------------------------------------------------+
-|                         RocketOS Desktop Shell                          |
-|         (React 18 + Tailwind CSS + Lucide Icons + Windowing Engine)     |
-+-------------------------------------------------------------------------+
-                                    |
-                                    v
-+-------------------------------------------------------------------------+
-|                  Core Provider Interface (ICoreProvider)                |
-|       Typed Contracts: System, FS, Shell, Proc, Svc, Users, Apps        |
-+-------------------------------------------------------------------------+
-                |                                         |
-   (Production / Native Mode)                     (Browser Fallback Mode)
-                v                                         v
-+-------------------------------+       +---------------------------------+
-|       RocketCoreClient        |       |   BrowserFallbackCoreProvider   |
-|   (HTTP/JSON IPC Protocol v1) |       |  (In-Memory IndexedDB/Local VFS)|
-+-------------------------------+       +---------------------------------+
-                |
-                v  Network / UNIX Domain Socket IPC
-+-------------------------------------------------------------------------+
-|                     Rocket Core Host (`rocketc`)                        |
-|  - Inode-based RocketFS with Unix permissions (UID/GID/mode)            |
-|  - Deterministic Path Canonicalizer & Lexical Parser                   |
-|  - Process Supervisor & Service Registry                                |
-|  - User Identity, RBAC & Group Membership                               |
-|  - Shell Tokenizer, AST Pipeline & Command Execution Engine             |
-|  - Native Persistent Storage Engine (`.rocketos-data/`)                 |
-+-------------------------------------------------------------------------+
-```
+The current repository does **not** have a native Rocket core that is authoritative in production.
 
----
+Today:
 
-## 2. Canonical Separation of Responsibilities
+- the React UI primarily uses TypeScript domain services;
+- some UI paths bypass `ICoreProvider` and call TypeScript services directly;
+- `BrowserFallbackCoreProvider` exposes the working browser-backed services;
+- `RocketCoreClient` talks to `rocket/core-host/server.ts`;
+- `rocket/core-host/server.ts` is a TypeScript/Node simulation, not a compiled Rocket daemon;
+- `rocket/**/*.rocket` is migration/prototype source and is not part of the Vite production runtime.
 
-### What Belongs in Rocket (`/rocket/**`)
-1. **Virtual File System (RocketFS)**:
-   - Inode structures, directory entries, metadata, timestamps.
-   - Posix permission enforcement (`check_permission` in `rocket/filesystem/permissions.rocket`).
-   - Path resolution and canonicalization (`rocket/filesystem/path.rocket`).
-   - Schema migration and file extension associations (`rocket/filesystem/associations.rocket`).
-2. **Process and Service Subsystem**:
-   - Process control blocks (`PCB`), PIDs, parent/child relationships (`rocket/process/manager.rocket`).
-   - Service state machines (`RUNNING`, `STOPPED`, `DEGRADED`) and daemon supervision (`rocket/services/service_manager.rocket`).
-3. **Shell and Execution Pipeline**:
-   - Pipeline tokenization, quotation parsing, redirection AST (`rocket/commands/`).
-   - Command dispatch, argument validation, and return code management.
-4. **Security, Users, and Permissions**:
-   - Multi-user authentication, group membership (`wheel`, `users`), root elevation (`rocket/admin/elevation.rocket`).
+Documentation must not describe this as already-completed native Rocket execution.
 
-### What Belongs in the UI Layer (`/src/**`)
-1. **Window Management and Compositor**:
-   - Dragging, resizing, maximizing, minimizing, z-index ordering, and snap-to-grid tiling.
-2. **Desktop Rendering**:
-   - Taskbar, launcher, app icons, window framing, wallpaper rendering, and theme application.
-3. **Application Shells**:
-   - React presentation views for Editor, Notes, Paint, Terminal, System Monitor, Settings, and Explorer.
-4. **Client RPC Adaptation**:
-   - `RocketCoreClient` translates UI intent into Protocol v1 requests, handles network failures, and falls back to `BrowserFallbackCoreProvider` seamlessly when native core is offline.
+## 2. Transitional target
 
----
-
-## 3. Dual-Provider Implementation
-
-### `ICoreProvider` Contract
-Both the native client (`RocketCoreClient`) and the browser fallback (`BrowserFallbackCoreProvider`) implement the exact same TypeScript interface:
-
-```typescript
-export interface ICoreProvider {
-  readonly isConnected: boolean;
-  connect(): Promise<ProtocolHandshake>;
-  disconnect(): Promise<void>;
-  getDiagnostics(): Promise<CoreDiagnosticsInfo>;
-
-  readonly system: ICoreSystemAPI;
-  readonly fs: ICoreFileSystemAPI;
-  readonly shell: ICoreShellAPI;
-  readonly processes: ICoreProcessesAPI;
-  readonly services: ICoreServicesAPI;
-  readonly users: ICoreUsersAPI;
-  readonly apps: ICoreAppsAPI;
-  readonly workspaces: ICoreWorkspacesAPI;
-}
+```text
+React UI / future Rocket UI
+            |
+            v
+       ICoreProvider
+            |
+   +--------+---------+
+   |                  |
+   v                  v
+Preview provider   Installed-OS provider
+(browser/TS)       (Linux-backed)
+                       |
+              +--------+--------+
+              |                 |
+              v                 v
+        Rocket domains     TS domains still
+        proven native      awaiting migration
+              \                 /
+               v               v
+                 Linux adapters
+                       |
+                       v
+                  Debian/Linux
 ```
 
-### Automatic Fallback and Resilience
-1. At desktop boot, `CoreProviderService` probes `http://127.0.0.1:5180/api/v1/core/ping`.
-2. If the native Rocket Core Host responds with a valid handshake, `RocketCoreClient` is bound as the active provider.
-3. If the host is unreachable (e.g., standard browser sandbox without local native daemon), `BrowserFallbackCoreProvider` is initialized, guaranteeing complete zero-friction offline usability in web previews.
-4. The user can view current provider telemetry and test real-time connectivity directly from the **Settings > System Information** panel.
+The boundary is more important than forcing one language immediately.
 
----
+## 3. Migration principles
 
-## 4. Inode and Storage Model
+### One provider contract
 
-RocketFS organizes files and directories using an inode-based hierarchy:
+UI code should progressively depend on `ICoreProvider`/well-defined domain APIs rather than directly reaching into browser-only singleton services.
 
-- **Inodes**: Assigned a 64-bit integer ID, owning user UID, group GID, octal mode (e.g. `0o644`, `0o755`), ISO 8601 timestamps (`createdAt`, `updatedAt`), byte size, and data payload.
-- **Root Directory (`/`)**: Owned by `root` (UID 0), permission `0o755`.
-- **System Directories (`/bin`, `/etc`, `/usr`, `/lib`)**: Owned by `root`, permission `0o755`.
-- **User Home (`/home/ryan`)**: Owned by user `ryan` (UID 1000, GID 100), permission `0o755`.
-- **Protected Superuser Directory (`/root`)**: Owned by `root` (UID 0, GID 0), permission `0o700`.
+### Preview is allowed
+
+Browser preview is valuable for AI Studio and rapid design iteration. `BrowserFallbackCoreProvider` may remain indefinitely as a development/preview implementation.
+
+It is not the installed-OS backend.
+
+### Native does not automatically mean Rocket
+
+A real Linux-backed provider may initially combine:
+
+- TypeScript/Node components;
+- native Rocket components;
+- thin C/C++ adapters;
+- calls to Debian/Linux services.
+
+That is acceptable during migration.
+
+### Rocket migration is evidence-driven
+
+Before declaring a Rocket module canonical:
+
+1. compile it with the actual current Rocket compiler;
+2. exercise it with tests/conformance fixtures;
+3. compare it to the existing behavior;
+4. wire it through the provider boundary;
+5. only then retire the previous implementation.
+
+Do not mass-convert stale pseudo-Rocket syntax and call the migration complete.
+
+## 4. Domain ownership direction
+
+Good candidates for progressive Rocket ownership include:
+
+- settings/domain policy;
+- search/index algorithms;
+- app metadata/contracts;
+- Rocket-specific command parsing;
+- notifications/domain rules;
+- package metadata/policy;
+- filesystem/path policy that is genuinely RocketOS-specific;
+- process/service policy above Linux primitives.
+
+Real low-level process/filesystem/network/device mechanics remain Linux responsibility.
+
+## 5. Linux adapter direction
+
+The installed RocketOS provider should eventually source real data/actions from Linux:
+
+- files/storage -> Linux filesystem APIs;
+- processes -> Linux process APIs;
+- services -> systemd;
+- network/Wi-Fi -> NetworkManager/Linux networking;
+- Bluetooth -> BlueZ;
+- audio -> PipeWire/ALSA;
+- hardware/system telemetry -> supported `/proc`, `/sys`, D-Bus, and system APIs;
+- packages -> Debian package tooling;
+- permissions/elevation -> Linux privilege/policy mechanisms.
+
+Use a narrow C/C++ bridge only where Rocket or the chosen host runtime cannot safely access the required API/event model.
+
+## 6. Source-of-truth rule
+
+During migration, there may temporarily be more than one implementation of a domain. There must still be one declared active source of truth per runtime mode.
+
+Every migration work packet must state:
+
+- active implementation before the change;
+- candidate replacement;
+- shared tests/conformance checks;
+- cutover point;
+- deletion point for the old implementation.
+
+## 7. Current dangerous areas
+
+Do not casually delete or rewrite these during architecture cleanup:
+
+- `src/core/filesystem/RocketFS.ts` and `FileSystemService.ts`;
+- `src/core/apps/AppRegistry.ts`;
+- `src/core-api/**` conformance/integration fixtures;
+- `rocket/core-host/server.ts` while tests still depend on it;
+- the React desktop/app components that define the protected design.
+
+They are migration inputs even when they are not final architecture.

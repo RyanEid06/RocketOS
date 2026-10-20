@@ -1,227 +1,103 @@
-# Rocket Programming Language (rocketc) Reference
+﻿# RocketOS Agent Instructions
 
-Authoritative reference for writing code in the **Rocket programming language** (`.rocket`), directly based on the compiler and standard library specification from [RyanEid06/Rocket](https://github.com/RyanEid06/Rocket).
+These rules apply to any AI/code agent working in this repository.
 
----
+## 1. Read before changing anything
 
-## 1. Toolchain & Language Overview
+Read, in order:
 
-- **Language Name**: Rocket (Current Specification: 2.1 / Frozen 2.0 ABI v1)
-- **Repository**: [RyanEid06/Rocket](https://github.com/RyanEid06/Rocket)
-- **Compiler**: `rocketc` (self-hosted compiler in Rocket, with LLVM 22.1.6 backend and stage0 C++ bootstrap)
-- **Runtime**: ABI v1 (deterministic, thread-confined ARC + atomic graph promotion, safe collections, owned UTF-8 strings)
-- **File Extension**: `.rocket`
-- **Entry Point**: `fn main() -> Int:` returning `0` as the process exit status.
+1. `README.md`
+2. `docs/ROCKETOS_ARCHITECTURE.md`
+3. `docs/ROCKETOS_FOUNDATION_MASTER_PLAN.md`
+4. `docs/ROCKETOS_DESIGN_CONTRACT.md`
+5. `docs/ROCKET_CORE_ARCHITECTURE.md` when touching core/provider code
+6. `docs/ROCKET_CORE_PROTOCOL.md` when touching the core boundary
 
----
+Do not invent a competing architecture.
 
-## 2. Grammar & Lexical Rules
+## 2. Architecture is fixed unless the project owner explicitly changes it
 
-### Blocks, Indentation & Comments
-- **Indentation**: Strict **4 spaces**. Tabs are forbidden (`"tabs are not allowed; use spaces"` diagnostic).
-- **Block Delimiter**: Blocks begin after a colon `:` followed by an indented line.
-- **Comments**: Single-line comments start with `#` (e.g. `# this is a comment`).
-- **Top-Level Declarations**: Only `import`, `struct`, `enum`, `trait`, `impl`, `const`, `fn`, `pub`, and `unsafe:` declarations are valid at top level.
+RocketOS 0.x is Debian-based.
 
-### Variables & Mutability
-- **Immutable binding**: `let name = value` or `let name: Type = value`
-- **Mutable binding**: `var name = value` or `var name: Type = value`
-- **No `null`**: Absence is represented using `Option[T]`.
-- **No exceptions**: Errors are represented using `Result[T, E]`.
+**Rocket owns the experience. Linux owns the machinery.**
 
-### Built-in Types
-- **Primitives**:
-  - `Int`: Signed 64-bit integer. Arithmetic overflow and divide-by-zero produce runtime diagnostics instead of wrapping.
-  - `Float`: IEEE 754 64-bit floating point (`binary64`). No implicit conversions between `Int` and `Float`.
-  - `Bool`: `true` or `false`.
-  - `Char`: Single byte character enclosed in single quotes `'a'`, supporting escapes `\n`, `\r`, `\t`, `\\`, `\'`.
-  - `String`: Owned, immutable sequence of valid UTF-8 bytes with explicit length tracking (embedded `\0` allowed). Double quotes `"..."` with escapes `\n`, `\r`, `\t`, `\\`, `\"`.
-  - `Unit`: Void-like unit type for functions without return values (`return` or falling off the end).
-- **Compound & Collections**:
-  - `Array[T]`: e.g. `[1, 2, 3]`. Copy-on-write value semantics. Mutable `var` bindings support indexed assignment `scores[1] = 99`.
-  - `Slice[T]`: Retained view into an array range, e.g. `values[1..3]`.
-  - `Option[T]`: `Some(value)` or `None()`.
-  - `Result[T, E]`: `Ok(value)` or `Err(error)`.
-  - `Weak[T]`: Non-owning weak reference via `std.ownership`.
-  - `UniqueBuffer[T]`: Move-only buffer via `std.buffer`.
-  - `Task[T]`: Concurrency task handle via `async fn` and `std.task`.
+Do not introduce or revive:
 
-### Operators & Precedence
-- **Logical**: `and`, `or`, `not` (require `Bool` operands; `and` and `or` short-circuit).
-- **Comparison**: `==`, `!=`, `<`, `<=`, `>`, `>=`.
-- **Arithmetic**: `+`, `-`, `*`, `/`.
-- **Range**: `0..10` (half-open, excludes upper bound).
-- **Error Propagation**: Postfix `?` operator unpacks `Ok(val)` or returns early on `Err(err)` (or `Some`/`None`).
+- a custom Rocket bare-metal kernel;
+- direct Rocket hardware drivers as the default plan;
+- Yocto/BitBake as the RocketOS 0.x base;
+- a second C++ desktop implementation;
+- an unapproved compositor, bootloader, image builder, browser host, or packaging stack.
 
----
+Recommendations are allowed. Silent architecture changes are not.
 
-## 3. Declarations & Syntax Patterns
+## 3. Preserve the existing design
 
-### Functions & Visibility
-```rocket
-pub fn add(left: Int, right: Int) -> Int:
-    return left + right
+The current React/TypeScript desktop and app designs are the visual contract.
 
-fn parse_and_increment(text: String) -> Result[Int, String]:
-    let value = string.parse_int(text)?
-    return Ok(value + 1)
+Do not "simplify," "modernize," replace, or restyle the RocketOS identity unless explicitly asked. Pay special attention to the carousel/centered dock concept, desktop composition, bottom taskbar, glass/dark styling, window behavior, and app layouts.
 
-fn main() -> Int:
-    let result = add(20, 22)
-    print(result)
-    return 0
+## 4. Be honest about what is real
+
+Do not describe browser simulations as native Linux functionality.
+
+When reporting a capability, classify it as one of:
+
+- `REAL_LINUX`
+- `REAL_ROCKET_NATIVE`
+- `REAL_WEB`
+- `SIMULATED`
+- `PROTOTYPE`
+- `UNAVAILABLE`
+
+The current repository contains simulated hardware/system data. Preserve it when necessary for the UI preview, but never present it as a real kernel/device implementation.
+
+## 5. Rocket language authority
+
+The separate `RyanEid06/Rocket` repository is authoritative for Rocket syntax, compiler/runtime behavior, target support, and current versioning.
+
+Do not use stale RocketOS documentation to infer the Rocket language version. Do not mass-edit `.rocket` files by search-and-replace and assume they compile. Validate them with the actual current Rocket compiler when a work packet asks for Rocket code migration.
+
+The reviewed Rocket snapshot includes the released compiler 3.0.0 and later Rocket 3.5 graphics/assets/UI work; LLVM 22.1.6 and Raylib 6.0 are current toolchain components in that Rocket snapshot. Re-check the Rocket repository before pinning integration versions.
+
+## 6. Transitional language ownership
+
+For RocketOS 0.x:
+
+- Debian/Linux provides low-level machinery and hardware support.
+- React/TypeScript remains the existing high-fidelity UI implementation until native Rocket reaches parity.
+- TypeScript core services may remain temporarily while domains migrate incrementally.
+- Rocket should own native RocketOS-specific logic where the current compiler/runtime can support it reliably.
+- C/C++ is limited to thin native bridges where necessary, especially for Linux APIs or callback patterns Rocket cannot safely represent yet.
+
+Do not force a big-bang rewrite.
+
+## 7. Do not bypass migration gates
+
+For changes to existing TypeScript/React behavior, keep these green:
+
+```bash
+npm test
+npm run lint
+npm run build
 ```
 
-### Structs & Generics
-```rocket
-struct Point:
-    x: Int
-    y: Int
+At the reset baseline this means 77/77 tests, zero TypeScript errors, and a successful Vite production build.
 
-struct Pair[T]:
-    first: T
-    second: T
+When migrating a subsystem, old and new implementations should pass the same behavior/conformance tests before the old implementation is removed.
 
-# Instantiation:
-let p = Point(10, 20)
-let pair = Pair("key", 100)
-```
+## 8. Storage guard
 
-### Enums & Pattern Matching
-```rocket
-enum Message:
-    Number(Int)
-    Text(String)
-    Empty
+The intended RocketOS development environment is roughly 25Ã¢â‚¬â€œ45 GB.
 
-fn handle_message(msg: Message) -> Unit:
-    match msg:
-        case Number(n):
-            print(n)
-        case Text(s):
-            print(s)
-        case Empty:
-            print("empty")
-```
+Before starting any single operation expected to consume more than 20 GB of additional disk space, stop and ask for approval. Do not introduce a 100+ GB source/build workflow without explicit approval.
 
-### Control Flow
-```rocket
-# If / Else If / Else
-if score >= 90:
-    print("A")
-else if score >= 80:
-    print("B")
-else:
-    print("C")
+## 9. Git discipline
 
-# While loop
-while count < 10:
-    count = count + 1
+Do not delete a functioning path merely because it is old until its replacement is proven, unless the work packet explicitly authorizes removal.
 
-# For range loop
-for index in 0..10:
-    if index == 5:
-        continue
-    if index == 8:
-        break
-    print(index)
+Keep generated artifacts out of Git. VM disk images and installer images belong in build/release outputs, not source history.
 
-# For collection loop
-for item in items:
-    print(item)
-```
+## 10. Decision authority
 
-### Traits & Implementations
-```rocket
-trait Summary:
-    fn summarize(self) -> String
-
-impl Summary for Point:
-    fn summarize(self) -> String:
-        return "Point(" + string.from_int(self.x) + ", " + string.from_int(self.y) + ")"
-```
-
-### Async & Concurrency
-```rocket
-import std.task
-import std.sync
-
-async fn fetch_count(source: String) -> Result[Int, String]:
-    return Ok(42)
-
-fn run_worker() -> Int:
-    let pending = fetch_count("db")
-    match task.join(pending):
-        case Ok(count):
-            print(count)
-        case Err(err):
-            print(err)
-            return 1
-    return 0
-```
-
-### Unsafe & Native FFI
-```rocket
-unsafe:
-    extern fn puts(str: String) -> Int
-    export fn native_callback(code: Int) -> Unit
-```
-
----
-
-## 4. Standard Library Reference (`std.*`)
-
-1. **`std.string`**:
-   - `string.from_int(value: Int) -> String`
-   - `string.parse_int(value: String) -> Result[Int, String]`
-   - `string.byte_length(value: String) -> Int`
-   - `string.concat(left: String, right: String) -> String`
-   - `string.contains(value: String, needle: String) -> Bool`
-   - `string.starts_with(value: String, prefix: String) -> Bool`
-   - `string.ends_with(value: String, suffix: String) -> Bool`
-   - `string.trim(value: String) -> String`
-   - `string.split(value: String, delimiter: String) -> Array[String]`
-   - `string.slice(value: String, start: Int, end: Int) -> String`
-   - `string.builder() -> Builder`, `string.builder_append(b, str)`, `string.builder_finish(b) -> String`
-
-2. **`std.collections`**:
-   - `collections.length[T](values: Array[T]) -> Int`
-   - `collections.slice_length[T](values: Slice[T]) -> Int`
-   - `collections.append[T](values: Array[T], value: T) -> Array[T]`
-   - `collections.pop[T](values: Array[T]) -> Option[Pop[T]]`
-   - `collections.reverse[T](values: Array[T]) -> Array[T]`
-   - `collections.concat[T](left: Array[T], right: Array[T]) -> Array[T]`
-   - `collections.join(values: Array[String], sep: String) -> String`
-   - `collections.map_from_arrays[K, V](keys, values) -> Map[K, V]`
-   - `collections.map_get[K, V](map, key) -> Option[V]`
-   - `collections.set_from_array[T](values) -> Set[T]`
-   - `collections.set_contains[T](set, val) -> Bool`
-   - *Dot notation supported on Array / Map / Set* (e.g. `arr.length()`, `arr.append(val)`, `map.get(key)`).
-
-3. **`std.binary`**:
-   - `ByteBuffer` wrapper around arbitrary bytes.
-   - `from_string`, `to_string`, `length`, `slice`, `read_u8`, `read_u16_le`, `read_u32_le`, `write_u8`, `write_u16_le`, `write_u32_le`.
-
-4. **`std.file` & `std.path`**:
-   - File reading, writing, status, existence checks, directory traversal, canonicalization.
-
-5. **`std.json` & `std.csv`**:
-   - Structured parsing and serialization.
-
-6. **`std.math`**:
-   - `sqrt`, `abs`, `min`, `max`, `round`, `sin`, `cos`, `tan`.
-
-7. **`std.time`**:
-   - `now_iso()`, `timestamp_ms()`, `monotonic_seconds()`.
-
-8. **`std.task` & `std.sync`**:
-   - Asynchronous task coordination, `task.join`, `once_empty`, `once_set`, `once_get`, channels, mutexes.
-
-9. **`std.testing`**:
-   - `assert(Bool, String) -> Result[Bool, String]`
-   - `equal_int(expected: Int, actual: Int, message: String) -> Result[Bool, String]`
-   - `equal_string(expected: String, actual: String, message: String) -> Result[Bool, String]`
-
-10. **`rocket.motion` & `rocket.raylib`**:
-    - Smooth UI easing curves (`ease_in_cubic`, `ease_out_cubic`, `ease_in_out_cubic`).
-    - Safe 2D graphics primitive wrappers (`draw_rectangle`, `draw_circle`, `draw_line`, `draw_bezier`).
+Implementation agents execute approved work packets. Architecture, product direction, dependency selection, and visual redesign decisions require explicit project-owner approval.

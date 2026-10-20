@@ -1,109 +1,115 @@
-# Rocket Core Protocol Specification (Version 1)
+﻿# RocketOS Core Protocol
 
-## 1. Overview
+**Status:** Draft logical contract for RocketOS 0.x
+**Protocol generation:** v1
+**Updated:** 2026-10-20
 
-The Rocket Core Protocol defines the standard IPC communication between client environments (such as the RocketOS React UI or CLI tools) and the authoritative Rocket Core Host.
+## 1. Purpose
 
-- **Protocol Version**: `1`
-- **Default Port**: `5180`
-- **Transport**: HTTP/1.1 JSON-RPC / REST (WebSockets for real-time telemetry)
-- **API Prefix**: `/api/v1/core`
+This document defines the logical boundary between RocketOS user interfaces/tools and the RocketOS core/platform provider.
 
----
+It is a **contract target**, not a claim that a native Rocket daemon already implements every endpoint.
 
-## 2. Authentication & Headers
+The current development client uses HTTP-style calls to a local TypeScript core-host simulation. The installed Debian architecture may keep HTTP during development or move to a local IPC transport such as a Unix-domain socket later. Transport choice is intentionally deferred; the domain semantics should remain stable where practical.
 
-Requests originating from authenticated sessions pass the session token:
-- Header: `X-Rocket-Token: <token>` OR `Authorization: Bearer <token>`
-- Unauthenticated requests receive `401 Unauthorized` (`PERMISSION_DENIED`).
-- The handshake probe endpoint (`/api/v1/core/ping`) allows unauthenticated access for availability detection.
+## 2. Capability honesty
 
----
+Every provider should be able to report whether a capability is:
 
-## 3. Endpoints Reference
+- `REAL_LINUX`
+- `REAL_ROCKET_NATIVE`
+- `REAL_WEB`
+- `SIMULATED`
+- `PROTOTYPE`
+- `UNAVAILABLE`
 
-### 3.1 System Subsystem
+A preview provider must not report synthetic Wi-Fi, kernel, process, or hardware data as native capability.
 
-| Method | Endpoint | Description |
+## 3. Logical service groups
+
+The v1 contract groups operations into:
+
+- System / capabilities / diagnostics
+- Filesystem
+- Shell / command execution
+- Processes
+- Services
+- Users / permissions
+- Applications
+- Workspaces
+
+Existing TypeScript types in `src/core-api/` are the current executable specification and should be evolved carefully rather than replaced by documentation alone.
+
+## 4. Development HTTP mapping
+
+The existing development mapping uses the prefix:
+
+`/api/v1/core`
+
+Representative operations:
+
+| Method | Endpoint | Logical purpose |
 |---|---|---|
-| `GET` | `/api/v1/core/ping` | Liveness handshake returning compiler engine, runtime version, and bootId. |
-| `GET` | `/api/v1/core/diagnostics` | System diagnostics including memory model, active provider, and uptime. |
-| `GET` | `/api/v1/core/manifest` | Authoritative system manifest (OS version, kernel architecture, hardware). |
-| `GET` | `/api/v1/core/capabilities`| Platform capabilities and storage provider status. |
-| `GET` | `/api/v1/core/status` | Real-time status (CPU, memory, load average, uptime). |
+| `GET` | `/ping` | provider liveness/handshake |
+| `GET` | `/diagnostics` | provider/runtime diagnostics |
+| `GET` | `/manifest` | system identity/capability summary |
+| `GET` | `/capabilities` | honest capability flags |
+| `GET` | `/status` | current system status |
+| `GET` | `/fs/stat` | file metadata |
+| `GET` | `/fs/list` | directory listing |
+| `GET` | `/fs/read` | read file content |
+| `POST` | `/fs/write` | write file content |
+| `POST` | `/fs/mkdir` | create directory |
+| `POST` | `/fs/rename` | rename path |
+| `POST` | `/fs/copy` | copy path |
+| `POST` | `/fs/move` | move path |
+| `POST` | `/fs/remove` | remove path |
+| `POST` | `/fs/trash` | move to trash |
+| `POST` | `/shell/execute` | execute command line |
+| `GET` | `/shell/complete` | completion suggestions |
+| `POST` | `/shell/parse` | parse command line |
+| `GET` | `/processes` | list processes |
+| `POST` | `/processes/launch` | launch managed process/app |
+| `POST` | `/processes/:pid/terminate` | terminate process |
+| `GET` | `/services` | list services |
+| `POST` | `/services/:name/:action` | service action |
+| `GET` | `/users` | list users |
+| `GET` | `/users/current` | current user/session |
+| `POST` | `/users/permissions/check` | permission decision |
+| `GET` | `/apps` | application registry |
+| `GET` | `/workspaces` | workspace state |
 
-### 3.2 File System Subsystem
+The exact HTTP shape may change when the real Debian provider is implemented. Preserve domain semantics and conformance coverage over URL purity.
 
-| Method | Endpoint | Parameters / Body | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/core/fs/stat` | `?path=<path>` | Return metadata, UID/GID, size, mode, and timestamps. |
-| `GET` | `/api/v1/core/fs/list` | `?path=<path>` | List directory entries. |
-| `GET` | `/api/v1/core/fs/read` | `?path=<path>` | Read UTF-8 text file contents. |
-| `POST` | `/api/v1/core/fs/write` | `{ path, content }` | Write/overwrite text content. |
-| `POST` | `/api/v1/core/fs/create-file` | `{ path, content }` | Atomically create file. |
-| `POST` | `/api/v1/core/fs/mkdir` | `{ path }` | Create directory. |
-| `POST` | `/api/v1/core/fs/rename` | `{ oldPath, newPath }` | Rename file or directory. |
-| `POST` | `/api/v1/core/fs/copy` | `{ srcPath, dstPath }` | Copy node to destination. |
-| `POST` | `/api/v1/core/fs/move` | `{ srcPath, dstPath }` | Move node to destination. |
-| `POST` | `/api/v1/core/fs/remove` | `{ path, recursive }` | Delete node. |
-| `POST` | `/api/v1/core/fs/trash` | `{ path }` | Move node into trash store. |
+## 5. Authentication and trust
 
-### 3.3 Shell Subsystem
+The browser development host currently supports token/header concepts. The final installed-OS trust model is not yet frozen.
 
-| Method | Endpoint | Parameters / Body | Description |
-|---|---|---|---|
-| `POST` | `/api/v1/core/shell/execute` | `{ commandLine }` | Parse and execute pipeline returning exitCode, stdout, stderr. |
-| `GET` | `/api/v1/core/shell/complete` | `?line=<line>` | Tab completion proposals. |
-| `POST` | `/api/v1/core/shell/parse` | `{ commandLine }` | Return parsed AST chain nodes and syntax validation. |
+Do not invent a permanent authentication scheme before the Debian session/user model is selected.
 
-### 3.4 Process & Service Subsystems
+Any privileged operation must eventually map to real Linux user/session/privilege boundaries rather than a browser-only fake authorization layer.
 
-| Method | Endpoint | Parameters / Body | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/core/processes` | None | List running processes. |
-| `POST` | `/api/v1/core/processes/launch` | `{ appId, name, commandLine }` | Launch a managed process. |
-| `POST` | `/api/v1/core/processes/:pid/terminate` | None | Terminate process by PID. |
-| `GET` | `/api/v1/core/services` | None | List system services and their state. |
-| `GET` | `/api/v1/core/services/:name` | None | Get service details. |
-| `POST` | `/api/v1/core/services/:name/:action` | None | Action: `start`, `stop`, `restart`. |
+## 6. Errors
 
-### 3.5 Users & Security Subsystem
+Keep structured, machine-readable errors. Current categories include:
 
-| Method | Endpoint | Parameters / Body | Description |
-|---|---|---|---|
-| `GET` | `/api/v1/core/users` | None | List system users. |
-| `GET` | `/api/v1/core/users/current` | None | Get active session user. |
-| `GET` | `/api/v1/core/users/:uid` | None | Get user details by UID. |
-| `POST` | `/api/v1/core/users/permissions/check` | `{ path, mode }` | Evaluate POSIX permission bits for path. |
+- `INVALID_ARGUMENT`
+- `PERMISSION_DENIED`
+- `NOT_FOUND`
+- `ALREADY_EXISTS`
+- `UNSUPPORTED`
+- `CORE_UNAVAILABLE`
+- `SERVICE_FAILED`
 
-### 3.6 Apps & Workspaces
+Providers may attach implementation-specific diagnostic detail, but callers should be able to depend on stable high-level categories.
 
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/v1/core/apps` | List registered applications. |
-| `GET` | `/api/v1/core/apps/:id` | Get app definition and constraints. |
-| `GET` | `/api/v1/core/apps/associations` | Get file extension associations. |
-| `GET` | `/api/v1/core/workspaces` | Get workspace profiles. |
-| `GET` | `/api/v1/core/workspaces/:id` | Get workspace profile details. |
+## 7. Conformance rule
 
----
+When a domain moves from TypeScript to Rocket/native Linux:
 
-## 4. Standard Error Codes
+1. preserve or update the contract intentionally;
+2. run the same conformance fixtures against both implementations where practical;
+3. prove behavior parity before switching the active provider;
+4. only then remove the old implementation.
 
-All errors return JSON in the format:
-```json
-{
-  "code": "PERMISSION_DENIED",
-  "message": "Access denied: Root directory is protected",
-  "details": {}
-}
-```
-
-Standard codes:
-- `INVALID_ARGUMENT` (400)
-- `PERMISSION_DENIED` (401/403)
-- `NOT_FOUND` (404)
-- `ALREADY_EXISTS` (409)
-- `UNSUPPORTED` (501)
-- `CORE_UNAVAILABLE` (503)
-- `SERVICE_FAILED` (500)
+`src/core-api/conformance.test.ts` and its fixtures are valuable migration gates and must not be discarded casually.

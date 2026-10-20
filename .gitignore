@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+.rocketos-data/
+.rocketos-test-data/
+*.iso
+*.img
+*.qcow2
+*.vdi
+*.vmdk

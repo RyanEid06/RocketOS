@@ -1,113 +1,287 @@
-# ROCKETOS FOUNDATION MASTER PLAN
-**Authoritative Multi-Phase Engineering Roadmap**
-*Document Version: 1.0.0 — Phase 1: Foundation & Architecture*
+﻿# RocketOS Foundation Master Plan
+
+**Status:** Authoritative roadmap for the Debian-based RocketOS 0.x restart
+**Updated:** 2026-10-20
+
+## Mission
+
+Build a real, bootable Debian-based RocketOS while preserving the current RocketOS desktop/application design and progressively moving RocketOS-owned functionality into native Rocket.
+
+The project must become more real at every phase. Do not replace functioning behavior with architectural theater.
+
+## Non-negotiable rules
+
+1. **Rocket owns the experience. Linux owns the machinery.**
+2. Preserve the current desktop/app design as the visual target.
+3. No custom bare-metal kernel for RocketOS 0.x.
+4. No Yocto-scale build workflow.
+5. No big-bang React/TypeScript rewrite.
+6. No second full desktop written in C++.
+7. Use the real Rocket repository as language/compiler authority.
+8. Label simulated functionality honestly until it is backed by Linux.
+9. Keep the existing test/build gates green during migration.
+10. Prefer small reversible milestones over giant one-shot rewrites.
 
 ---
 
-## 1. Executive Summary & Mission
-RocketOS is a modern, high-performance operating system interface, workbench, and runtime designed to showcase the capabilities of the **Rocket programming language** ([RyanEid06/Rocket](https://github.com/RyanEid06/Rocket)).
+## Phase 0 Ã¢â‚¬â€ Repository reset and architecture freeze
 
-This document serves as the authoritative, multi-phase engineering roadmap across all 5 planned phases of development.
+**Purpose:** remove misleading obsolete architecture artifacts and establish one source of truth.
 
----
+Deliverables:
 
-## 2. Current Architecture Summary (Baseline Audit)
-- **Frontend Stack**: React 19, TypeScript 5.8, Vite 6, Tailwind CSS v4, Motion (Framer Motion v12).
-- **Audio Engine**: Procedural Web Audio API synthesizer (`SoundEngine`) with zero external assets.
-- **Virtual Shell**:
-  - `Desktop`: Desktop grid, right-click desktop context menu, custom icon placement.
-  - `WindowFrame`: Window dragging, resizing, 3-corner snap preview, active z-index management.
-  - `CarouselDock`: Circular 3D rotating dock with cursor magnification and angle tracking.
-  - `Taskbar`: Liquid glass bottom bar with Start menu, universal search, workspace switcher, and quick controls.
-- **Applications**:
-  - `FileExplorer`: Navigation, breadcrumbs, This PC, Recycle Bin, grid/list view.
-  - `TerminalApp`: `rsh v2.0` command line shell with pseudo-filesystem commands and `rocketc` simulation.
-  - `TextEditorApp`: `rEdit` with syntax display, snippet injection, and compiler feedback.
-  - `RocketStudio`: Interactive language workbench, grammar explorer, AST inspector, and standard library status.
-  - `SystemMonitorApp`: Multi-core CPU telemetry, PML4 4-level paging memory map, IDT table.
-  - `TaskManagerApp`: Process hierarchy combining open user windows and background kernel daemons.
-  - `RaylibCanvasApp`: 2D physics simulation, rocket orbital flight mechanics, particle vortices.
-  - `PaintApp`: Full 2D canvas drawing studio with brush, eraser, shapes, undo history, and export.
-  - `NotesApp`: Category-filtered markdown scratchpad and interactive to-do checklist.
-  - `SettingsApp`: Personalization (8 wallpapers, 5 accents), display, sound, network, and system specs.
+- canonical `README.md`;
+- canonical Debian-based architecture document;
+- canonical master plan;
+- protected design contract;
+- corrected agent guidance;
+- updated core migration/protocol documents;
+- old bare-metal/BusyBox boot prototype removed from the working tree but recoverable from Git history/tag;
+- generated VM/image artifacts ignored by Git.
+
+No application/core behavior is intentionally changed in this phase.
+
+**Exit gate:** documentation agrees on one architecture and the existing JS test/lint/build gates still pass.
 
 ---
 
-## 3. Discovered Technical Debt & Defect Audit
+## Phase 1 Ã¢â‚¬â€ Rocket native compatibility gate
 
-| Subsystem | Discovered Defect | Root Cause | Resolution (Phase 1) |
-| :--- | :--- | :--- | :--- |
-| **Sound** | Mismatched method calls (`playOpen` vs `playWindowOpen`); volume setting was not muting shell audio globally | Hard-coded call sites without master volume sync in `SoundEngine` | Connected `SoundEngine` to master volume, mute, and settings pub/sub. Fixed aliases. |
-| **Workspaces** | Virtual desktop switching UI existed in Taskbar but was not connected to `App.tsx` or window filtering | `currentWorkspace` was not propagated to window visibility logic | Implemented `workspaceId` on all windows, active workspace switching, window migration between workspaces, and persistence. |
-| **Pinning** | Pinned apps were only shown if their window was open; Start Menu Pinned section showed all apps | Taskbar items only mapped over `windows` array, ignoring pinned-only apps | Built persistent `PinningService` maintaining ordered list; separate running indicators; Start Menu displays only pinned apps. |
-| **Search** | Search only looked at top-level array in `fileSystem`, missing all nested documents and folders | Used `.filter()` on top-level `fileSystem` without recursive tree walk | Built recursive `SearchService` traversing all directory trees, files, applications, and settings. |
-| **File Explorer** | Invalid paths silently jumped to root `/`; `/drivers` in sidebar was a dead link | Missing error fallback; `/drivers` folder did not exist in initial VFS | Added `/drivers` with kernel device definitions; graceful error feedback for non-existent paths. |
-| **File Explorer** | Ctrl+A selected only the first item in the folder | `setSelectedId(itemsToDisplay[0].id)` in keydown listener | Implemented multi-item selection set so Ctrl+A selects all files and directories. |
-| **File Explorer** | Folder copy lost all nested children, creating empty directories | Paste handler only called `handleCreateItem` without cloning children tree | Implemented recursive deep cloning in VFS, regenerating unique IDs and updated relative paths. |
-| **File Explorer** | Missing Cut / Move operation; missing Rename operation | Handlers were not implemented in context menu or keyboard shortcuts | Added real Cut/Paste Move logic and in-place Rename dialog/action. |
-| **Persistence** | Reloading browser erased all files, notes, settings, and changes | App only used React memory state with static defaults | Built `BrowserPersistenceProvider` backed by IndexedDB with schema migration (`RocketDataSchemaVersion = 1`). |
-| **Core Architecture** | `App.tsx` contained 640+ lines doing VFS, window management, audio, settings | Lack of domain boundaries | Extracted to `SystemManifest`, `AppRegistry`, `WindowManager`, `SettingsService`, `ClipboardService`, `NotificationService`, and `FileSystemService`. |
+**Purpose:** prove exactly what the current Rocket toolchain can supply before RocketOS depends on it.
 
----
+Required checks on Linux x64:
 
-## 4. Language Strategy & Rocket Integration
+- build/use the current Rocket compiler;
+- compile and execute a trivial native Rocket program;
+- validate files, processes, networking, concurrency, and SQLite capabilities needed by RocketOS;
+- build and run a simple Rocket graphical program;
+- record runtime dependencies and produced binary sizes;
+- compile representative existing `rocket/**/*.rocket` modules and classify failures rather than blindly patching syntax;
+- document desktop/FFI gaps that block direct shell migration.
 
-### 4.1 Target Distribution
-- **Rocket Domain Logic Target**: ≥ 70% of new non-UI, non-DOM domain logic implemented in canonical Rocket language files (`rocket/**/*.rocket`).
-- **TypeScript Presentation Layer**: React components, DOM event listeners, Web Audio synthesis, IndexedDB storage driver, and CSS classes.
-
-### 4.2 Rocket Toolchain Reality & Integration Strategy
-- **Current Compiler Status**: `rocketc` is a self-hosted native compiler written in Rocket/C++/LLVM targeting Windows MSVC, Linux GNU, and macOS. The native compiler binary is not pre-installed in the Linux browser sandbox.
-- **Integration Mechanism**:
-  1. **Canonical Source Definition**: All operating system concepts (VFS, Path resolution, Search algorithms, Application Registry, Manifest, Settings schema, Clipboard state machine, Windowing invariants) are authored in idiomatic Rocket (`rocket/`).
-  2. **Rocket Runtime Adapter**: A lightweight TypeScript bridge (`src/core/rocket-bridge/`) mirrors the Rocket domain models and types directly into the browser runtime, ensuring that the Rocket architecture is the authoritative domain model.
-  3. **Documentation of Toolchain Blockers**: Direct browser Wasm compilation from `rocketc` requires the LLVM Wasm32 backend pipeline. Until native `wasm32-unknown-unknown` artifacts are integrated, the TypeScript runtime adapter provides deterministic execution while preserving 100% Rocket semantics.
+**Exit gate:** Rocket is proven usable for selected native RocketOS domains, with unsupported areas explicitly listed.
 
 ---
 
-## 5. Phase-by-Phase Roadmap
+## Phase 2 Ã¢â‚¬â€ Select the compact Debian foundation
 
-### Phase 1: Foundation & Architecture (CURRENT)
-- [x] Fix audio volume/mute/call-site synchronization.
-- [x] Implement multi-workspace virtual desktops with window filtering.
-- [x] Implement persistent pinning independent of open windows.
-- [x] Implement recursive universal search across VFS, apps, and settings.
-- [x] Fix File Explorer: recursive folder copy, cut/move, rename, multi-select (Ctrl+A), `/drivers` mount.
-- [x] Build IndexedDB persistence with schema versioning and migrations (`RocketDataSchemaVersion`).
-- [x] Centralize `SystemManifest`, `AppRegistry`, `WindowManager`, `SettingsService`, `ClipboardService`, `NotificationService`.
-- [x] Introduce `PlatformProvider` with honest capability flags (`REAL`, `SIMULATED`, `UNAVAILABLE`).
-- [x] Refactor `Taskbar.tsx` into clean modular components in `src/shell/taskbar/`.
-- [x] Provide automated test suite verifying all core behaviors.
-- [x] Implement canonical Rocket domain modules in `rocket/`.
+**Purpose:** make the remaining infrastructure choices before downloading/building the Linux environment.
 
-### Phase 2: Shell & Desktop Experience
-- Window snapping zones (quadrant, half, full).
-- Desktop widget system (clock, system stats, quick notes).
-- Notification toast stacking and interactive actions.
-- Customizable keyboard shortcuts manager.
+Decide and document:
 
-### Phase 3: Filesystem & Data Storage Subsystems
-- Virtual inode model with permissions and user ownership.
-- File associations and default opener registry.
-- Virtual disk mounting (ISO, ZIP virtual reader).
-- Binary blob storage in IndexedDB for paint images and media.
+- exact Debian release/snapshot;
+- image/rootfs builder;
+- bootloader;
+- QEMU disk/image format;
+- first graphical-session host strategy;
+- host for the temporary React desktop;
+- package/cache policy to stay within the storage budget.
 
-### Phase 4: Process Management, Telemetry & Multi-tasking
-- Process scheduler simulation with threads, priority levels, and CPU quotas.
-- Inter-Process Communication (IPC) via message channels.
-- Real-time memory allocation tracker with simulated heap pages.
-- Advanced terminal piping, redirection, and scripting.
+**Storage target:** approximately 25Ã¢â‚¬â€œ45 GB for the complete development environment.
 
-### Phase 5: Developer Studio & Native Rocket Execution
-- In-browser Rocket syntax analyzer with real-time error squiggles.
-- Step-by-step AST debugger and bytecode disassembler.
-- Raylib 2D engine interactive canvas integration with scriptable Rocket behaviors.
-- Packaging and export of user-created Rocket apps.
+Do not install the full toolchain before these decisions are accepted.
 
 ---
 
-## 6. Architectural Invariants
-1. **Visual Preservation**: The circular dock, start menu, dark/glass aesthetic, window frames, and fluid dragging must remain distinct and preserved.
-2. **Single Source of Truth**: All applications query `SystemManifest` for hardware, versions, and kernel status. No hardcoded contradictory strings.
-3. **Honest Platform Boundaries**: The platform provider reports `SIMULATED` for kernel rings/CPU registers and `REAL` for browser-backed storage.
-4. **Data Durability**: Every user action (file edit, note update, setting change, drawing, pinned app) survives browser reload seamlessly.
+## Phase 3 Ã¢â‚¬â€ Minimal Debian boot
+
+**Purpose:** replace the deleted BusyBox experiment with a reproducible real Debian base.
+
+Deliverables:
+
+- deterministic minimal root filesystem;
+- Linux kernel and Debian-provided drivers/firmware appropriate to the VM target;
+- systemd boot to a known target;
+- networking baseline;
+- reproducible image build;
+- QEMU boot test;
+- documented disk usage.
+
+This phase does **not** need the final RocketOS UI yet.
+
+**Exit gate:** clean build -> boot -> shutdown/reboot succeeds in QEMU.
+
+---
+
+## Phase 4 Ã¢â‚¬â€ Run the protected RocketOS desktop on Debian
+
+**Purpose:** make the current design run as a real Linux session before rewriting it.
+
+Deliverables:
+
+- current React/TypeScript shell launches inside the Debian image;
+- current desktop/app design remains visually recognizable and functionally intact;
+- browser-only assumptions are isolated behind platform providers;
+- web preview remains available for rapid design work.
+
+**Exit gate:** RocketOS boots to the existing desktop design in QEMU.
+
+---
+
+## Phase 5 Ã¢â‚¬â€ Replace fake platform data with real Linux adapters
+
+**Purpose:** turn the desktop from a simulation into a real system interface.
+
+Migrate adapters incrementally:
+
+- filesystem -> real Linux filesystem where appropriate;
+- process list/launch -> real Linux processes;
+- services -> systemd;
+- Wi-Fi/network -> NetworkManager/Linux networking;
+- Bluetooth -> BlueZ;
+- audio -> PipeWire/ALSA;
+- system telemetry -> `/proc`, `/sys`, and supported system APIs;
+- privilege operations -> appropriate Linux policy/privilege mechanisms;
+- package operations -> Debian package backend.
+
+Keep fake/demo data only when clearly marked and useful for preview mode.
+
+**Exit gate:** major system apps report real VM state rather than invented hardware state.
+
+---
+
+## Phase 6 Ã¢â‚¬â€ Stabilize the RocketOS core boundary
+
+**Purpose:** stop UI code from bypassing the provider/core contract.
+
+Deliverables:
+
+- `ICoreProvider` becomes the real boundary for OS operations;
+- direct UI calls into browser-only singleton services are reduced/migrated;
+- browser fallback remains a preview implementation;
+- native/Linux provider becomes authoritative inside installed RocketOS;
+- same behavioral tests can be run against old/new providers where practical.
+
+**Exit gate:** UI behavior is not tied to one storage/process/service implementation.
+
+---
+
+## Phase 7 Ã¢â‚¬â€ Migrate core domains to Rocket incrementally
+
+**Purpose:** increase real Rocket ownership without destabilizing the OS.
+
+Candidate domains:
+
+- settings/domain policy;
+- search/index logic;
+- app registry/contracts;
+- command parsing and Rocket-specific shell logic;
+- notifications logic;
+- package metadata/policy;
+- selected filesystem/path policy;
+- selected process/service policy.
+
+Migration rule:
+
+1. compile the Rocket implementation with the actual current Rocket compiler;
+2. run shared conformance tests;
+3. compare behavior with the existing implementation;
+4. switch one domain at a time;
+5. delete the TypeScript implementation only after parity is proven.
+
+---
+
+## Phase 8 Ã¢â‚¬â€ Rocket desktop enablement
+
+**Purpose:** add reusable Rocket capabilities required by the protected desktop design.
+
+Likely gaps include:
+
+- mouse-wheel and scroll state;
+- scrollable containers;
+- richer text input/editing;
+- clipboard/selection/IME integration;
+- tabs, toggles, sliders, context menus;
+- drag/drop;
+- multi-monitor/display APIs;
+- desktop-grade focus/input behavior;
+- glass/blur/effects strategy;
+- long-lived native event integration where current FFI limitations require a bridge.
+
+Do not create RocketOS-only hacks when a reusable Rocket library/runtime feature is the correct solution.
+
+**Exit gate:** a representative complex RocketOS app can be reproduced natively without simplifying the design.
+
+---
+
+## Phase 9 Ã¢â‚¬â€ Native Rocket app migration
+
+Start with applications whose requirements fit Rocket's proven capabilities, not merely apps that look visually simple.
+
+Possible order after capability review:
+
+1. Calculator / Clock-class apps;
+2. simple system/status tools;
+3. Settings sections;
+4. Notes/editor only after text-input/clipboard/scrolling parity;
+5. Files/Terminal/media/developer tools after their required APIs exist.
+
+Each native app must match the design contract before the React version is retired.
+
+---
+
+## Phase 10 Ã¢â‚¬â€ Native Rocket shell migration
+
+Only after the native app/UI stack is proven:
+
+- desktop background/widgets;
+- taskbar;
+- notifications;
+- quick settings;
+- launcher/search;
+- carousel dock;
+- workspace/Mission Control experience;
+- window chrome and snapping;
+- remaining shell surfaces.
+
+The carousel behavior and existing desktop identity are requirements, not optional polish.
+
+---
+
+## Phase 11 Ã¢â‚¬â€ Remove temporary web/runtime layers
+
+Remove components only when equivalent native functionality is proven:
+
+- browser fallback from installed builds;
+- TypeScript domain implementations that have native parity;
+- temporary Node/web runtime dependencies;
+- React shell pieces after native Rocket replacements pass design/behavior acceptance.
+
+Web preview tooling may remain as a development mode if useful.
+
+---
+
+## Phase 12 Ã¢â‚¬â€ VM acceptance
+
+Primary engineering target: **QEMU x86-64**.
+Secondary compatibility target: **VirtualBox x86-64**.
+
+Acceptance includes:
+
+- boot and session startup;
+- display resizing;
+- networking;
+- audio;
+- storage persistence;
+- app launch/close/recovery;
+- shutdown/reboot;
+- update/install path;
+- crash handling;
+- resource use.
+
+---
+
+## Phase 13 Ã¢â‚¬â€ Physical hardware
+
+After VM acceptance:
+
+- create installer/recovery media;
+- boot on an old x86-64 laptop;
+- test GPU/display, Wi-Fi, audio, storage, Bluetooth, input, suspend/resume;
+- solve hardware compatibility through Debian/Linux packages and drivers wherever possible.
+
+---
+
+## Definition of success for RocketOS 0.x
+
+RocketOS 0.x succeeds when it is a reproducible Debian-based OS that boots on supported VM/hardware targets, presents the protected RocketOS desktop/app experience, uses real Linux system services rather than simulated hardware, and contains an increasing amount of native Rocket code without making the system fragile for language purity.
