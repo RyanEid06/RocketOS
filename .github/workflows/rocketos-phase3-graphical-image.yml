@@ -81,10 +81,11 @@ jobs:
                 grub-pc-bin \
                 grub-efi-amd64-bin \
                 grub-efi-ia32-bin \
+                librsvg2-bin \
                 curl \
                 ca-certificates
               echo '=== Pre-Build Host Tool Verification ==='
-              for cmd in lb debootstrap grep-dctrl cpio xorriso mksquashfs isohybrid; do
+              for cmd in lb debootstrap grep-dctrl cpio xorriso mksquashfs isohybrid rsvg-convert; do
                 if ! command -v \$cmd >/dev/null 2>&1; then
                   echo \"ERROR: Required host build tool '\$cmd' is missing!\" >&2
                   exit 1
@@ -127,6 +128,17 @@ jobs:
                 exit 1
               fi
               echo \"  ✓ /usr/lib/grub/i386-efi found\"
+              echo '=== Pre-Build Bootloader Splash Tooling Verification ==='
+              if ! dpkg -s librsvg2-bin >/dev/null 2>&1; then
+                echo \"ERROR: Required bootloader splash package 'librsvg2-bin' is not installed!\" >&2
+                exit 1
+              fi
+              echo \"  ✓ librsvg2-bin installed: \$(dpkg -s librsvg2-bin | grep '^Version:' | head -n1)\"
+              if ! command -v rsvg-convert >/dev/null 2>&1; then
+                echo \"ERROR: Required tool 'rsvg-convert' is missing!\" >&2
+                exit 1
+              fi
+              echo \"  ✓ rsvg-convert found: \$(command -v rsvg-convert)\"
               echo '=== Live-Build Diagnostic Version ==='
               lb --version
               echo '=== Live-Build Config Help ==='
