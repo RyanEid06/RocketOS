@@ -70,6 +70,7 @@ jobs:
                 xz-utils \
                 xorriso \
                 isolinux \
+                syslinux-common \
                 syslinux-utils \
                 mtools \
                 dosfstools \
@@ -79,13 +80,31 @@ jobs:
                 curl \
                 ca-certificates
               echo '=== Pre-Build Host Tool Verification ==='
-              for cmd in lb debootstrap grep-dctrl cpio xorriso mksquashfs; do
+              for cmd in lb debootstrap grep-dctrl cpio xorriso mksquashfs isohybrid; do
                 if ! command -v \$cmd >/dev/null 2>&1; then
                   echo \"ERROR: Required host build tool '\$cmd' is missing!\" >&2
                   exit 1
                 fi
                 echo \"  ✓ \$cmd found: \$(command -v \$cmd)\"
               done
+              echo '=== Pre-Build Syslinux Tooling Verification ==='
+              for pkg in syslinux-common isolinux syslinux-utils; do
+                if ! dpkg -s \$pkg >/dev/null 2>&1; then
+                  echo \"ERROR: Required Syslinux package '\$pkg' is not installed!\" >&2
+                  exit 1
+                fi
+                echo \"  ✓ \$pkg installed: \$(dpkg -s \$pkg | grep '^Version:' | head -n1)\"
+              done
+              if [ ! -f /usr/lib/ISOLINUX/isolinux.bin ] && [ ! -f /usr/lib/syslinux/isolinux.bin ]; then
+                echo \"ERROR: isolinux.bin is missing from host filesystem!\" >&2
+                exit 1
+              fi
+              echo \"  ✓ isolinux.bin found\"
+              if [ ! -f /usr/lib/syslinux/modules/bios/ldlinux.c32 ] && [ ! -f /usr/lib/syslinux/bios/ldlinux.c32 ]; then
+                echo \"ERROR: ldlinux.c32 is missing from host filesystem!\" >&2
+                exit 1
+              fi
+              echo \"  ✓ ldlinux.c32 found\"
               echo '=== Live-Build Diagnostic Version ==='
               lb --version
               echo '=== Live-Build Config Help ==='
