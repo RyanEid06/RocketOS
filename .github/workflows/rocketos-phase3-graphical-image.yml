@@ -1,0 +1,110 @@
+name: RocketOS Phase 3 Graphical Session Foundation & Live ISO
+
+on:
+  push:
+    branches: [main, 'phase3/**']
+  pull_request:
+    branches: [main, 'phase3/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  graphical-foundation-gate:
+    name: Build Phase 3 Graphical ISO & QEMU Smoke Test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out RocketOS
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Node.js dependencies without lockfile
+        run: npm install --package-lock=false
+
+      - name: Run RocketOS test suite (Regression Gate)
+        run: npm test
+
+      - name: Run RocketOS TypeScript lint (Regression Gate)
+        run: npm run lint
+
+      - name: Run RocketOS production build (Regression Gate)
+        run: npm run build
+
+      - name: Install Debian live-build and QEMU prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            live-build \
+            debootstrap \
+            xorriso \
+            isolinux \
+            syslinux-utils \
+            mtools \
+            dosfstools \
+            squashfs-tools \
+            grub-pc-bin \
+            grub-efi-amd64-bin \
+            qemu-system-x86 \
+            qemu-utils \
+            netpbm \
+            ovmf \
+            curl \
+            ca-certificates
+
+      - name: Build RocketOS Phase 3 Live Graphical ISO
+        run: |
+          sudo bash scripts/phase3/build-image.sh --output-dir artifacts
+
+      - name: Run QEMU BIOS Graphical Smoke Test
+        run: |
+          bash scripts/phase3/smoke-test-qemu.sh \
+            --mode bios \
+            --iso artifacts/rocketos-0.1-phase3-amd64.iso \
+            --timeout 240
+
+      - name: Run QEMU UEFI Graphical Smoke Test
+        run: |
+          bash scripts/phase3/smoke-test-qemu.sh \
+            --mode uefi \
+            --iso artifacts/rocketos-0.1-phase3-amd64.iso \
+            --timeout 240
+
+      - name: Generate Phase 3 Verification Report
+        if: always()
+        run: |
+          {
+            echo "=================================================="
+            echo "RocketOS Phase 3 CI Verification Report"
+            echo "=================================================="
+            echo "Commit: $(git rev-parse HEAD 2>/dev/null || echo 'unknown')"
+            echo "Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "ISO: $(ls -lh artifacts/*.iso 2>/dev/null || echo 'not found')"
+            echo "SHA256: $(cat artifacts/*.sha256 2>/dev/null || echo 'not found')"
+            echo "Manifest: $(ls -lh artifacts/*.manifest 2>/dev/null || echo 'not found')"
+            echo "Screenshots: $(ls -lh artifacts/*.ppm artifacts/*.png 2>/dev/null || echo 'none')"
+            echo "Logs: $(ls -lh artifacts/*.log 2>/dev/null || echo 'none')"
+            echo "=================================================="
+          } > artifacts/phase3-verification-summary.txt
+
+      - name: Upload RocketOS Graphical ISO and Verification Artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rocketos-0.1-phase3-amd64
+          path: |
+            artifacts/rocketos-0.1-phase3-amd64.iso
+            artifacts/rocketos-0.1-phase3-amd64.iso.sha256
+            artifacts/rocketos-0.1-phase3-amd64.manifest
+            artifacts/*.log
+            artifacts/*.ppm
+            artifacts/*.png
+            artifacts/*.txt
+          retention-days: 7

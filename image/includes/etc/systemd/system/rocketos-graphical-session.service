@@ -1,0 +1,30 @@
+[Unit]
+Description=RocketOS Phase 3 Graphical Session (Cage + rocket-shell-host)
+Documentation=https://github.com/RyanEid06/RocketOS
+After=systemd-user-sessions.service systemd-logind.service dbus.service
+Wants=systemd-logind.service dbus.service
+Conflicts=getty@tty1.service
+DefaultDependencies=no
+
+[Service]
+Type=simple
+User=rocket
+Group=rocket
+PAMName=login
+Environment=HOME=/home/rocket
+Environment=USER=rocket
+WorkingDirectory=/home/rocket
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTFilter=yes
+StandardInput=tty
+StandardOutput=journal+console
+StandardError=journal+console
+ExecStart=/usr/local/bin/rocketos-session
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+
+[Install]
+WantedBy=graphical.target

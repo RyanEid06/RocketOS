@@ -1,32 +1,76 @@
 #!/bin/bash
 # ==============================================================================
-# RocketOS Phase 2 Chroot Configuration Hook
-# Executed by live-build inside the target chroot rootfs
+# RocketOS Phase 3 Chroot Configuration Hook
+# Configures system identity, unprivileged user 'rocket', graphical session,
+# and boot verification probe inside the target rootfs.
 # ==============================================================================
 set -eu
 
-echo "[RocketOS-Hook] Configuring RocketOS system identity and boot probe..."
+echo "[RocketOS-Hook] Configuring RocketOS Phase 3 graphical foundation..."
 
-# Ensure boot probe permissions
-if [ -f /usr/local/bin/rocketos-boot-probe ]; then
-    chmod 755 /usr/local/bin/rocketos-boot-probe
+# 1. Create dedicated unprivileged user 'rocket' (Locked Decision #2)
+if ! id rocket >/dev/null 2>&1; then
+    echo "[RocketOS-Hook] Creating unprivileged user 'rocket' (UID 1000)..."
+    # Ensure video, render, input, audio groups exist
+    for grp in video render input audio seat; do
+        getent group "$grp" >/dev/null || groupadd -r "$grp" || true
+    done
+
+    useradd -m -s /bin/bash -u 1000 -U -G video,render,input,audio rocket
+    echo "rocket:rocket" | chpasswd
+    echo "[RocketOS-Hook] User 'rocket' created successfully."
 fi
 
-# Enable systemd boot verification probe service
+# Ensure /home/rocket permissions
+mkdir -p /home/rocket/.config
+chown -R rocket:rocket /home/rocket
+chmod 750 /home/rocket
+
+# 2. Permissions on binaries and scripts
+for bin in /usr/local/bin/rocketos-boot-probe /usr/local/bin/rocket-shell-host /usr/local/bin/rocketos-session; do
+    if [ -f "$bin" ]; then
+        chmod 755 "$bin"
+    fi
+done
+
+# Permissions on diagnostic UI
+if [ -d /usr/share/rocketos/diagnostic ]; then
+    chmod -R 755 /usr/share/rocketos/diagnostic
+fi
+
+# 3. Configure systemd graphical target and graphical session service
+if [ -f /etc/systemd/system/rocketos-graphical-session.service ]; then
+    chmod 644 /etc/systemd/system/rocketos-graphical-session.service
+    mkdir -p /etc/systemd/system/graphical.target.wants
+    ln -sf /etc/systemd/system/rocketos-graphical-session.service /etc/systemd/system/graphical.target.wants/rocketos-graphical-session.service
+    systemctl enable rocketos-graphical-session.service 2>/dev/null || true
+fi
+
+# Set default target to graphical.target
+systemctl set-default graphical.target 2>/dev/null || true
+
+# 4. Enable boot verification probe service
 if [ -f /etc/systemd/system/rocketos-boot-probe.service ]; then
     chmod 644 /etc/systemd/system/rocketos-boot-probe.service
+    mkdir -p /etc/systemd/system/graphical.target.wants
     mkdir -p /etc/systemd/system/multi-user.target.wants
+    ln -sf /etc/systemd/system/rocketos-boot-probe.service /etc/systemd/system/graphical.target.wants/rocketos-boot-probe.service
     ln -sf /etc/systemd/system/rocketos-boot-probe.service /etc/systemd/system/multi-user.target.wants/rocketos-boot-probe.service
     systemctl enable rocketos-boot-probe.service 2>/dev/null || true
 fi
 
-# Ensure permissions on os-release and hostname
+# 5. Ensure emergency debugging TTY (Locked Decision #4)
+# Enable getty on tty2 and tty3 for keyboard-accessible debugging
+mkdir -p /etc/systemd/system/getty.target.wants
+ln -sf /lib/systemd/system/getty@.service /etc/systemd/system/getty.target.wants/getty@tty2.service 2>/dev/null || true
+ln -sf /lib/systemd/system/getty@.service /etc/systemd/system/getty.target.wants/getty@tty3.service 2>/dev/null || true
+
+# 6. Ensure permissions on os-release and hostname
 chmod 644 /etc/os-release /etc/issue /etc/issue.net /etc/hostname /etc/hosts 2>/dev/null || true
 
-# Symlink /etc/os-release to /usr/lib/os-release if appropriate
 if [ ! -e /usr/lib/os-release ]; then
     mkdir -p /usr/lib
     ln -sf /etc/os-release /usr/lib/os-release
 fi
 
-echo "[RocketOS-Hook] RocketOS Phase 2 configuration applied successfully."
+echo "[RocketOS-Hook] RocketOS Phase 3 configuration applied successfully."

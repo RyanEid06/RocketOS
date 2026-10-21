@@ -1,0 +1,44 @@
+#!/bin/bash
+# ==============================================================================
+# RocketOS Phase 3 — Graphical Session Launcher
+# Configures Wayland runtime environment and executes Cage kiosk compositor
+# running the native desktop host (rocket-shell-host).
+# ==============================================================================
+set -eu
+
+echo "[RocketOS-Session] Initializing RocketOS Graphical Session..."
+
+# Verify execution as unprivileged user (rocket)
+CURRENT_USER="$(id -un)"
+CURRENT_UID="$(id -u)"
+echo "[RocketOS-Session] Running as user: ${CURRENT_USER} (UID: ${CURRENT_UID})"
+
+# 1. Establish XDG_RUNTIME_DIR for Wayland socket
+if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/run/user/${CURRENT_UID}"
+fi
+
+if [ ! -d "${XDG_RUNTIME_DIR}" ]; then
+    mkdir -p "${XDG_RUNTIME_DIR}"
+    chmod 0700 "${XDG_RUNTIME_DIR}"
+fi
+
+# 2. Wayland & Graphics Environment Variables
+export XDG_SESSION_TYPE="wayland"
+export XDG_CURRENT_DESKTOP="RocketOS"
+export GDK_BACKEND="wayland"
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+
+# Enable software fallback rendering for headless / virtualized QEMU environments
+export WLR_RENDERER="${WLR_RENDERER:-pixman}"
+export WLR_NO_HARDWARE_CURSORS=1
+export LIBGL_ALWAYS_SOFTWARE=1
+
+# Ensure shell host binary is executable
+if [ ! -x /usr/local/bin/rocket-shell-host ]; then
+    echo "ERROR: /usr/local/bin/rocket-shell-host is missing or not executable." >&2
+    exit 1
+fi
+
+echo "[RocketOS-Session] Executing Cage kiosk compositor with rocket-shell-host..."
+exec /usr/bin/cage -s -- /usr/local/bin/rocket-shell-host "$@"

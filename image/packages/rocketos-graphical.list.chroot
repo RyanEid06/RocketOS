@@ -1,0 +1,29 @@
+# ==============================================================================
+# RocketOS Phase 3 Graphical Session Package Manifest
+# Base Distribution: Debian 13 "Trixie" (amd64)
+# ==============================================================================
+
+# Wayland Compositor (Kiosk Mode)
+cage
+
+# Native Shell Host Engine (GTK4 + WebKitGTK 6.0)
+libgtk-4-1
+gir1.2-gtk-4.0
+libwebkitgtk-6.0-4
+gir1.2-webkit-6.0
+python3-gi
+python3
+
+# Graphics Acceleration & Software Rendering
+libgl1-mesa-dri
+mesa-vulkan-drivers
+
+# Desktop Typography & Theme Resources
+fonts-dejavu-core
+gsettings-desktop-schemas
+adwaita-icon-theme
+
+# User Session & Seat Management
+dbus-user-session
+seatd
+libseat1

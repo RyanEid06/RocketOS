@@ -23,6 +23,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["src", "scripts", "rocket"],
+  "include": ["src", "scripts", "rocket", "native-host"],
   "exclude": ["node_modules", "dist", "build"]
 }

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RocketOS 0.1 Alpha — Phase 3 Diagnostic UI</title>
+  <link rel="stylesheet" href="diagnostic.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header-title">
+      <span>RocketOS System Diagnostic</span>
+      <span class="phase-tag">Phase 3 Gate</span>
+    </div>
+    <div class="status-badge">
+      <span class="status-dot"></span>
+      <span id="val-bridge-status">CONNECTING...</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <!-- Session & Compositor Card -->
+      <section class="card">
+        <h2 class="card-title">Graphical Session Foundation</h2>
+        <table class="prop-table">
+          <tr>
+            <td class="prop-key">Session Type</td>
+            <td class="prop-val highlight" id="val-session-type">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Compositor</td>
+            <td class="prop-val highlight" id="val-compositor">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Host Runtime</td>
+            <td class="prop-val" id="val-host-runtime">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Session User</td>
+            <td class="prop-val highlight" id="val-session-user">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Init Target</td>
+            <td class="prop-val" id="val-init-system">graphical.target</td>
+          </tr>
+        </table>
+      </section>
+
+      <!-- Native Bridge Card -->
+      <section class="card">
+        <h2 class="card-title">Typed Native Bridge Protocol</h2>
+        <table class="prop-table">
+          <tr>
+            <td class="prop-key">Protocol Version</td>
+            <td class="prop-val" id="val-protocol-ver">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">WebKitGTK Version</td>
+            <td class="prop-val" id="val-webkit-ver">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">GTK Runtime</td>
+            <td class="prop-val" id="val-gtk-ver">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Bridge Latency</td>
+            <td class="prop-val highlight" id="bridge-latency">-- ms</td>
+          </tr>
+        </table>
+      </section>
+
+      <!-- System Telemetry Card -->
+      <section class="card">
+        <h2 class="card-title">Host &amp; Build Foundation</h2>
+        <table class="prop-table">
+          <tr>
+            <td class="prop-key">OS Identity</td>
+            <td class="prop-val" id="val-pretty-name">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Hostname</td>
+            <td class="prop-val" id="val-hostname">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Architecture</td>
+            <td class="prop-val" id="val-arch">Loading...</td>
+          </tr>
+          <tr>
+            <td class="prop-key">Kernel Release</td>
+            <td class="prop-val" id="val-kernel" style="font-size: 11px;">Loading...</td>
+          </tr>
+        </table>
+      </section>
+    </div>
+
+    <!-- Interactive Actions -->
+    <div class="actions">
+      <button class="primary" id="btn-ping">Test Bridge Ping</button>
+      <button id="btn-version">Query Bridge Version</button>
+      <button id="btn-system">Query Host/Build Info</button>
+    </div>
+
+    <!-- Live Bridge Event Stream -->
+    <section>
+      <div class="card-title" style="margin-bottom: 8px;">Live Bridge IPC Event Stream</div>
+      <div class="log-container" id="log-box"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    RocketOS Phase 3: Graphical Session Foundation &amp; Desktop Host Gate &bull; Architecture Frozen
+  </footer>
+
+  <script src="bridge.js"></script>
+  <script src="diagnostic.js"></script>
+</body>
+</html>

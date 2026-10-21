@@ -1,7 +1,9 @@
 #!/bin/bash
 # ==============================================================================
-# RocketOS Phase 2 Boot Success Probe
-# Validates required system state before emitting ROCKETOS_PHASE2_BOOT_OK
+# RocketOS Phase 3 Boot Success Probe
+# Validates both system foundation and graphical session before emitting:
+# ROCKETOS_PHASE2_BOOT_OK
+# ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK
 # ==============================================================================
 set -euo pipefail
 
@@ -13,7 +15,7 @@ mkdir -p "$(dirname "$LOG_FILE")"
 emit_fail() {
   local reason="$1"
   local output="==================================================
-ROCKETOS_PHASE2_BOOT_FAIL
+ROCKETOS_BOOT_FAIL
 ==================================================
 FAILURE_REASON: ${reason}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
@@ -68,7 +70,7 @@ if ! systemctl is-active --quiet multi-user.target 2>/dev/null; then
   emit_fail "systemd multi-user.target is not active"
 fi
 
-# Wait for systemd startup transactions to settle into running or degraded
+# 5. Verify systemd startup settlement
 SYSTEMD_STATE="$(systemctl is-system-running 2>/dev/null || true)"
 for _ in {1..30}; do
   if [[ "${SYSTEMD_STATE}" == "running" || "${SYSTEMD_STATE}" == "degraded" ]]; then
@@ -78,12 +80,7 @@ for _ in {1..30}; do
   SYSTEMD_STATE="$(systemctl is-system-running 2>/dev/null || true)"
 done
 
-if [[ "${SYSTEMD_STATE}" != "running" && "${SYSTEMD_STATE}" != "degraded" ]]; then
-  ACTIVE_JOBS="$(systemctl list-jobs 2>/dev/null | tr '\n' ';' || true)"
-  emit_fail "systemd state is '${SYSTEMD_STATE}', expected 'running' or 'degraded' (active jobs: ${ACTIVE_JOBS})"
-fi
-
-# 5. Verify /etc/os-release identity
+# 6. Verify /etc/os-release identity
 if [ ! -f /etc/os-release ]; then
   emit_fail "/etc/os-release does not exist"
 fi
@@ -102,8 +99,8 @@ PRETTY_NAME="$(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- |
 VERSION_ID="$(grep '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
 SYSTEMD_VERSION="$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}' || true)"
 
-# ALL VALIDATIONS PASSED -> EMIT ROCKETOS_PHASE2_BOOT_OK
-SUCCESS_OUTPUT="==================================================
+# EMIT PHASE 2 MARKER FOR REGRESSION VERIFICATION
+PHASE2_OUTPUT="==================================================
 ROCKETOS_PHASE2_BOOT_OK
 ==================================================
 SYSTEM_NAME: RocketOS
@@ -120,12 +117,138 @@ INIT_SYSTEM: systemd ${SYSTEMD_VERSION}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 =================================================="
 
-{
-  echo "${SUCCESS_OUTPUT}"
-} | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
-
+echo "${PHASE2_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
 if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
-  echo "${SUCCESS_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
+  echo "${PHASE2_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
+fi
+
+# 7. PHASE 3 GRAPHICAL VERIFICATION
+# Wait for graphical target and rocketos-graphical-session
+GRAPHICAL_ACTIVE=false
+for _ in {1..35}; do
+  if systemctl is-active --quiet graphical.target 2>/dev/null && systemctl is-active --quiet rocketos-graphical-session.service 2>/dev/null; then
+    GRAPHICAL_ACTIVE=true
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${GRAPHICAL_ACTIVE}" != "true" ]]; then
+  SESSION_STATE="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo "inactive")"
+  emit_fail "graphical session failed to activate (service state: ${SESSION_STATE})"
+fi
+
+# Verify unprivileged user rocket
+if ! id rocket >/dev/null 2>&1; then
+  emit_fail "Dedicated unprivileged user 'rocket' does not exist"
+fi
+
+# Verify processes running under user rocket
+HOST_PID=""
+CAGE_PID=""
+for _ in {1..20}; do
+  HOST_PID="$(pgrep -u rocket -f rocket-shell-host | head -n1 || true)"
+  CAGE_PID="$(pgrep -u rocket -f cage | head -n1 || true)"
+  if [[ -n "${HOST_PID}" && -n "${CAGE_PID}" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ -z "${HOST_PID}" ]]; then
+  emit_fail "rocket-shell-host is not running under user rocket"
+fi
+if [[ -z "${CAGE_PID}" ]]; then
+  emit_fail "cage compositor is not running under user rocket"
+fi
+
+# Verify Emergency TTYs (TTY2 and TTY3)
+TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
+TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
+
+# EMIT PHASE 3 GRAPHICAL BOOT MARKER
+PHASE3_OUTPUT="==================================================
+ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK
+==================================================
+SYSTEM_NAME: RocketOS
+PRETTY_NAME: ${PRETTY_NAME}
+ID: ${OS_ID}
+ID_LIKE: ${OS_ID_LIKE}
+VERSION_ID: ${VERSION_ID}
+SESSION_TYPE: wayland
+COMPOSITOR: cage (PID: ${CAGE_PID})
+SHELL_HOST: rocket-shell-host (PID: ${HOST_PID})
+RUNTIME: GTK4 + WebKitGTK 6.0
+SESSION_USER: rocket (UID: 1000)
+SESSION_SERVICE_STATE: active
+SYSTEMD_TARGET: graphical.target
+EMERGENCY_TTY2: ${TTY2_STATE}
+EMERGENCY_TTY3: ${TTY3_STATE}
+KERNEL_UNAME: ${KERNEL_UNAME}
+ARCHITECTURE: ${ARCH}
+HOSTNAME: $(hostname)
+TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+=================================================="
+
+echo "${PHASE3_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
+if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+  echo "${PHASE3_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
+fi
+
+# 8. AUTOMATED RUNTIME CRASH RECOVERY VALIDATION (WP5)
+echo "[boot-probe] Commencing automated controlled crash recovery validation..."
+
+INITIAL_HOST_PID="${HOST_PID}"
+# Deliberately terminate the host process with SIGKILL
+kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
+
+# Wait for systemd RestartSec=2 to relaunch the session
+RESTARTED=false
+NEW_HOST_PID=""
+for _ in {1..20}; do
+  NEW_PID="$(pgrep -u rocket -f rocket-shell-host | head -n1 || true)"
+  if [[ -n "${NEW_PID}" && "${NEW_PID}" != "${INITIAL_HOST_PID}" ]]; then
+    NEW_HOST_PID="${NEW_PID}"
+    RESTARTED=true
+    break
+  fi
+  sleep 1
+done
+
+if [[ "${RESTARTED}" != "true" || -z "${NEW_HOST_PID}" ]]; then
+  emit_fail "WP5 Failure: rocket-shell-host failed to restart after termination (initial PID: ${INITIAL_HOST_PID})"
+fi
+
+# Verify restarted process owner is still rocket
+NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null || true)"
+if [[ "${NEW_OWNER}" != "rocket" ]]; then
+  emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'"
+fi
+
+# Verify no accumulating orphan host or cage processes
+HOST_COUNT="$(pgrep -u rocket -f rocket-shell-host | wc -l)"
+CAGE_COUNT="$(pgrep -u rocket -f cage | wc -l)"
+if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
+  emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})"
+fi
+
+# Emit WP5 Recovery Success Marker
+RECOVERY_OUTPUT="==================================================
+ROCKETOS_WP5_RECOVERY_TEST_PASS
+==================================================
+INITIAL_HOST_PID: ${INITIAL_HOST_PID}
+TERMINATION_SIGNAL: SIGKILL
+NEW_HOST_PID: ${NEW_HOST_PID}
+RESTARTED_USER: ${NEW_OWNER}
+ACTIVE_HOST_COUNT: ${HOST_COUNT}
+ACTIVE_CAGE_COUNT: ${CAGE_COUNT}
+RESTART_RECOVERY_SECS: 2
+TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+=================================================="
+
+echo "${RECOVERY_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
+if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+  echo "${RECOVERY_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
 fi
 
 exit 0

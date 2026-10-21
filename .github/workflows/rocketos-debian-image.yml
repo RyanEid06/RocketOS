@@ -2,9 +2,9 @@ name: RocketOS Phase 2 Debian Foundation & Live ISO
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'phase3/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'phase3/**']
   workflow_dispatch:
 
 permissions:

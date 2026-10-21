@@ -2,7 +2,7 @@
 Description=RocketOS Phase 2 Boot Success Probe
 Documentation=https://github.com/RyanEid06/RocketOS
 DefaultDependencies=no
-After=multi-user.target systemd-journald.service
+After=multi-user.target graphical.target rocketos-graphical-session.service systemd-journald.service
 
 [Service]
 Type=oneshot
@@ -12,4 +12,4 @@ StandardOutput=journal+console
 StandardError=journal+console
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=graphical.target
