@@ -16,6 +16,10 @@ TIMEOUT_SECS=180
 LOG_FILE=""
 MEM_MB=2048
 SMP_CPUS=2
+QEMU_PID=""
+OVMF_CODE=""
+OVMF_VARS_TEMPLATE=""
+OVMF_VARS_RUNTIME=""
 
 # ------------------------------------------------------------------------------
 # Argument Parsing
@@ -89,9 +93,9 @@ if [[ -z "${ISO_PATH}" || ! -f "${ISO_PATH}" ]]; then
   exit 1
 fi
 
+LOG_DIR="${REPO_ROOT}/artifacts"
+mkdir -p "${LOG_DIR}"
 if [[ -z "${LOG_FILE}" ]]; then
-  LOG_DIR="${REPO_ROOT}/artifacts"
-  mkdir -p "${LOG_DIR}"
   LOG_FILE="${LOG_DIR}/qemu-smoke-${BOOT_MODE}.log"
 fi
 
@@ -130,33 +134,89 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# UEFI Firmware Verification
+# Cleanup Handler
 # ------------------------------------------------------------------------------
-OVMF_CODE=""
+cleanup() {
+  if [[ -n "${QEMU_PID:-}" ]] && kill -0 "${QEMU_PID}" 2>/dev/null; then
+    kill -15 "${QEMU_PID}" 2>/dev/null || true
+    sleep 1
+    kill -9 "${QEMU_PID}" 2>/dev/null || true
+  fi
+  if [[ -n "${OVMF_VARS_RUNTIME:-}" && -f "${OVMF_VARS_RUNTIME}" ]]; then
+    rm -f "${OVMF_VARS_RUNTIME}"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# ------------------------------------------------------------------------------
+# UEFI Firmware Verification (Matched CODE + VARS Pair)
+# ------------------------------------------------------------------------------
 if [[ "${BOOT_MODE}" == "uefi" ]]; then
-  OVMF_CANDIDATES=(
-    "/usr/share/OVMF/OVMF_CODE.fd"
-    "/usr/share/OVMF/OVMF_CODE_4M.fd"
-    "/usr/share/ovmf/OVMF.fd"
-    "/usr/share/qemu/OVMF.fd"
-    "/usr/share/edk2/x64/OVMF_CODE.fd"
+  OVMF_PAIR_CANDIDATES=(
+    # Modern Debian/Ubuntu 4MB split images (Ubuntu 24.04 ovmf package default)
+    "/usr/share/OVMF/OVMF_CODE_4M.fd:/usr/share/OVMF/OVMF_VARS_4M.fd"
+    # Debian/Ubuntu 2MB / standard split images
+    "/usr/share/OVMF/OVMF_CODE.fd:/usr/share/OVMF/OVMF_VARS.fd"
+    # Modern edk2 x64 split images
+    "/usr/share/edk2/x64/OVMF_CODE_4M.fd:/usr/share/edk2/x64/OVMF_VARS_4M.fd"
+    "/usr/share/edk2/x64/OVMF_CODE.fd:/usr/share/edk2/x64/OVMF_VARS.fd"
+    # Modern edk2-ovmf split images (Fedora / RHEL / Arch)
+    "/usr/share/edk2/ovmf/OVMF_CODE_4M.fd:/usr/share/edk2/ovmf/OVMF_VARS_4M.fd"
+    "/usr/share/edk2/ovmf/OVMF_CODE.fd:/usr/share/edk2/ovmf/OVMF_VARS.fd"
+    "/usr/share/edk2-ovmf/x64/OVMF_CODE.fd:/usr/share/edk2-ovmf/x64/OVMF_VARS.fd"
+    # Alternative QEMU share paths
+    "/usr/share/qemu/OVMF_CODE_4M.fd:/usr/share/qemu/OVMF_VARS_4M.fd"
+    "/usr/share/qemu/OVMF_CODE.fd:/usr/share/qemu/OVMF_VARS.fd"
   )
-  for cand in "${OVMF_CANDIDATES[@]}"; do
-    if [[ -f "${cand}" ]]; then
-      OVMF_CODE="${cand}"
+
+  for pair in "${OVMF_PAIR_CANDIDATES[@]}"; do
+    code_cand="${pair%%:*}"
+    vars_cand="${pair##*:}"
+    if [[ -f "${code_cand}" && -f "${vars_cand}" ]]; then
+      OVMF_CODE="${code_cand}"
+      OVMF_VARS_TEMPLATE="${vars_cand}"
       break
     fi
   done
 
-  if [[ -z "${OVMF_CODE}" ]]; then
-    echo "=================================================================="
-    echo "STATUS: [BLOCKED] UEFI Boot Smoke Test"
-    echo "REASON: OVMF UEFI firmware image not found on host."
-    echo "Install with: sudo apt-get install -y ovmf"
-    echo "=================================================================="
-    exit 2
+  if [[ -n "${OVMF_CODE}" && -n "${OVMF_VARS_TEMPLATE}" ]]; then
+    # Create writable temporary copy of the matching VARS template
+    OVMF_VARS_RUNTIME="/tmp/rocketos-ovmf-vars-${BOOT_MODE}-$$.fd"
+    cp -f "${OVMF_VARS_TEMPLATE}" "${OVMF_VARS_RUNTIME}"
+    chmod 600 "${OVMF_VARS_RUNTIME}"
+
+    echo "UEFI CODE Firmware: ${OVMF_CODE} (read-only pflash)"
+    echo "UEFI VARS Template: ${OVMF_VARS_TEMPLATE}"
+    echo "UEFI VARS Runtime:  ${OVMF_VARS_RUNTIME} (writable copy)"
+  else
+    # Fallback to unified single-file OVMF images (compatible with -bios)
+    UNIFIED_CANDIDATES=(
+      "/usr/share/ovmf/OVMF.fd"
+      "/usr/share/OVMF/OVMF.fd"
+      "/usr/share/qemu/OVMF.fd"
+    )
+    for cand in "${UNIFIED_CANDIDATES[@]}"; do
+      if [[ -f "${cand}" ]]; then
+        OVMF_CODE="${cand}"
+        break
+      fi
+    done
+
+    if [[ -z "${OVMF_CODE}" ]]; then
+      echo "==================================================================" >&2
+      echo "STATUS: [BLOCKED] UEFI Boot Smoke Test" >&2
+      echo "REASON: Matched OVMF UEFI firmware CODE/VARS pair or unified image not found on host." >&2
+      echo "Checked candidate pairs:" >&2
+      for pair in "${OVMF_PAIR_CANDIDATES[@]}"; do
+        echo "  - ${pair%%:*} + ${pair##*:}" >&2
+      done
+      echo "Install with: sudo apt-get install -y ovmf" >&2
+      echo "==================================================================" >&2
+      exit 2
+    fi
+
+    echo "UEFI Unified Firmware: ${OVMF_CODE} (-bios)"
   fi
-  echo "UEFI Firmware:    ${OVMF_CODE}"
 fi
 
 # ------------------------------------------------------------------------------
@@ -176,8 +236,15 @@ QEMU_CMD=(
   -serial file:"${LOG_FILE}"
 )
 
-if [[ "${BOOT_MODE}" == "uefi" && -n "${OVMF_CODE}" ]]; then
-  QEMU_CMD+=(-bios "${OVMF_CODE}")
+if [[ "${BOOT_MODE}" == "uefi" ]]; then
+  if [[ -n "${OVMF_VARS_RUNTIME:-}" ]]; then
+    QEMU_CMD+=(
+      -drive "if=pflash,format=raw,readonly=on,file=${OVMF_CODE}"
+      -drive "if=pflash,format=raw,file=${OVMF_VARS_RUNTIME}"
+    )
+  else
+    QEMU_CMD+=(-bios "${OVMF_CODE}")
+  fi
 fi
 
 echo "Launching QEMU command:"
@@ -186,16 +253,6 @@ echo ""
 
 "${QEMU_CMD[@]}" &
 QEMU_PID=$!
-
-# Ensure QEMU process is cleaned up on exit
-cleanup() {
-  if kill -0 "${QEMU_PID}" 2>/dev/null; then
-    kill -15 "${QEMU_PID}" 2>/dev/null || true
-    sleep 1
-    kill -9 "${QEMU_PID}" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
 
 # ------------------------------------------------------------------------------
 # Verification Monitoring Loop
