@@ -59,9 +59,13 @@ jobs:
             curl \
             ca-certificates
 
+      - name: Prepare Artifacts Directory as Runner
+        run: mkdir -p artifacts
+
       - name: Build RocketOS Phase 3 Live Graphical ISO
         run: |
           sudo bash scripts/phase3/build-image.sh --output-dir artifacts
+          sudo chown -R "$(id -u):$(id -g)" artifacts
 
       - name: Run QEMU BIOS Graphical Smoke Test
         run: |
@@ -80,6 +84,7 @@ jobs:
       - name: Generate Phase 3 Verification Report
         if: always()
         run: |
+          mkdir -p artifacts
           {
             echo "=================================================="
             echo "RocketOS Phase 3 CI Verification Report"

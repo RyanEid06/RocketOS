@@ -1,8 +1,8 @@
 [Unit]
-Description=RocketOS Phase 2 Boot Success Probe
+Description=RocketOS Phase 3 Boot Success Probe
 Documentation=https://github.com/RyanEid06/RocketOS
-DefaultDependencies=no
-After=multi-user.target graphical.target rocketos-graphical-session.service systemd-journald.service
+After=rocketos-graphical-session.service
+Wants=rocketos-graphical-session.service
 
 [Service]
 Type=oneshot

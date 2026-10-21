@@ -16,7 +16,7 @@ Today this repository contains the high-fidelity RocketOS desktop/workbench prot
 - `rocket/**/*.rocket` contains migration/prototype work, but it is **not currently the authoritative running core** and must be validated against the current Rocket compiler before being treated as production Rocket code.
 - The old bare-metal/BusyBox boot prototype has been removed from the working tree. It remains recoverable from Git history and the `pre-debian-reset-2026-10-20` tag.
 - **Phase 2 foundation is complete:** Debian 13 "Trixie" amd64 and Debian `live-build` have been selected and implemented. Phase 2 produced a compact bootable hybrid ISO (`rocketos-0.1-phase2-amd64.iso`, 363.00 MiB) with hybrid BIOS (`syslinux`/`isolinux`) + UEFI (`grub-efi`) bootloader support, verified via automated headless QEMU BIOS (18s) and UEFI (21s) smoke tests in GitHub Actions CI (Run 14571982630).
-- **Phase 3 scope remains intentionally undefined** pending project owner and architecture review.
+- **Phase 3 graphical session foundation is implemented (CI acceptance pending):** Cage Wayland kiosk compositor, GTK4 + WebKitGTK 6.0 shell host runtime, unprivileged `rocket` user session, systemd session supervision with crash restart, versioned typed native bridge, and QEMU smoke tests with QMP framebuffer screendump are implemented and pending authoritative CI execution.
 
 RocketOS is **not yet a finished native operating system**. With the minimal bootable Debian foundation established and verified, future phases will host the existing RocketOS experience on real Linux services and migrate RocketOS-owned functionality incrementally.
 
@@ -72,8 +72,8 @@ Short version:
 1. clean and freeze the architecture/documentation baseline (Phase 0 — complete);
 2. prove the current Rocket compiler can build the native pieces RocketOS needs (Phase 1 — complete);
 3. select the compact Debian foundation, build a bootable live ISO, and verify in QEMU (Phase 2 — complete);
-4. Phase 3 scope to be locked by architecture review;
-5. run the existing desktop against real Linux services instead of fake browser hardware;
+4. graphical session foundation and desktop host gate (Phase 3 — IMPLEMENTED — CI ACCEPTANCE PENDING);
+5. run the existing desktop against real Linux services instead of fake browser hardware (Phase 4);
 6. migrate core domains from TypeScript to Rocket one at a time;
 7. add missing Rocket desktop capabilities;
 8. migrate apps and shell to native Rocket progressively;
@@ -81,20 +81,18 @@ Short version:
 
 The development-environment target is roughly **25–45 GB**. Avoid workflows that recreate the old 100+ GB Yocto-scale setup.
 
-## Important non-decisions
+## Established foundation & subsequent phases
 
-The following foundation decisions have been established in Phase 2:
+The following foundation decisions have been established:
 - Base OS: Debian 13 "Trixie" (`trixie`), amd64;
 - Image builder: Debian `live-build` (`lb`);
-- Bootloader: hybrid legacy BIOS (`syslinux`/`isolinux`) + UEFI (`grub-efi`).
+- Bootloader: hybrid legacy BIOS (`syslinux`/`isolinux`) + UEFI (`grub-efi`);
+- Graphical foundation (Phase 3): Cage Wayland kiosk compositor + GTK4 / WebKitGTK 6.0 shell host + unprivileged `rocket` user + versioned native bridge.
 
-The following remain deliberately **undecided** and must not be silently chosen by an implementation agent:
-- Phase 3 scope (intentionally undefined pending project owner / architecture review);
-- initial graphical compositor/session host (e.g. Wayland compositor/host strategy);
-- initial React desktop host/runtime (Chromium/WebKit/Electron/other);
-- final native IPC transport for the native core.
-
-These choices belong to dedicated work packets with explicit project owner approval.
+The following remain reserved for subsequent phases:
+- Phase 4 protected desktop integration (running the real React/TypeScript desktop within the native shell host);
+- Phase 5 replacement of simulated platform services with real Linux adapters;
+- Phase 6-8 native Rocket core and shell migration.
 
 ## Current web-development commands
 

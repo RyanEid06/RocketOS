@@ -79,7 +79,6 @@ if [[ -z "${ISO_PATH}" ]]; then
     "${REPO_ROOT}/artifacts/rocketos-0.1-phase3-amd64.iso"
     "${REPO_ROOT}/rocketos-0.1-phase3-amd64.iso"
     "${REPO_ROOT}/image/build/rocketos-0.1-phase3-amd64.iso"
-    "${REPO_ROOT}/artifacts/rocketos-0.1-phase2-amd64.iso"
   )
   for cand in "${DEFAULT_CANDIDATES[@]}"; do
     if [[ -f "${cand}" ]]; then
@@ -98,7 +97,7 @@ fi
 if [[ -z "${LOG_FILE}" ]]; then
   LOG_DIR="${REPO_ROOT}/artifacts"
   mkdir -p "${LOG_DIR}"
-  LOG_FILE="${LOG_DIR}/qemu-smoke-phase3-${BOOT_MODE}.log"
+  LOG_FILE="${LOG_DIR}/qemu-serial-phase3-${BOOT_MODE}.log"
 fi
 
 if [[ -z "${SCREENDUMP_FILE:-}" ]]; then
@@ -184,7 +183,8 @@ QEMU_CMD=(
   -smp "${SMP_CPUS}"
   "${QEMU_ACCEL_ARGS[@]}"
   -display none
-  -vga std
+  -vga virtio
+  -nic none
   -no-reboot
   -cdrom "${ISO_PATH}"
   -boot d
@@ -263,7 +263,9 @@ PYEOF
 echo "Monitoring serial console output for markers:"
 echo "  1. ROCKETOS_PHASE2_BOOT_OK"
 echo "  2. ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK"
-echo "  3. ROCKETOS_WP5_RECOVERY_TEST_PASS"
+echo "  3. UI_LOADED_MARKER: verified"
+echo "  4. BRIDGE_PING_MARKER: verified"
+echo "  5. ROCKETOS_WP5_RECOVERY_TEST_PASS"
 START_TIME=$(date +%s)
 FOUND_ALL_MARKERS=false
 
@@ -280,13 +282,17 @@ while true; do
   # Check for all required verification markers
   P2_OK=false
   P3_OK=false
+  UI_OK=false
+  PING_OK=false
   WP5_OK=false
 
   grep -q "ROCKETOS_PHASE2_BOOT_OK" "${LOG_FILE}" 2>/dev/null && P2_OK=true || true
   grep -q "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" 2>/dev/null && P3_OK=true || true
+  grep -q "UI_LOADED_MARKER: verified" "${LOG_FILE}" 2>/dev/null && UI_OK=true || true
+  grep -q "BRIDGE_PING_MARKER: verified" "${LOG_FILE}" 2>/dev/null && PING_OK=true || true
   grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null && WP5_OK=true || true
 
-  if [[ "${P2_OK}" == "true" && "${P3_OK}" == "true" && "${WP5_OK}" == "true" ]]; then
+  if [[ "${P2_OK}" == "true" && "${P3_OK}" == "true" && "${UI_OK}" == "true" && "${PING_OK}" == "true" && "${WP5_OK}" == "true" ]]; then
     FOUND_ALL_MARKERS=true
     break
   fi
@@ -324,14 +330,66 @@ if ! grep -q "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" 2>/dev/null; then
   FAILURES=$((FAILURES + 1))
 fi
 
+if ! grep -q "UI_LOADED_MARKER: verified" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Diagnostic UI loaded runtime marker not verified in serial output." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+if ! grep -q "BRIDGE_PING_MARKER: verified" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Native bridge ping runtime marker not verified in serial output." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
 if ! grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null; then
   echo "FAIL: Crash recovery marker ROCKETOS_WP5_RECOVERY_TEST_PASS not found." >&2
   FAILURES=$((FAILURES + 1))
 fi
 
+# Framebuffer validation
+PPM_VALID=false
+PPM_WIDTH=0
+PPM_HEIGHT=0
 if [[ ! -f "${SCREENDUMP_FILE}" || ! -s "${SCREENDUMP_FILE}" ]]; then
   echo "FAIL: Mandatory external framebuffer screendump (${SCREENDUMP_FILE}) was not created or is empty." >&2
   FAILURES=$((FAILURES + 1))
+else
+  # Validate PPM structure and dimensions
+  PPM_CHECK="$(python3 - <<PYEOF || echo "PARSE_ERROR"
+import sys
+try:
+    with open("${SCREENDUMP_FILE}", "rb") as f:
+        tokens = []
+        while len(tokens) < 4:
+            line = f.readline()
+            if not line: break
+            line = line.strip()
+            if not line or line.startswith(b'#'): continue
+            tokens.extend(line.split())
+        magic, w, h, maxval = tokens[0], int(tokens[1]), int(tokens[2]), int(tokens[3])
+        if magic in (b'P6', b'P3') and w >= 640 and h >= 480 and maxval == 255:
+            print(f"OK {w} {h}")
+        else:
+            print(f"INVALID_HEADER magic={magic} w={w} h={h} maxval={maxval}")
+except Exception as e:
+    print(f"ERROR: {e}")
+PYEOF
+  )"
+  if [[ "${PPM_CHECK}" =~ ^OK[[:space:]]+([0-9]+)[[:space:]]+([0-9]+) ]]; then
+    PPM_VALID=true
+    PPM_WIDTH="${BASH_REMATCH[1]}"
+    PPM_HEIGHT="${BASH_REMATCH[2]}"
+  else
+    echo "FAIL: Framebuffer screendump is not a valid PPM image (details: ${PPM_CHECK})." >&2
+    FAILURES=$((FAILURES + 1))
+  fi
+
+  # Validate PNG conversion if netpbm pnmtopng tool was present
+  if command -v pnmtopng >/dev/null 2>&1; then
+    if [[ ! -f "${SCREENDUMP_FILE%.ppm}.png" || ! -s "${SCREENDUMP_FILE%.ppm}.png" ]]; then
+      echo "FAIL: Conversion from PPM to PNG failed despite pnmtopng being available." >&2
+      FAILURES=$((FAILURES + 1))
+    fi
+  fi
 fi
 
 if [[ ${FAILURES} -eq 0 && "${FOUND_ALL_MARKERS}" == "true" ]]; then
@@ -344,21 +402,40 @@ if [[ ${FAILURES} -eq 0 && "${FOUND_ALL_MARKERS}" == "true" ]]; then
   echo "--- External QEMU Framebuffer Evidence ---"
   echo "Framebuffer Image:  ${SCREENDUMP_FILE}"
   echo "Framebuffer Size:   ${FB_SIZE} bytes"
-  head -n 3 "${SCREENDUMP_FILE}" 2>/dev/null | tr '\n' ' ' || true
-  echo ""
+  echo "PPM Dimensions:     ${PPM_WIDTH}x${PPM_HEIGHT} (valid PPM)"
   if [[ -f "${SCREENDUMP_FILE%.ppm}.png" ]]; then
     echo "PNG Converted:      ${SCREENDUMP_FILE%.ppm}.png"
   fi
+  echo ""
+  echo "FRAMEBUFFER EVIDENCE CLASSIFICATION:"
+  echo "- Framebuffer Capture: PRESENT (display buffer initialized and written to by KMS/Cage)"
+  echo "- Visual Correctness:  REQUIRES_HUMAN_INSPECTION_OR_VISUAL_DIFF"
+  echo "  (Note: Framebuffer capture proves physical scanout initialization; visual design contract"
+  echo "   compliance requires visual diff or human review, not purely non-empty buffer checks.)"
   echo "------------------------------------------"
   echo ""
-  echo "--- Serial Console Evidence Summary ---"
-  grep -A 18 "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" || true
+  SESSION_LOG="${LOG_DIR}/qemu-session-phase3-${BOOT_MODE}.log"
+  RECOVERY_LOG="${LOG_DIR}/qemu-recovery-phase3-${BOOT_MODE}.log"
+
+  # Extract structured session block
+  awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 40 "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" > "${SESSION_LOG}" 2>/dev/null || true
+  # Extract structured recovery block
+  awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 35 "ROCKETOS_WP5_RECOVERY_TEST_PASS" > "${RECOVERY_LOG}" 2>/dev/null || true
+
+  echo "--- Session Evidence Log (${SESSION_LOG}) ---"
+  cat "${SESSION_LOG}" 2>/dev/null || grep -A 30 "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" || true
   echo ""
-  grep -A 11 "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" || true
+  echo "--- Recovery Evidence Log (${RECOVERY_LOG}) ---"
+  cat "${RECOVERY_LOG}" 2>/dev/null || grep -A 30 "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" || true
   echo "---------------------------------------"
   echo ""
   exit 0
 else
+  SESSION_LOG="${LOG_DIR}/qemu-session-phase3-${BOOT_MODE}.log"
+  RECOVERY_LOG="${LOG_DIR}/qemu-recovery-phase3-${BOOT_MODE}.log"
+  awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 40 "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" > "${SESSION_LOG}" 2>/dev/null || true
+  awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 35 "ROCKETOS_WP5_RECOVERY_TEST_PASS" > "${RECOVERY_LOG}" 2>/dev/null || true
+
   echo "=================================================================="
   echo " RESULT: FAIL — Verification requirements not satisfied (${FAILURES} failures)"
   echo " Boot Mode:    ${BOOT_MODE^^}"

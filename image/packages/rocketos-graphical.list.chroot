@@ -25,5 +25,4 @@ adwaita-icon-theme
 
 # User Session & Seat Management
 dbus-user-session
-seatd
 libseat1

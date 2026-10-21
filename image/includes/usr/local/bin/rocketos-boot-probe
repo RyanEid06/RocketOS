@@ -162,9 +162,59 @@ if [[ -z "${CAGE_PID}" ]]; then
   emit_fail "cage compositor is not running under user rocket"
 fi
 
-# Verify Emergency TTYs (TTY2 and TTY3)
+# Verify Diagnostic WebKit UI loaded and Native Bridge ping answered
+ROCKET_UID="$(id -u rocket 2>/dev/null || echo 1000)"
+RUNTIME_DIR="/run/user/${ROCKET_UID}"
+UI_LOADED_MARKER="${RUNTIME_DIR}/rocketos-ui-loaded"
+BRIDGE_PING_MARKER="${RUNTIME_DIR}/rocketos-bridge-ping-ok"
+
+UI_LOADED_PID=""
+BRIDGE_PING_PID=""
+for _ in {1..25}; do
+  if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
+    UI_LOADED_PID="$(head -n1 "${UI_LOADED_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    BRIDGE_PING_PID="$(head -n1 "${BRIDGE_PING_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${UI_LOADED_PID}" == "${HOST_PID}" && "${BRIDGE_PING_PID}" == "${HOST_PID}" ]]; then
+      break
+    fi
+  fi
+  sleep 1
+done
+
+if [[ "${UI_LOADED_PID}" != "${HOST_PID}" ]]; then
+  emit_fail "Diagnostic UI failed to complete loading (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}')"
+fi
+if [[ "${BRIDGE_PING_PID}" != "${HOST_PID}" ]]; then
+  emit_fail "Native bridge ping verification failed (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}')"
+fi
+
+# Verify Emergency TTYs (TTY2 and TTY3) - MANDATORY AUTOMATED GATE
 TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
 TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
+
+if [[ "${TTY2_STATE}" != "active" || "${TTY3_STATE}" != "active" ]]; then
+  for _ in {1..15}; do
+    TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
+    TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
+    if [[ "${TTY2_STATE}" == "active" && "${TTY3_STATE}" == "active" ]]; then
+      break
+    fi
+    sleep 1
+  done
+fi
+
+if [[ "${TTY2_STATE}" != "active" ]]; then
+  emit_fail "Emergency TTY failure: getty@tty2.service is '${TTY2_STATE}' (expected 'active')"
+fi
+if [[ "${TTY3_STATE}" != "active" ]]; then
+  emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')"
+fi
+
+SESSION_SCRIPT_PID="$(pgrep -u rocket -f rocketos-session | head -n1 || echo 'N/A')"
+CAGE_OWNER="$(ps -p "${CAGE_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || echo 'rocket')"
+HOST_OWNER="$(ps -p "${HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || echo 'rocket')"
+GRAPHICAL_STATUS="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
+JOURNAL_SNIPPET="$(journalctl -u rocketos-graphical-session.service -n 20 --no-pager 2>/dev/null || true)"
 
 # EMIT PHASE 3 GRAPHICAL BOOT MARKER
 PHASE3_OUTPUT="==================================================
@@ -176,18 +226,26 @@ ID: ${OS_ID}
 ID_LIKE: ${OS_ID_LIKE}
 VERSION_ID: ${VERSION_ID}
 SESSION_TYPE: wayland
-COMPOSITOR: cage (PID: ${CAGE_PID})
-SHELL_HOST: rocket-shell-host (PID: ${HOST_PID})
+COMPOSITOR: cage (PID: ${CAGE_PID}, Owner: ${CAGE_OWNER})
+SHELL_HOST: rocket-shell-host (PID: ${HOST_PID}, Owner: ${HOST_OWNER})
+SESSION_SCRIPT_PID: ${SESSION_SCRIPT_PID}
 RUNTIME: GTK4 + WebKitGTK 6.0
 SESSION_USER: rocket (UID: 1000)
-SESSION_SERVICE_STATE: active
+SESSION_SERVICE_STATE: ${GRAPHICAL_STATUS}
 SYSTEMD_TARGET: graphical.target
+UI_LOADED_PID: ${HOST_PID}
+BRIDGE_PING_PID: ${HOST_PID}
+UI_LOADED_MARKER: verified
+BRIDGE_PING_MARKER: verified
 EMERGENCY_TTY2: ${TTY2_STATE}
 EMERGENCY_TTY3: ${TTY3_STATE}
 KERNEL_UNAME: ${KERNEL_UNAME}
 ARCHITECTURE: ${ARCH}
 HOSTNAME: $(hostname)
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+--- GRAPHICAL SESSION RECENT JOURNAL ---
+${JOURNAL_SNIPPET}
+----------------------------------------
 =================================================="
 
 echo "${PHASE3_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
@@ -220,9 +278,30 @@ if [[ "${RESTARTED}" != "true" || -z "${NEW_HOST_PID}" ]]; then
 fi
 
 # Verify restarted process owner is still rocket
-NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null || true)"
+NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ "${NEW_OWNER}" != "rocket" ]]; then
   emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'"
+fi
+
+# Verify restarted session restored WebKit UI and answered native bridge ping under NEW_HOST_PID
+RECOVERED_UI_PID=""
+RECOVERED_PING_PID=""
+for _ in {1..25}; do
+  if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
+    RECOVERED_UI_PID="$(head -n1 "${UI_LOADED_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    RECOVERED_PING_PID="$(head -n1 "${BRIDGE_PING_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${RECOVERED_UI_PID}" == "${NEW_HOST_PID}" && "${RECOVERED_PING_PID}" == "${NEW_HOST_PID}" ]]; then
+      break
+    fi
+  fi
+  sleep 1
+done
+
+if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" ]]; then
+  emit_fail "WP5 Failure: Restarted session did not reload diagnostic UI under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_UI_PID}')"
+fi
+if [[ "${RECOVERED_PING_PID}" != "${NEW_HOST_PID}" ]]; then
+  emit_fail "WP5 Failure: Restarted session did not answer bridge ping under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_PING_PID}')"
 fi
 
 # Verify no accumulating orphan host or cage processes
@@ -232,6 +311,9 @@ if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
   emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})"
 fi
 
+RECOVERY_CGROUP="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null | grep -E "(CGroup|├─|└─)" || ps -u rocket -o pid,user,args || true)"
+RECOVERY_JOURNAL="$(journalctl -u rocketos-graphical-session.service -n 20 --no-pager 2>/dev/null || true)"
+
 # Emit WP5 Recovery Success Marker
 RECOVERY_OUTPUT="==================================================
 ROCKETOS_WP5_RECOVERY_TEST_PASS
@@ -240,10 +322,17 @@ INITIAL_HOST_PID: ${INITIAL_HOST_PID}
 TERMINATION_SIGNAL: SIGKILL
 NEW_HOST_PID: ${NEW_HOST_PID}
 RESTARTED_USER: ${NEW_OWNER}
+RECOVERED_UI_LOADED_PID: ${NEW_HOST_PID}
+RECOVERED_BRIDGE_PING_PID: ${NEW_HOST_PID}
 ACTIVE_HOST_COUNT: ${HOST_COUNT}
 ACTIVE_CAGE_COUNT: ${CAGE_COUNT}
 RESTART_RECOVERY_SECS: 2
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+--- RECOVERED SESSION CGROUP & PROCESSES ---
+${RECOVERY_CGROUP}
+--- POST-RECOVERY RECENT JOURNAL ---
+${RECOVERY_JOURNAL}
+------------------------------------
 =================================================="
 
 echo "${RECOVERY_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true

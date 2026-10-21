@@ -4,7 +4,6 @@ Documentation=https://github.com/RyanEid06/RocketOS
 After=systemd-user-sessions.service systemd-logind.service dbus.service
 Wants=systemd-logind.service dbus.service
 Conflicts=getty@tty1.service
-DefaultDependencies=no
 
 [Service]
 Type=simple
@@ -15,12 +14,13 @@ Environment=HOME=/home/rocket
 Environment=USER=rocket
 WorkingDirectory=/home/rocket
 TTYPath=/dev/tty1
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
 TTYReset=yes
 TTYVHangup=yes
-TTYVTFilter=yes
-StandardInput=tty
-StandardOutput=journal+console
-StandardError=journal+console
+TTYVTDisallocate=yes
+UtmpIdentifier=tty1
 ExecStart=/usr/local/bin/rocketos-session
 Restart=always
 RestartSec=2

@@ -17,6 +17,7 @@ import {
   PingResponse,
   BridgeVersionInfo,
   SafeSystemInfo,
+  CURRENT_BRIDGE_PROTOCOL_VERSION,
 } from './types';
 
 interface PendingRequest {
@@ -81,6 +82,16 @@ export class RocketNativeBridge {
       const response: BridgeResponse =
         typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
 
+      if (!response || typeof response !== 'object') {
+        console.error('[RocketNativeBridge] Invalid message: not an object');
+        return;
+      }
+
+      if (typeof response.id !== 'string' || !response.id) {
+        console.error('[RocketNativeBridge] Invalid message: missing or invalid id');
+        return;
+      }
+
       const handler = this.pendingRequests.get(response.id);
       if (!handler) {
         return;
@@ -88,6 +99,15 @@ export class RocketNativeBridge {
 
       clearTimeout(handler.timeoutTimer);
       this.pendingRequests.delete(response.id);
+
+      if (response.version !== CURRENT_BRIDGE_PROTOCOL_VERSION) {
+        handler.reject(
+          new Error(
+            `Unsupported bridge response protocol version: ${response.version}. Expected ${CURRENT_BRIDGE_PROTOCOL_VERSION}`
+          )
+        );
+        return;
+      }
 
       if (response.success) {
         handler.resolve(response.data);
@@ -108,7 +128,12 @@ export class RocketNativeBridge {
     timeoutMs = this.defaultTimeoutMs
   ): Promise<T> {
     const id = `req_${++this.requestId}_${Date.now()}`;
-    const request: BridgeRequest = { id, type, payload };
+    const request: BridgeRequest = {
+      version: CURRENT_BRIDGE_PROTOCOL_VERSION,
+      id,
+      type,
+      payload,
+    };
 
     return new Promise<T>((resolve, reject) => {
       const timeoutTimer = setTimeout(() => {
@@ -166,7 +191,7 @@ export class RocketNativeBridge {
 
       case 'getBridgeVersion':
         data = {
-          protocolVersion: '1.0',
+          protocolVersion: CURRENT_BRIDGE_PROTOCOL_VERSION,
           host: 'rocket-shell-host (simulated)',
           webkitVersion: '6.0 (simulated)',
           gtkVersion: '4.18 (simulated)',
@@ -193,6 +218,7 @@ export class RocketNativeBridge {
 
       default:
         this.handleIncomingMessage({
+          version: CURRENT_BRIDGE_PROTOCOL_VERSION,
           id: request.id,
           type: request.type,
           success: false,
@@ -202,6 +228,7 @@ export class RocketNativeBridge {
     }
 
     this.handleIncomingMessage({
+      version: CURRENT_BRIDGE_PROTOCOL_VERSION,
       id: request.id,
       type: request.type,
       success: true,

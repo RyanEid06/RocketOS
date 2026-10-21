@@ -81,7 +81,7 @@ Required checks on Linux x64:
 
 ## Phase 3 — Graphical session foundation & desktop host gate
 
-**Status:** IMPLEMENTED & READY FOR CI VERIFICATION
+**Status:** IMPLEMENTED — CI ACCEPTANCE PENDING
 **Specification:** [`docs/ROCKETOS_PHASE3_GRAPHICAL_FOUNDATION.md`](ROCKETOS_PHASE3_GRAPHICAL_FOUNDATION.md)
 
 **Purpose:** transform the verified Phase 2 console ISO into a graphical RocketOS foundation capable of hosting the protected RocketOS desktop in Phase 4.

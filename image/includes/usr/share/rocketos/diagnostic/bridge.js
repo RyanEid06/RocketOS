@@ -20,11 +20,17 @@
     handleMessage(rawMessage) {
       try {
         const response = typeof rawMessage === 'string' ? JSON.parse(rawMessage) : rawMessage;
+        if (!response || typeof response !== 'object') return;
         const handler = this.pendingRequests.get(response.id);
         if (!handler) return;
 
         clearTimeout(handler.timeoutTimer);
         this.pendingRequests.delete(response.id);
+
+        if (response.version !== 1) {
+          handler.reject(new Error('Unsupported protocol version: ' + response.version));
+          return;
+        }
 
         if (response.success) {
           handler.resolve(response.data);
@@ -38,7 +44,7 @@
 
     send(type, payload, timeoutMs = 5000) {
       const id = 'diag_' + (++this.requestId) + '_' + Date.now();
-      const request = { id, type, payload };
+      const request = { version: 1, id, type, payload };
 
       return new Promise((resolve, reject) => {
         const timeoutTimer = setTimeout(() => {
@@ -92,14 +98,14 @@
         };
       } else if (request.type === 'getBridgeVersion') {
         data = {
-          protocolVersion: '1.0',
+          protocolVersion: 1,
           host: 'rocket-shell-host',
           webkitVersion: '6.0 (simulated)',
           gtkVersion: '4.18 (simulated)'
         };
       }
 
-      this.handleMessage({ id: request.id, type: request.type, success: true, data });
+      this.handleMessage({ version: 1, id: request.id, type: request.type, success: true, data });
     }
   }
 

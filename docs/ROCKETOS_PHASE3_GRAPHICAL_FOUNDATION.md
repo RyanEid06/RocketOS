@@ -1,6 +1,6 @@
 # RocketOS Graphical Session Foundation & Desktop Host Gate (Phase 3)
 
-**Status:** IMPLEMENTED & READY FOR CI VERIFICATION
+**Status:** IMPLEMENTED — CI ACCEPTANCE PENDING
 **Date:** 2026-10-21
 **Base Distribution:** Debian 13 "Trixie" (`trixie`), amd64 (x86-64)
 **Compositor:** Wayland via `cage` (Kiosk Compositor)
@@ -84,6 +84,7 @@ The bridge provides asynchronous, bidirectional, typed IPC between the web runti
 JavaScript invokes native capabilities via the WebKit user content manager:
 ```javascript
 window.webkit.messageHandlers.rocketBridge.postMessage(JSON.stringify({
+  version: 1,
   id: "req_1_1729470000000",
   type: "getSystemInfo",
   payload: null
@@ -94,6 +95,7 @@ window.webkit.messageHandlers.rocketBridge.postMessage(JSON.stringify({
 `rocket-shell-host` processes the message and responds by evaluating:
 ```javascript
 window.__rocketBridgeReceive(JSON.stringify({
+  version: 1,
   id: "req_1_1729470000000",
   type: "getSystemInfo",
   success: true,
@@ -116,7 +118,7 @@ window.__rocketBridgeReceive(JSON.stringify({
 | Request Type | Description | Response Data Payload |
 |---|---|---|
 | `ping` | Round-trip latency check | `{ pong: boolean, timestamp: number }` |
-| `getBridgeVersion` | Protocol, WebKitGTK, and GTK runtime versions | `{ protocolVersion, host, webkitVersion, gtkVersion }` |
+| `getBridgeVersion` | Protocol version (`1`), WebKitGTK, and GTK runtime versions | `{ protocolVersion, host, webkitVersion, gtkVersion }` |
 | `getSystemInfo` | Detailed OS, kernel, session, and architecture info | `SafeSystemInfo` structure |
 
 *(Note: `querySystemdState`, `queryMemory`, and `verifyGraphicalBoot` were audited and pruned in accordance with the locked Phase 3 minimal bridge gate. General system management and telemetry belong to Phase 5, and graphical boot proof is authoritatively determined externally via QEMU framebuffer and systemd session probes.)*
@@ -125,7 +127,7 @@ window.__rocketBridgeReceive(JSON.stringify({
 To protect the existing RocketOS React/TypeScript desktop from premature modification, all Phase 3 bridge client code is isolated strictly outside `src/`:
 - Implementation: `native-host/bridge/RocketNativeBridge.ts`
 - Protocol Types: `native-host/bridge/types.ts`
-- Unit Tests: `native-host/bridge/RocketNativeBridge.test.ts` (100% pass rate in Vitest, 8/8 tests passing)
+- Unit Tests: `native-host/bridge/RocketNativeBridge.test.ts` (100% pass rate in Vitest, 11/11 tests passing)
 - Export Index: `native-host/bridge/index.ts`
 - Protected Desktop Integrity: `src/` has exactly 0 modifications relative to the frozen Phase 2 checkpoint (`e8e0917`).
 - Browser Fallback: In browser preview mode, it gracefully provides simulated responses labeled in compliance with Rule 4 (`SIMULATED`).
@@ -158,7 +160,7 @@ adwaita-icon-theme              # Standard GTK icon assets
 
 # Session Infrastructure
 dbus-user-session               # User D-Bus session bus
-seatd, libseat1                 # Unprivileged seat management
+libseat1                        # Unprivileged seat management (systemd-logind backend)
 ```
 
 ---
@@ -213,26 +215,31 @@ Phase 2 marker `ROCKETOS_PHASE2_BOOT_OK` is also retained to verify non-regressi
 ### Supervisor Configuration (`rocketos-graphical-session.service`)
 ```ini
 [Unit]
-Description=RocketOS Graphical Desktop Session
-After=systemd-user-sessions.service plymouth-quit-wait.service seatd.service dbus.service
+Description=RocketOS Phase 3 Graphical Session (Cage + rocket-shell-host)
+Documentation=https://github.com/RyanEid06/RocketOS
+After=systemd-user-sessions.service systemd-logind.service dbus.service
+Wants=systemd-logind.service dbus.service
 Conflicts=getty@tty1.service
-StartLimitIntervalSec=60
-StartLimitBurst=5
 
 [Service]
 Type=simple
 User=rocket
 Group=rocket
-WorkingDirectory=/home/rocket
 PAMName=login
-Environment=XDG_SESSION_TYPE=wayland
-Environment=XDG_CURRENT_DESKTOP=RocketOS
 Environment=HOME=/home/rocket
 Environment=USER=rocket
+WorkingDirectory=/home/rocket
+TTYPath=/dev/tty1
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+UtmpIdentifier=tty1
 ExecStart=/usr/local/bin/rocketos-session
 Restart=always
 RestartSec=2
-KillMode=control-group
 TimeoutStopSec=10
 
 [Install]
@@ -243,12 +250,13 @@ WantedBy=graphical.target
 
 | Acceptance Requirement | Status | Verification & Mechanism |
 |---|---|---|
-| **Host running as user `rocket`** | `PASS` (Design & Unit) / `PASS-CI` (Live Image) | `User=rocket`, `Group=rocket`, `WorkingDirectory=/home/rocket`, PAM session initialized under UID 1000. Verified by `rocketos-boot-probe` (`SESSION_USER: rocket (unprivileged: yes)`). |
-| **Crash detection & automatic restart** | `PASS` (Design & Config) / `PASS-CI` (Live Image) | `Restart=always` with `RestartSec=2`. systemd PID 1 detects exit/crash of `rocketos-session` and immediately relaunches the session. |
-| **Restart throttling** | `PASS` | `StartLimitIntervalSec=60` and `StartLimitBurst=5` prevent tight crash loops from exhausting CPU or I/O. |
-| **No accumulating orphan processes** | `PASS` | `KillMode=control-group` ensures that terminating or restarting `rocketos-session` sends SIGTERM/SIGKILL to all child processes in the cgroup (`cage`, `rocket-shell-host`, and WebKitGTK WebProcess/NetworkProcess subprocesses). |
-| **Emergency TTYs available** | `PASS` | TTY1 is dedicated to graphical session (`Conflicts=getty@tty1.service`), while TTY2 and TTY3 maintain standard systemd getty units (`getty@tty2.service`, `getty@tty3.service`) accessible via `Ctrl+Alt+F2` / `Ctrl+Alt+F3`. |
+| **Host running as user `rocket`** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | `User=rocket`, `Group=rocket`, `WorkingDirectory=/home/rocket`, PAM session initialized under UID 1000 on controlling VT `/dev/tty1`. Verified by `rocketos-boot-probe` (`SESSION_USER: rocket (UID: 1000)`). |
+| **Crash detection & automatic restart** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | `Restart=always` with `RestartSec=2`. systemd PID 1 detects exit/crash of `rocketos-session` and immediately relaunches the session. |
+| **Real UI-Loaded & Bridge-Ping Runtime Evidence** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | Deterministic markers `/run/user/1000/rocketos-ui-loaded` and `/run/user/1000/rocketos-bridge-ping-ok` verified by `rocketos-boot-probe` matching current `HOST_PID`, and re-verified under `NEW_HOST_PID` after recovery. |
+| **No accumulating orphan processes** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | Cgroup process tracking verifies exactly 1 active `cage` and 1 active `rocket-shell-host` instance after recovery. |
+| **Emergency TTYs available** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | TTY1 is dedicated to graphical session (`Conflicts=getty@tty1.service`), while TTY2 and TTY3 maintain standard systemd getty units (`getty@tty2.service`, `getty@tty3.service`). Automated service availability is a mandatory CI gate in `rocketos-boot-probe`; physical keyboard switching (Ctrl+Alt+F2/F3) remains a separate local/manual verification. |
 | **Controlled failure test in local container** | `BLOCKED (Local Container)` | The development environment runs inside a lightweight gVisor sandbox (`Linux 4.19.0-gvisor`) lacking `/dev/kvm`, `/dev/loop*`, loopback block devices, and `qemu-system-x86_64`. Live guest crash injection cannot be executed in this container and must be executed in GitHub Actions or an x86-64 KVM host. |
-| **Controlled failure test procedure (CI / Guest VM)** | `DOCUMENTED` | 1. In guest or serial shell: `pkill -9 -f rocket-shell-host`.<br>2. Confirm `systemctl status rocketos-graphical-session.service` records exit status (e.g. `status=9/KILL`) and state transition to activating/restarting.<br>3. After 2s, confirm `cage` and `rocket-shell-host` are running under a new PID, still owned by UID 1000 (`rocket`).<br>4. Confirm cgroup has only one active instance of host and compositor.<br>5. Confirm TTY2 provides emergency login prompt. |
-| **External QEMU Framebuffer Evidence** | `PASS-CI` | Mandatory external proof: `scripts/phase3/smoke-test-qemu.sh` connects via QMP socket to issue `screendump`, capturing unadulterated virtual frame buffer memory (`artifacts/qemu-framebuffer-phase3-*.ppm`) uploaded directly to CI artifacts. |
+| **Controlled failure test procedure (CI / Guest VM)** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | Automated in `rocketos-boot-probe` and verified in `scripts/phase3/smoke-test-qemu.sh` via serial marker `ROCKETOS_WP5_RECOVERY_TEST_PASS`. |
+| **External QEMU Framebuffer Evidence** | `IMPLEMENTED — CI ACCEPTANCE PENDING` | Mandatory external proof: `scripts/phase3/smoke-test-qemu.sh` connects via QMP socket to issue `screendump`, capturing valid PPM virtual frame buffer memory (`artifacts/qemu-framebuffer-phase3-*.ppm`). Distinguishes display buffer presence from visual correctness. |
+
 

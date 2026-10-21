@@ -12,7 +12,7 @@ echo "[RocketOS-Hook] Configuring RocketOS Phase 3 graphical foundation..."
 if ! id rocket >/dev/null 2>&1; then
     echo "[RocketOS-Hook] Creating unprivileged user 'rocket' (UID 1000)..."
     # Ensure video, render, input, audio groups exist
-    for grp in video render input audio seat; do
+    for grp in video render input audio; do
         getent group "$grp" >/dev/null || groupadd -r "$grp" || true
     done
 
@@ -53,9 +53,7 @@ systemctl set-default graphical.target 2>/dev/null || true
 if [ -f /etc/systemd/system/rocketos-boot-probe.service ]; then
     chmod 644 /etc/systemd/system/rocketos-boot-probe.service
     mkdir -p /etc/systemd/system/graphical.target.wants
-    mkdir -p /etc/systemd/system/multi-user.target.wants
     ln -sf /etc/systemd/system/rocketos-boot-probe.service /etc/systemd/system/graphical.target.wants/rocketos-boot-probe.service
-    ln -sf /etc/systemd/system/rocketos-boot-probe.service /etc/systemd/system/multi-user.target.wants/rocketos-boot-probe.service
     systemctl enable rocketos-boot-probe.service 2>/dev/null || true
 fi
 
@@ -64,6 +62,7 @@ fi
 mkdir -p /etc/systemd/system/getty.target.wants
 ln -sf /lib/systemd/system/getty@.service /etc/systemd/system/getty.target.wants/getty@tty2.service 2>/dev/null || true
 ln -sf /lib/systemd/system/getty@.service /etc/systemd/system/getty.target.wants/getty@tty3.service 2>/dev/null || true
+systemctl enable getty@tty2.service getty@tty3.service 2>/dev/null || true
 
 # 6. Ensure permissions on os-release and hostname
 chmod 644 /etc/os-release /etc/issue /etc/issue.net /etc/hostname /etc/hosts 2>/dev/null || true

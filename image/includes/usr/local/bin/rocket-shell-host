@@ -25,67 +25,38 @@ except ImportError as err:
     sys.stderr.write(f"FATAL: Required GObject libraries not found: {err}\n")
     sys.exit(1)
 
-LOG_FILE = "/var/log/rocketos-shell-host.log"
-MARKER_FILE = "/var/log/rocketos-phase3.log"
 DIAGNOSTIC_URL = "file:///usr/share/rocketos/diagnostic/index.html"
+SUPPORTED_PROTOCOL_VERSION = 1
+MAX_REQUEST_SIZE = 65536  # 64 KB limit to prevent memory exhaustion
+
+# Establish runtime marker paths under unprivileged XDG_RUNTIME_DIR
+RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+UI_LOADED_MARKER = os.path.join(RUNTIME_DIR, "rocketos-ui-loaded")
+BRIDGE_PING_MARKER = os.path.join(RUNTIME_DIR, "rocketos-bridge-ping-ok")
 
 def log(msg: str):
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    entry = f"[{timestamp}] [rocket-shell-host] {msg}"
-    print(entry, flush=True)
-    try:
-        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
-        with open(LOG_FILE, "a") as f:
-            f.write(entry + "\n")
-    except Exception:
-        pass
+    print(f"[{timestamp}] [rocket-shell-host] {msg}", flush=True)
 
-def emit_serial_marker(marker_name="ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK"):
-    """Emits the deterministic Phase 3 graphical boot success marker to serial/console."""
-    os_info = get_os_release_dict()
-    kernel_uname = " ".join(platform.uname())
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-    output = f"""==================================================
-{marker_name}
-==================================================
-SYSTEM_NAME: {os_info.get('NAME', 'RocketOS')}
-PRETTY_NAME: {os_info.get('PRETTY_NAME', 'RocketOS 0.1 Alpha')}
-ID: {os_info.get('ID', 'rocketos')}
-VERSION_ID: {os_info.get('VERSION_ID', '0.1')}
-SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE', 'wayland')}
-COMPOSITOR: cage
-SHELL_HOST: rocket-shell-host
-RUNTIME: GTK4 + WebKitGTK 6.0
-SESSION_USER: {os.environ.get('USER', 'rocket')}
-SESSION_PID: {os.getpid()}
-SYSTEMD_TARGET: graphical.target
-NATIVE_BRIDGE: active
-KERNEL_UNAME: {kernel_uname}
-ARCHITECTURE: {platform.machine()}
-HOSTNAME: {platform.node()}
-TIMESTAMP_UTC: {timestamp}
-=================================================="""
-
-    log(f"Emitting verification marker: {marker_name}")
-    print(output, flush=True)
-
-    # Write to log file
-    try:
-        os.makedirs(os.path.dirname(MARKER_FILE), exist_ok=True)
-        with open(MARKER_FILE, "w") as f:
-            f.write(output + "\n")
-    except Exception as e:
-        log(f"Notice: Failed writing marker file: {e}")
-
-    # Write directly to serial console if accessible
-    for dev in ("/dev/ttyS0", "/dev/console"):
+def cleanup_stale_markers():
+    """Removes stale session markers on startup."""
+    for path in (UI_LOADED_MARKER, BRIDGE_PING_MARKER):
         try:
-            if os.path.exists(dev) and os.access(dev, os.W_OK):
-                with open(dev, "w") as sf:
-                    sf.write(output + "\n")
-        except Exception:
-            pass
+            if os.path.exists(path):
+                os.remove(path)
+                log(f"Removed stale marker: {path}")
+        except Exception as e:
+            log(f"Notice: Failed removing marker {path}: {e}")
+
+def create_runtime_marker(path: str):
+    """Creates a deterministic marker file containing the current host PID."""
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(f"{os.getpid()}\n")
+        log(f"Runtime marker created: {path} (PID: {os.getpid()})")
+    except Exception as e:
+        log(f"ERROR creating runtime marker {path}: {e}")
 
 def get_os_release_dict():
     res = {}
@@ -115,6 +86,8 @@ class RocketShellHostApp(Gtk.Application):
 
     def do_activate(self):
         log("Initializing RocketOS Shell Host window (GTK4)...")
+        cleanup_stale_markers()
+
         if not self.window:
             self.window = Gtk.ApplicationWindow(application=self, title="RocketOS Shell Host")
             self.window.set_default_size(1280, 800)
@@ -128,12 +101,14 @@ class RocketShellHostApp(Gtk.Application):
                 self.on_script_message
             )
 
+            # Harden WebKitGTK settings: secure defaults for Phase 3
             settings = WebKit.Settings()
-            settings.set_enable_developer_extras(True)
             settings.set_enable_javascript(True)
             settings.set_allow_file_access_from_file_urls(True)
-            settings.set_allow_universal_access_from_file_urls(True)
-            settings.set_enable_webgl(True)
+            # Hardening: explicitly disable developer extras, universal access, and WebGL
+            settings.set_enable_developer_extras(False)
+            settings.set_allow_universal_access_from_file_urls(False)
+            settings.set_enable_webgl(False)
 
             self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
             self.webview.set_settings(settings)
@@ -143,7 +118,7 @@ class RocketShellHostApp(Gtk.Application):
 
             target_url = DIAGNOSTIC_URL
             if not os.path.exists("/usr/share/rocketos/diagnostic/index.html"):
-                log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading embedded fallback.")
+                log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
                 target_url = "about:blank"
                 self.webview.load_html(self.get_fallback_html(), "file:///")
             else:
@@ -154,22 +129,120 @@ class RocketShellHostApp(Gtk.Application):
 
     def on_load_changed(self, webview, event):
         if event == WebKit.LoadEvent.FINISHED:
-            log(f"Diagnostic UI loaded successfully: {webview.get_uri()}")
+            uri = webview.get_uri()
+            log(f"Page load finished: {uri}")
+            if uri == DIAGNOSTIC_URL or (uri and uri.startswith("file:///usr/share/rocketos/diagnostic/")):
+                create_runtime_marker(UI_LOADED_MARKER)
 
     def on_script_message(self, ucm, js_result):
+        val = None
         try:
             val = js_result.to_string()
-            data = json.loads(val)
-            req_id = data.get("id")
-            req_type = data.get("type")
-            payload = data.get("payload")
-            self.dispatch_request(req_id, req_type, payload)
         except Exception as e:
-            log(f"Error processing script message: {e}")
+            log(f"Failed to read script message string: {e}")
+            return
 
-    def dispatch_request(self, req_id, req_type, payload):
+        # 1. Validate request payload size before parsing
+        if len(val) > MAX_REQUEST_SIZE:
+            log(f"Rejecting oversized message ({len(val)} bytes > {MAX_REQUEST_SIZE})")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": "unknown",
+                "type": "unknown",
+                "success": False,
+                "error": "Request size exceeds maximum allowed limit"
+            })
+            return
+
+        # 2. Parse JSON safely without crashing host
+        try:
+            data = json.loads(val)
+        except Exception as e:
+            log(f"Malformed JSON in script message: {e}")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": "unknown",
+                "type": "unknown",
+                "success": False,
+                "error": f"Malformed JSON request: {e}"
+            })
+            return
+
+        # 3. Validate top-level is an object
+        if not isinstance(data, dict):
+            log("Invalid request: top-level JSON must be an object")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": "unknown",
+                "type": "unknown",
+                "success": False,
+                "error": "Top-level request must be a JSON object"
+            })
+            return
+
+        req_id = data.get("id")
+        req_type = data.get("type")
+        req_ver = data.get("version")
+        payload = data.get("payload")
+
+        # 4. Validate protocol version presence and compatibility
+        if req_ver is None:
+            log(f"Missing protocol version in request id={req_id}")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": str(req_id) if req_id else "unknown",
+                "type": str(req_type) if req_type else "unknown",
+                "success": False,
+                "error": "Missing protocol version field"
+            })
+            return
+
+        if req_ver != SUPPORTED_PROTOCOL_VERSION:
+            log(f"Unsupported protocol version {req_ver} (expected {SUPPORTED_PROTOCOL_VERSION})")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": str(req_id) if req_id else "unknown",
+                "type": str(req_type) if req_type else "unknown",
+                "success": False,
+                "error": f"Unsupported protocol version: {req_ver}. Supported version is {SUPPORTED_PROTOCOL_VERSION}."
+            })
+            return
+
+        # 5. Validate id is a non-empty string
+        if not isinstance(req_id, str) or not req_id.strip():
+            log("Invalid request id: must be non-empty string")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": "invalid",
+                "type": str(req_type) if req_type else "unknown",
+                "success": False,
+                "error": "Request id must be a non-empty string"
+            })
+            return
+
+        # 6. Validate type is a non-empty string
+        if not isinstance(req_type, str) or not req_type.strip():
+            log(f"Invalid request type in id={req_id}: must be non-empty string")
+            self.send_response_to_js({
+                "version": SUPPORTED_PROTOCOL_VERSION,
+                "id": req_id,
+                "type": "unknown",
+                "success": False,
+                "error": "Request type must be a non-empty string"
+            })
+            return
+
+        self.dispatch_request(req_id, req_type, payload)
+
+    def dispatch_request(self, req_id: str, req_type: str, payload):
         log(f"Bridge IPC request: type={req_type} id={req_id}")
-        response = {"id": req_id, "type": req_type, "success": True, "data": None}
+        response = {
+            "version": SUPPORTED_PROTOCOL_VERSION,
+            "id": req_id,
+            "type": req_type,
+            "success": True,
+            "data": None
+        }
 
         try:
             if req_type == "ping":
@@ -177,6 +250,8 @@ class RocketShellHostApp(Gtk.Application):
                     "pong": True,
                     "timestamp": int(time.time() * 1000)
                 }
+                # Create deterministic bridge ping runtime marker
+                create_runtime_marker(BRIDGE_PING_MARKER)
 
             elif req_type == "getSystemInfo":
                 os_info = get_os_release_dict()
@@ -200,7 +275,7 @@ class RocketShellHostApp(Gtk.Application):
                 wk_ver = f"{WebKit.get_major_version()}.{WebKit.get_minor_version()}.{WebKit.get_micro_version()}"
                 gtk_ver = f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}"
                 response["data"] = {
-                    "protocolVersion": "1.0",
+                    "protocolVersion": SUPPORTED_PROTOCOL_VERSION,
                     "host": "rocket-shell-host",
                     "webkitVersion": wk_ver,
                     "gtkVersion": gtk_ver
@@ -246,3 +321,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

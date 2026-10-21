@@ -5,7 +5,10 @@
  * and safe host/build information.
  */
 
+export const CURRENT_BRIDGE_PROTOCOL_VERSION = 1;
+
 export interface BridgeRequest<T = unknown> {
+  version: number;
   id: string;
   type: BridgeRequestType;
   payload?: T;
@@ -17,6 +20,7 @@ export type BridgeRequestType =
   | 'getSystemInfo';
 
 export interface BridgeResponse<T = unknown> {
+  version: number;
   id: string;
   type: BridgeRequestType;
   success: boolean;
@@ -30,7 +34,7 @@ export interface PingResponse {
 }
 
 export interface BridgeVersionInfo {
-  protocolVersion: string;
+  protocolVersion: number;
   host: string;
   webkitVersion: string;
   gtkVersion: string;
