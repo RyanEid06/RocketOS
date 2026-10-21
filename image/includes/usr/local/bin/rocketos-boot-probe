@@ -179,15 +179,70 @@ if [[ -z "${CAGE_PID}" ]]; then
   emit_fail "cage compositor is not running under user rocket"
 fi
 
-# Verify Diagnostic WebKit UI loaded and Native Bridge ping answered
 ROCKET_UID="$(id -u rocket 2>/dev/null || echo 1000)"
 RUNTIME_DIR="/run/user/${ROCKET_UID}"
 UI_LOADED_MARKER="${RUNTIME_DIR}/rocketos-ui-loaded"
 BRIDGE_PING_MARKER="${RUNTIME_DIR}/rocketos-bridge-ping-ok"
 
+collect_graphical_debug_evidence() {
+  local target_pid="${1:-${HOST_PID:-unknown}}"
+  local current_hosts
+  current_hosts="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
+  local current_cages
+  current_cages="$(pgrep -u rocket -f cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
+  local session_state
+  session_state="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
+  local session_status
+  session_status="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || echo '(status unavailable)')"
+  local session_journal
+  session_journal="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(journal unavailable)')"
+  local run_user_listing
+  run_user_listing="$(ls -la "/run/user/${ROCKET_UID}" 2>/dev/null || echo "(listing failed for /run/user/${ROCKET_UID})")"
+
+  local ui_val="(file not present)"
+  [ -f "${UI_LOADED_MARKER}" ] && ui_val="$(cat "${UI_LOADED_MARKER}" 2>/dev/null || echo '(read failed)')"
+  local ping_val="(file not present)"
+  [ -f "${BRIDGE_PING_MARKER}" ] && ping_val="$(cat "${BRIDGE_PING_MARKER}" 2>/dev/null || echo '(read failed)')"
+
+  local webkit_err="(no webkit error recorded)"
+  local webkit_err_file="/run/user/${ROCKET_UID}/rocketos-webkit-error"
+  [ -f "${webkit_err_file}" ] && webkit_err="$(cat "${webkit_err_file}" 2>/dev/null || echo '(read failed)')"
+
+  cat <<EOF
+--- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
+Expected Host PID:        ${target_pid}
+Current Host PID(s):      ${current_hosts}
+Current Cage PID(s):      ${current_cages}
+Graphical Service State:  ${session_state}
+UI Marker Value:          '${ui_val}'
+Bridge Ping Marker Value: '${ping_val}'
+WebKit Load Error File:
+${webkit_err}
+Contents of /run/user/${ROCKET_UID}:
+${run_user_listing}
+Service Status:
+${session_status}
+Recent Service Journal:
+${session_journal}
+---------------------------------------------
+EOF
+}
+
+# Verify Diagnostic WebKit UI loaded and Native Bridge ping answered
+# Bounded timeout (60 seconds) safe for software-rendered WebKitGTK under QEMU TCG
+INITIAL_READINESS_TIMEOUT_SECS=60
 UI_LOADED_PID=""
 BRIDGE_PING_PID=""
-for _ in {1..25}; do
+
+for ((sec=1; sec<=INITIAL_READINESS_TIMEOUT_SECS; sec++)); do
+  # Verify that the expected host process has not prematurely died or crash-looped
+  if ! kill -0 "${HOST_PID}" 2>/dev/null; then
+    CURRENT_HOSTS="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+    emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS})
+${DEBUG_EVIDENCE}"
+  fi
+
   if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
     UI_LOADED_PID="$(head -n1 "${UI_LOADED_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
     BRIDGE_PING_PID="$(head -n1 "${BRIDGE_PING_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -198,11 +253,15 @@ for _ in {1..25}; do
   sleep 1
 done
 
-if [[ "${UI_LOADED_PID}" != "${HOST_PID}" ]]; then
-  emit_fail "Diagnostic UI failed to complete loading (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}')"
-fi
-if [[ "${BRIDGE_PING_PID}" != "${HOST_PID}" ]]; then
-  emit_fail "Native bridge ping verification failed (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}')"
+if [[ "${UI_LOADED_PID}" != "${HOST_PID}" || "${BRIDGE_PING_PID}" != "${HOST_PID}" ]]; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+  if [[ "${UI_LOADED_PID}" != "${HOST_PID}" ]]; then
+    emit_fail "Diagnostic UI failed to complete loading within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}')
+${DEBUG_EVIDENCE}"
+  else
+    emit_fail "Native bridge ping verification failed within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}')
+${DEBUG_EVIDENCE}"
+  fi
 fi
 
 # Verify Emergency TTYs (TTY2 and TTY3) - MANDATORY AUTOMATED GATE
@@ -278,10 +337,11 @@ INITIAL_HOST_PID="${HOST_PID}"
 kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
 
 # Wait for systemd RestartSec=2 to relaunch the session
+RESTART_TIMEOUT_SECS=30
 RESTARTED=false
 NEW_HOST_PID=""
-for _ in {1..20}; do
-  NEW_PID="$(pgrep -u rocket -f rocket-shell-host | head -n1 || true)"
+for ((sec=1; sec<=RESTART_TIMEOUT_SECS; sec++)); do
+  NEW_PID="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | head -n1 || true)"
   if [[ -n "${NEW_PID}" && "${NEW_PID}" != "${INITIAL_HOST_PID}" ]]; then
     NEW_HOST_PID="${NEW_PID}"
     RESTARTED=true
@@ -291,19 +351,32 @@ for _ in {1..20}; do
 done
 
 if [[ "${RESTARTED}" != "true" || -z "${NEW_HOST_PID}" ]]; then
-  emit_fail "WP5 Failure: rocket-shell-host failed to restart after termination (initial PID: ${INITIAL_HOST_PID})"
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${INITIAL_HOST_PID}")"
+  emit_fail "WP5 Failure: rocket-shell-host failed to restart within ${RESTART_TIMEOUT_SECS}s after termination (initial PID: ${INITIAL_HOST_PID})
+${DEBUG_EVIDENCE}"
 fi
 
 # Verify restarted process owner is still rocket
 NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ "${NEW_OWNER}" != "rocket" ]]; then
-  emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'"
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
+  emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'
+${DEBUG_EVIDENCE}"
 fi
 
 # Verify restarted session restored WebKit UI and answered native bridge ping under NEW_HOST_PID
+RECOVERY_READINESS_TIMEOUT_SECS=60
 RECOVERED_UI_PID=""
 RECOVERED_PING_PID=""
-for _ in {1..25}; do
+
+for ((sec=1; sec<=RECOVERY_READINESS_TIMEOUT_SECS; sec++)); do
+  if ! kill -0 "${NEW_HOST_PID}" 2>/dev/null; then
+    CURRENT_HOSTS="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
+    emit_fail "WP5 Failure: Restarted rocket-shell-host (PID ${NEW_HOST_PID}) unexpectedly died before completing UI recovery (current host PIDs: ${CURRENT_HOSTS})
+${DEBUG_EVIDENCE}"
+  fi
+
   if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
     RECOVERED_UI_PID="$(head -n1 "${UI_LOADED_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
     RECOVERED_PING_PID="$(head -n1 "${BRIDGE_PING_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
@@ -314,18 +387,24 @@ for _ in {1..25}; do
   sleep 1
 done
 
-if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" ]]; then
-  emit_fail "WP5 Failure: Restarted session did not reload diagnostic UI under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_UI_PID}')"
-fi
-if [[ "${RECOVERED_PING_PID}" != "${NEW_HOST_PID}" ]]; then
-  emit_fail "WP5 Failure: Restarted session did not answer bridge ping under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_PING_PID}')"
+if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" || "${RECOVERED_PING_PID}" != "${NEW_HOST_PID}" ]]; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
+  if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" ]]; then
+    emit_fail "WP5 Failure: Restarted session did not reload diagnostic UI within ${RECOVERY_READINESS_TIMEOUT_SECS}s under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_UI_PID}')
+${DEBUG_EVIDENCE}"
+  else
+    emit_fail "WP5 Failure: Restarted session did not answer bridge ping within ${RECOVERY_READINESS_TIMEOUT_SECS}s under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_PING_PID}')
+${DEBUG_EVIDENCE}"
+  fi
 fi
 
 # Verify no accumulating orphan host or cage processes
 HOST_COUNT="$(pgrep -u rocket -f rocket-shell-host | wc -l)"
 CAGE_COUNT="$(pgrep -u rocket -f cage | wc -l)"
 if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
-  emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})"
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
+  emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})
+${DEBUG_EVIDENCE}"
 fi
 
 RECOVERY_CGROUP="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null | grep -E "(CGroup|├─|└─)" || ps -u rocket -o pid,user,args || true)"

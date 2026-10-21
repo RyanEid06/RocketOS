@@ -38,13 +38,15 @@ def log(msg: str):
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     print(f"[{timestamp}] [rocket-shell-host] {msg}", flush=True)
 
+WEBKIT_ERROR_FILE = os.path.join(RUNTIME_DIR, "rocketos-webkit-error")
+
 def cleanup_stale_markers():
     """Removes stale session markers on startup."""
-    for path in (UI_LOADED_MARKER, BRIDGE_PING_MARKER):
+    for path in (UI_LOADED_MARKER, BRIDGE_PING_MARKER, WEBKIT_ERROR_FILE):
         try:
             if os.path.exists(path):
                 os.remove(path)
-                log(f"Removed stale marker: {path}")
+                log(f"Removed stale marker/error file: {path}")
         except Exception as e:
             log(f"Notice: Failed removing marker {path}: {e}")
 
@@ -56,7 +58,7 @@ def create_runtime_marker(path: str):
             f.write(f"{os.getpid()}\n")
         log(f"Runtime marker created: {path} (PID: {os.getpid()})")
     except Exception as e:
-        log(f"ERROR creating runtime marker {path}: {e}")
+        log(f"ERROR: Runtime marker creation failure at {path}: {e}")
 
 def get_os_release_dict():
     res = {}
@@ -83,19 +85,29 @@ class RocketShellHostApp(Gtk.Application):
         self.window = None
         self.webview = None
         self.user_content_manager = None
+        self.first_ping_received = False
+        self.load_failed = False
+        self.last_load_error = None
 
     def do_activate(self):
-        log("Initializing RocketOS Shell Host window (GTK4)...")
+        log("Host activation requested: initializing RocketOS Shell Host (GTK4 + WebKitGTK 6.0)...")
         cleanup_stale_markers()
 
         if not self.window:
+            log("Creating GTK4 ApplicationWindow (1280x800 fullscreen)...")
             self.window = Gtk.ApplicationWindow(application=self, title="RocketOS Shell Host")
             self.window.set_default_size(1280, 800)
             self.window.fullscreen()
 
             # Initialize WebKitGTK 6.0 UserContentManager and WebView
+            log("Creating WebKitGTK 6.0 UserContentManager and WebView...")
             self.user_content_manager = WebKit.UserContentManager()
-            self.user_content_manager.register_script_message_handler("rocketBridge", None)
+            try:
+                reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge", None)
+                log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
+            except Exception as e:
+                log(f"ERROR registering bridge message-handler 'rocketBridge': {e}")
+
             self.user_content_manager.connect(
                 "script-message-received::rocketBridge",
                 self.on_script_message
@@ -113,6 +125,7 @@ class RocketShellHostApp(Gtk.Application):
             self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
             self.webview.set_settings(settings)
             self.webview.connect("load-changed", self.on_load_changed)
+            self.webview.connect("load-failed", self.on_load_failed)
 
             self.window.set_child(self.webview)
 
@@ -120,19 +133,52 @@ class RocketShellHostApp(Gtk.Application):
             if not os.path.exists("/usr/share/rocketos/diagnostic/index.html"):
                 log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
                 target_url = "about:blank"
+                log(f"Diagnostic URI load start (fallback): {target_url}")
                 self.webview.load_html(self.get_fallback_html(), "file:///")
             else:
-                log(f"Loading diagnostic UI: {target_url}")
+                log(f"Diagnostic URI load start: {target_url}")
                 self.webview.load_uri(target_url)
 
         self.window.present()
+        log("GTK4 window presented.")
 
     def on_load_changed(self, webview, event):
-        if event == WebKit.LoadEvent.FINISHED:
-            uri = webview.get_uri()
-            log(f"Page load finished: {uri}")
-            if uri == DIAGNOSTIC_URL or (uri and uri.startswith("file:///usr/share/rocketos/diagnostic/")):
-                create_runtime_marker(UI_LOADED_MARKER)
+        uri = webview.get_uri() or "unknown"
+        if event == WebKit.LoadEvent.STARTED:
+            log(f"WebKit load started: {uri}")
+            self.load_failed = False
+            self.last_load_error = None
+        elif event == WebKit.LoadEvent.REDIRECTED:
+            log(f"WebKit load redirected: {uri}")
+        elif event == WebKit.LoadEvent.COMMITTED:
+            log(f"Committed load: {uri}")
+        elif event == WebKit.LoadEvent.FINISHED:
+            log(f"WebKit load finished event: {uri}")
+            if self.load_failed:
+                log(f"Load finished after failure; refusing to create UI_LOADED_MARKER (error: {self.last_load_error})")
+            else:
+                if uri == DIAGNOSTIC_URL or (uri and uri.startswith("file:///usr/share/rocketos/diagnostic/")):
+                    log(f"Successful load finish: {uri}")
+                    create_runtime_marker(UI_LOADED_MARKER)
+                else:
+                    log(f"Notice: WebKit finished loading non-diagnostic URI: {uri}")
+
+    def on_load_failed(self, webview, load_event, failing_uri, error):
+        self.load_failed = True
+        err_msg = str(error)
+        err_code = getattr(error, 'code', 'unknown')
+        err_domain = getattr(error, 'domain', 'unknown')
+        if hasattr(error, 'message'):
+            err_msg = error.message
+        self.last_load_error = f"{failing_uri}: {err_msg} (domain={err_domain}, code={err_code})"
+        log(f"ERROR: WebKit page load failure for uri='{failing_uri}' (event={load_event}): {err_msg} (domain={err_domain}, code={err_code})")
+        try:
+            with open(WEBKIT_ERROR_FILE, "w") as f:
+                f.write(f"URI: {failing_uri}\nERROR: {err_msg}\nDOMAIN: {err_domain}\nCODE: {err_code}\nPID: {os.getpid()}\nEVENT: {load_event}\n")
+            log(f"Wrote WebKit error details to {WEBKIT_ERROR_FILE}")
+        except Exception as e:
+            log(f"Notice: Failed writing {WEBKIT_ERROR_FILE}: {e}")
+        return False
 
     def on_script_message(self, ucm, js_result):
         val = None
@@ -246,6 +292,9 @@ class RocketShellHostApp(Gtk.Application):
 
         try:
             if req_type == "ping":
+                if not self.first_ping_received:
+                    self.first_ping_received = True
+                    log(f"First native bridge ping received from client (req_id={req_id})")
                 response["data"] = {
                     "pong": True,
                     "timestamp": int(time.time() * 1000)

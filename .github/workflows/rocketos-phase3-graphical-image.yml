@@ -98,7 +98,7 @@ jobs:
                   echo \"ERROR: Required Syslinux package '\$pkg' is not installed!\" >&2
                   exit 1
                 fi
-                echo \"  ✓ \$pkg installed: \$(dpkg -s \$pkg | grep '^Version:' | head -n1)\"
+                echo \"  ✓ \$pkg installed: \$(dpkg -s \$pkg | grep -m1 '^Version:')\"
               done
               if [ ! -f /usr/lib/ISOLINUX/isolinux.bin ] && [ ! -f /usr/lib/syslinux/isolinux.bin ]; then
                 echo \"ERROR: isolinux.bin is missing from host filesystem!\" >&2
@@ -116,7 +116,7 @@ jobs:
                   echo \"ERROR: Required GRUB package '\$pkg' is not installed!\" >&2
                   exit 1
                 fi
-                echo \"  ✓ \$pkg installed: \$(dpkg -s \$pkg | grep '^Version:' | head -n1)\"
+                echo \"  ✓ \$pkg installed: \$(dpkg -s \$pkg | grep -m1 '^Version:')\"
               done
               if [ ! -d /usr/lib/grub/x86_64-efi ]; then
                 echo \"ERROR: /usr/lib/grub/x86_64-efi is missing from host filesystem!\" >&2
@@ -133,7 +133,7 @@ jobs:
                 echo \"ERROR: Required bootloader splash package 'librsvg2-bin' is not installed!\" >&2
                 exit 1
               fi
-              echo \"  ✓ librsvg2-bin installed: \$(dpkg -s librsvg2-bin | grep '^Version:' | head -n1)\"
+              echo \"  ✓ librsvg2-bin installed: \$(dpkg -s librsvg2-bin | grep -m1 '^Version:')\"
               if ! command -v rsvg-convert >/dev/null 2>&1; then
                 echo \"ERROR: Required tool 'rsvg-convert' is missing!\" >&2
                 exit 1
@@ -142,7 +142,12 @@ jobs:
               echo '=== Live-Build Diagnostic Version ==='
               lb --version
               echo '=== Live-Build Config Help ==='
-              lb config --help | head -n 35
+              LB_HELP_FILE=\"\$(mktemp)\"
+              if ! lb config --help >\"\${LB_HELP_FILE}\" 2>&1; then
+                echo \"WARNING: lb config --help returned non-zero; continuing because this is diagnostic-only.\"
+              fi
+              sed -n '1,35p' \"\${LB_HELP_FILE}\"
+              rm -f \"\${LB_HELP_FILE}\"
               bash scripts/phase3/build-image.sh --output-dir artifacts
             "
           sudo chown -R "$(id -u):$(id -g)" artifacts
@@ -152,14 +157,14 @@ jobs:
           bash scripts/phase3/smoke-test-qemu.sh \
             --mode bios \
             --iso artifacts/rocketos-0.1-phase3-amd64.iso \
-            --timeout 240
+            --timeout 300
 
       - name: Run QEMU UEFI Graphical Smoke Test
         run: |
           bash scripts/phase3/smoke-test-qemu.sh \
             --mode uefi \
             --iso artifacts/rocketos-0.1-phase3-amd64.iso \
-            --timeout 240
+            --timeout 300
 
       - name: Generate Phase 3 Verification Report
         if: always()
