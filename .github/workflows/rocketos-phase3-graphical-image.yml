@@ -64,6 +64,13 @@ jobs:
               apt-get install -y --no-install-recommends \
                 live-build \
                 debootstrap \
+                dctrl-tools \
+                cpio \
+                apt-utils \
+                file \
+                rsync \
+                wget \
+                xz-utils \
                 xorriso \
                 isolinux \
                 syslinux-utils \
@@ -74,6 +81,14 @@ jobs:
                 grub-efi-amd64-bin \
                 curl \
                 ca-certificates
+              echo '=== Pre-Build Host Tool Verification ==='
+              for cmd in lb debootstrap grep-dctrl cpio xorriso mksquashfs; do
+                if ! command -v \$cmd >/dev/null 2>&1; then
+                  echo \"ERROR: Required host build tool '\$cmd' is missing!\" >&2
+                  exit 1
+                fi
+                echo \"  ✓ \$cmd found: \$(command -v \$cmd)\"
+              done
               echo '=== Live-Build Diagnostic Version ==='
               lb --version
               echo '=== Live-Build Config Help ==='
