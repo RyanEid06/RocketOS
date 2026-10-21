@@ -12,6 +12,7 @@ Group=rocket
 PAMName=login
 Environment=HOME=/home/rocket
 Environment=USER=rocket
+Environment=PYTHONUNBUFFERED=1
 WorkingDirectory=/home/rocket
 TTYPath=/dev/tty1
 StandardInput=tty-fail

@@ -160,23 +160,121 @@ if ! id rocket >/dev/null 2>&1; then
   emit_fail "Dedicated unprivileged user 'rocket' does not exist"
 fi
 
+# Process Discovery Helpers
+# ------------------------------------------------------------------------------
+# Authoritatively identify Cage PID from systemd service or exact comm
+get_authoritative_cage_pid() {
+  local cage_pid=""
+  cage_pid="$(systemctl show --property=MainPID --value rocketos-graphical-session.service 2>/dev/null || true)"
+  if [[ -z "${cage_pid}" || "${cage_pid}" == "0" ]]; then
+    cage_pid="$(pgrep -u rocket -x cage 2>/dev/null | head -n1 || true)"
+  fi
+  echo "${cage_pid}"
+}
+
+# Authoritatively test whether a PID corresponds to rocket-shell-host
+is_shell_host_process() {
+  local pid="$1"
+  local cage_pid="${2:-}"
+
+  [[ -n "${pid}" && -d "/proc/${pid}" ]] || return 1
+  [[ -n "${cage_pid}" && "${pid}" == "${cage_pid}" ]] && return 1
+
+  # Must be owned by rocket
+  local owner
+  owner="$(ps -p "${pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ "${owner}" == "rocket" ]] || return 1
+
+  # Comm must NOT be cage, bwrap, or WebKit subprocesses
+  local comm
+  comm="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
+  if [[ "${comm}" == "cage" || "${comm}" =~ ^WebKit || "${comm}" == "bwrap" ]]; then
+    return 1
+  fi
+
+  # Inspect cmdline (NUL-separated)
+  local first_arg
+  first_arg="$(head -z -n 1 "/proc/${pid}/cmdline" 2>/dev/null || echo "")"
+  if [[ "${first_arg}" == *"cage"* ]]; then
+    return 1
+  fi
+
+  local cmdline
+  cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+  if [[ "${cmdline}" == *"rocket-shell-host"* ]]; then
+    return 0
+  fi
+
+  return 1
+}
+
+# Discover authoritative shell-host PID: inspect Cage children first, then user rocket processes
+find_shell_host_pid() {
+  local cage_pid="${1:-}"
+
+  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    local children=""
+    if [[ -f "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      children="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    if [[ -z "${children}" ]]; then
+      children="$(pgrep -P "${cage_pid}" 2>/dev/null || true)"
+    fi
+    for child in ${children}; do
+      if is_shell_host_process "${child}" "${cage_pid}"; then
+        echo "${child}"
+        return 0
+      fi
+    done
+  fi
+
+  # Fallback: scan all processes owned by user rocket
+  for p in $(pgrep -u rocket 2>/dev/null || true); do
+    if is_shell_host_process "${p}" "${cage_pid}"; then
+      echo "${p}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Find all shell-host PIDs (to detect duplicates or orphan processes)
+find_all_shell_host_pids() {
+  local cage_pid="${1:-}"
+  local pids=()
+  for p in $(pgrep -u rocket 2>/dev/null || true); do
+    if is_shell_host_process "${p}" "${cage_pid}"; then
+      pids+=("${p}")
+    fi
+  done
+  echo "${pids[@]:-}"
+}
+
 # Verify processes running under user rocket
 HOST_PID=""
 CAGE_PID=""
-for _ in {1..20}; do
-  HOST_PID="$(pgrep -u rocket -f rocket-shell-host | head -n1 || true)"
-  CAGE_PID="$(pgrep -u rocket -f cage | head -n1 || true)"
+for _ in {1..25}; do
+  CAGE_PID="$(get_authoritative_cage_pid || true)"
+  if [[ -n "${CAGE_PID}" ]]; then
+    HOST_PID="$(find_shell_host_pid "${CAGE_PID}" || true)"
+  fi
   if [[ -n "${HOST_PID}" && -n "${CAGE_PID}" ]]; then
     break
   fi
   sleep 1
 done
 
-if [[ -z "${HOST_PID}" ]]; then
-  emit_fail "rocket-shell-host is not running under user rocket"
-fi
 if [[ -z "${CAGE_PID}" ]]; then
   emit_fail "cage compositor is not running under user rocket"
+fi
+if [[ -z "${HOST_PID}" ]]; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+  emit_fail "rocket-shell-host is not running under user rocket
+${DEBUG_EVIDENCE}"
+fi
+if [[ "${CAGE_PID}" == "${HOST_PID}" ]]; then
+  emit_fail "Internal probe failure: CAGE_PID (${CAGE_PID}) was identified as HOST_PID"
 fi
 
 ROCKET_UID="$(id -u rocket 2>/dev/null || echo 1000)"
@@ -186,10 +284,34 @@ BRIDGE_PING_MARKER="${RUNTIME_DIR}/rocketos-bridge-ping-ok"
 
 collect_graphical_debug_evidence() {
   local target_pid="${1:-${HOST_PID:-unknown}}"
+  local cage_pid
+  cage_pid="$(get_authoritative_cage_pid || true)"
+  local cage_cmdline="(cage cmdline unavailable)"
+  local cage_children="(none)"
+  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    cage_cmdline="$(tr '\0' ' ' < "/proc/${cage_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
+    if [[ -f "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      cage_children="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    if [[ -z "${cage_children}" ]]; then
+      cage_children="$(pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    fi
+  fi
+
+  local host_cmdline="(host cmdline unavailable)"
+  local host_ppid="(unavailable)"
+  if [[ -n "${target_pid}" && -d "/proc/${target_pid}" ]]; then
+    host_cmdline="$(tr '\0' ' ' < "/proc/${target_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
+    host_ppid="$(ps -p "${target_pid}" -o ppid= 2>/dev/null | tr -d '[:space:]' || echo 'unknown')"
+  fi
+
   local current_hosts
-  current_hosts="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
-  local current_cages
-  current_cages="$(pgrep -u rocket -f cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
+  current_hosts="$(find_all_shell_host_pids "${cage_pid}")"
+  [[ -z "${current_hosts}" ]] && current_hosts="none"
+
+  local all_cage_pids
+  all_cage_pids="$(pgrep -u rocket -x cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
+
   local session_state
   session_state="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
   local session_status
@@ -198,6 +320,20 @@ collect_graphical_debug_evidence() {
   session_journal="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(journal unavailable)')"
   local run_user_listing
   run_user_listing="$(ls -la "/run/user/${ROCKET_UID}" 2>/dev/null || echo "(listing failed for /run/user/${ROCKET_UID})")"
+
+  local pstree_out="(pstree unavailable)"
+  if command -v pstree >/dev/null 2>&1; then
+    if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+      pstree_out="$(pstree -ap "${cage_pid}" 2>/dev/null || echo '(pstree failed)')"
+    else
+      pstree_out="$(pstree -ap -u rocket 2>/dev/null || echo '(pstree failed)')"
+    fi
+  fi
+
+  local ps_rocket_out
+  ps_rocket_out="$(ps -u rocket -o pid,ppid,user,stat,comm,args 2>/dev/null || true)"
+  local ps_ef_snippet
+  ps_ef_snippet="$(ps -ef 2>/dev/null || true)"
 
   local ui_val="(file not present)"
   [ -f "${UI_LOADED_MARKER}" ] && ui_val="$(cat "${UI_LOADED_MARKER}" 2>/dev/null || echo '(read failed)')"
@@ -211,8 +347,13 @@ collect_graphical_debug_evidence() {
   cat <<EOF
 --- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
 Expected Host PID:        ${target_pid}
+Host Parent PID:          ${host_ppid}
+Host Cmdline:             ${host_cmdline}
 Current Host PID(s):      ${current_hosts}
-Current Cage PID(s):      ${current_cages}
+Cage PID:                 ${cage_pid}
+Cage Cmdline:             ${cage_cmdline}
+Cage Children:            ${cage_children}
+All Cage PID(s):          ${all_cage_pids}
 Graphical Service State:  ${session_state}
 UI Marker Value:          '${ui_val}'
 Bridge Ping Marker Value: '${ping_val}'
@@ -220,6 +361,12 @@ WebKit Load Error File:
 ${webkit_err}
 Contents of /run/user/${ROCKET_UID}:
 ${run_user_listing}
+PSTREE:
+${pstree_out}
+Processes Owned by rocket (ps -u rocket -o pid,ppid,user,stat,comm,args):
+${ps_rocket_out}
+All Processes (ps -ef):
+${ps_ef_snippet}
 Service Status:
 ${session_status}
 Recent Service Journal:
@@ -237,9 +384,9 @@ BRIDGE_PING_PID=""
 for ((sec=1; sec<=INITIAL_READINESS_TIMEOUT_SECS; sec++)); do
   # Verify that the expected host process has not prematurely died or crash-looped
   if ! kill -0 "${HOST_PID}" 2>/dev/null; then
-    CURRENT_HOSTS="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    CURRENT_HOSTS="$(find_all_shell_host_pids "${CAGE_PID}")"
     DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
-    emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS})
+    emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS:-none})
 ${DEBUG_EVIDENCE}"
   fi
 
@@ -339,13 +486,17 @@ kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
 # Wait for systemd RestartSec=2 to relaunch the session
 RESTART_TIMEOUT_SECS=30
 RESTARTED=false
+NEW_CAGE_PID=""
 NEW_HOST_PID=""
 for ((sec=1; sec<=RESTART_TIMEOUT_SECS; sec++)); do
-  NEW_PID="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | head -n1 || true)"
-  if [[ -n "${NEW_PID}" && "${NEW_PID}" != "${INITIAL_HOST_PID}" ]]; then
-    NEW_HOST_PID="${NEW_PID}"
-    RESTARTED=true
-    break
+  NEW_CAGE_PID="$(get_authoritative_cage_pid || true)"
+  if [[ -n "${NEW_CAGE_PID}" ]]; then
+    NEW_PID="$(find_shell_host_pid "${NEW_CAGE_PID}" || true)"
+    if [[ -n "${NEW_PID}" && "${NEW_PID}" != "${INITIAL_HOST_PID}" ]]; then
+      NEW_HOST_PID="${NEW_PID}"
+      RESTARTED=true
+      break
+    fi
   fi
   sleep 1
 done
@@ -354,6 +505,10 @@ if [[ "${RESTARTED}" != "true" || -z "${NEW_HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${INITIAL_HOST_PID}")"
   emit_fail "WP5 Failure: rocket-shell-host failed to restart within ${RESTART_TIMEOUT_SECS}s after termination (initial PID: ${INITIAL_HOST_PID})
 ${DEBUG_EVIDENCE}"
+fi
+
+if [[ "${NEW_CAGE_PID}" == "${NEW_HOST_PID}" ]]; then
+  emit_fail "Internal probe failure during restart: NEW_CAGE_PID (${NEW_CAGE_PID}) == NEW_HOST_PID (${NEW_HOST_PID})"
 fi
 
 # Verify restarted process owner is still rocket
@@ -371,9 +526,9 @@ RECOVERED_PING_PID=""
 
 for ((sec=1; sec<=RECOVERY_READINESS_TIMEOUT_SECS; sec++)); do
   if ! kill -0 "${NEW_HOST_PID}" 2>/dev/null; then
-    CURRENT_HOSTS="$(pgrep -u rocket -f rocket-shell-host 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    CURRENT_HOSTS="$(find_all_shell_host_pids "${NEW_CAGE_PID}")"
     DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
-    emit_fail "WP5 Failure: Restarted rocket-shell-host (PID ${NEW_HOST_PID}) unexpectedly died before completing UI recovery (current host PIDs: ${CURRENT_HOSTS})
+    emit_fail "WP5 Failure: Restarted rocket-shell-host (PID ${NEW_HOST_PID}) unexpectedly died before completing UI recovery (current host PIDs: ${CURRENT_HOSTS:-none})
 ${DEBUG_EVIDENCE}"
   fi
 
@@ -399,8 +554,8 @@ ${DEBUG_EVIDENCE}"
 fi
 
 # Verify no accumulating orphan host or cage processes
-HOST_COUNT="$(pgrep -u rocket -f rocket-shell-host | wc -l)"
-CAGE_COUNT="$(pgrep -u rocket -f cage | wc -l)"
+HOST_COUNT="$(find_all_shell_host_pids "${NEW_CAGE_PID}" | wc -w)"
+CAGE_COUNT="$(pgrep -u rocket -x cage | wc -l)"
 if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})

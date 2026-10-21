@@ -12,17 +12,22 @@ import time
 import signal
 import platform
 
-# Ensure standard unprivileged path and home
-if not os.environ.get("HOME"):
-    os.environ["HOME"] = "/home/rocket"
+def log(msg: str):
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    print(f"[{timestamp}] [rocket-shell-host] {msg}", flush=True)
+
+# 1. Host process start + PID (logged before GTK imports)
+log(f"Host process start: PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
 
 try:
     import gi
     gi.require_version('Gtk', '4.0')
     gi.require_version('WebKit', '6.0')
     from gi.repository import Gtk, WebKit, GLib, Gio
+    log(f"GTK import success: GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}, WebKitGTK {WebKit.get_major_version()}.{WebKit.get_minor_version()}.{WebKit.get_micro_version()}")
 except ImportError as err:
     sys.stderr.write(f"FATAL: Required GObject libraries not found: {err}\n")
+    sys.stderr.flush()
     sys.exit(1)
 
 DIAGNOSTIC_URL = "file:///usr/share/rocketos/diagnostic/index.html"
@@ -33,10 +38,6 @@ MAX_REQUEST_SIZE = 65536  # 64 KB limit to prevent memory exhaustion
 RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
 UI_LOADED_MARKER = os.path.join(RUNTIME_DIR, "rocketos-ui-loaded")
 BRIDGE_PING_MARKER = os.path.join(RUNTIME_DIR, "rocketos-bridge-ping-ok")
-
-def log(msg: str):
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    print(f"[{timestamp}] [rocket-shell-host] {msg}", flush=True)
 
 WEBKIT_ERROR_FILE = os.path.join(RUNTIME_DIR, "rocketos-webkit-error")
 
@@ -362,8 +363,10 @@ def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    log("Starting RocketOS Native Shell Host (Phase 3)...")
+    log(f"Starting RocketOS Native Shell Host (Phase 3, PID: {os.getpid()})...")
+    log("Constructing RocketShellHostApp (Gtk.Application)...")
     app = RocketShellHostApp()
+    log("Gtk.Application constructed successfully; calling app.run(sys.argv)...")
     exit_status = app.run(sys.argv)
     log(f"RocketOS Native Shell Host exited with code {exit_status}")
     sys.exit(exit_status)
