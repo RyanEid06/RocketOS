@@ -12,6 +12,21 @@ TARGET_DEV="/dev/console"
 LOG_FILE="/var/log/rocketos-boot-probe.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
+PROBE_COMPLETED=false
+
+# Dedicated serial-first checkpoint logger
+log_checkpoint() {
+  local msg="$1"
+  local ts
+  ts="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+  local line="[CHECKPOINT ${ts}] ${msg}"
+  if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+    echo "${line}" > /dev/ttyS0 2>/dev/null || true
+  fi
+  echo "${line}" >> "${LOG_FILE}" 2>/dev/null || true
+  echo "${line}" > "${TARGET_DEV}" 2>/dev/null || true
+}
+
 emit_fail() {
   local reason="$1"
   local output="==================================================
@@ -21,12 +36,56 @@ FAILURE_REASON: ${reason}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 =================================================="
 
-  echo "${output}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
+  log_checkpoint "PHASE3_PROBE_FAIL_TRIGGERED"
+  # 1. Output to serial console FIRST (unbuffered for CI test runner capture)
   if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
     echo "${output}" > /dev/ttyS0 2>/dev/null || true
   fi
+  # 2. Append to log file
+  echo "${output}" >> "${LOG_FILE}" 2>/dev/null || true
+  # 3. Output to console device without risk of hanging on large output
+  echo "${output}" | head -n 40 > "${TARGET_DEV}" 2>/dev/null || true
   exit 1
 }
+
+# Shell error trap to ensure 'set -e' never exits silently without emitting ROCKETOS_BOOT_FAIL
+trap_error_handler() {
+  local exit_code=$?
+  local line_no=$1
+  local bash_command="$2"
+  if [[ ${exit_code} -ne 0 && "${PROBE_COMPLETED}" != "true" ]]; then
+    log_checkpoint "PHASE3_PROBE_ERROR line=${line_no} exit=${exit_code} cmd='${bash_command}'"
+    emit_fail "Unexpected shell failure at line ${line_no} (exit code ${exit_code}, command: '${bash_command}')"
+  fi
+}
+trap 'trap_error_handler $LINENO "$BASH_COMMAND"' ERR
+
+# Global watchdog safety bound (Requirement 4)
+# Bounds total guest probe duration to 200s (safely below host QEMU 300s timeout)
+PROBE_WATCHDOG_TIMEOUT_SECS=200
+(
+  sleep "${PROBE_WATCHDOG_TIMEOUT_SECS}"
+  if [[ ! -f /run/rocketos-boot-probe-done ]]; then
+    echo "[WATCHDOG $(date -u '+%Y-%m-%dT%H:%M:%SZ')] Probe watchdog expired (${PROBE_WATCHDOG_TIMEOUT_SECS}s)" > /dev/ttyS0 2>/dev/null || true
+    cat <<EOF > /dev/ttyS0 2>/dev/null || true
+==================================================
+ROCKETOS_BOOT_FAIL
+==================================================
+FAILURE_REASON: Global boot probe watchdog timed out (${PROBE_WATCHDOG_TIMEOUT_SECS}s)
+TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+==================================================
+EOF
+    kill -ALRM $$ 2>/dev/null || true
+  fi
+) &
+WATCHDOG_PID=$!
+
+trap_watchdog_handler() {
+  emit_fail "Global boot probe watchdog timed out after ${PROBE_WATCHDOG_TIMEOUT_SECS}s"
+}
+trap trap_watchdog_handler SIGALRM
+
+log_checkpoint "PHASE3_PROBE_START"
 
 # 1. Verify kernel is running and responsive
 if [ ! -f /proc/version ]; then
@@ -39,12 +98,14 @@ if [[ -z "${KERNEL_UNAME}" ]]; then
 fi
 
 KERNEL_RELEASE="$(uname -r 2>/dev/null || true)"
+log_checkpoint "PHASE3_KERNEL_CHECK_OK uname='${KERNEL_UNAME}'"
 
 # 2. Verify architecture is x86_64
 ARCH="$(uname -m 2>/dev/null || true)"
 if [[ "${ARCH}" != "x86_64" ]]; then
   emit_fail "Architecture is '${ARCH}', expected 'x86_64'"
 fi
+log_checkpoint "PHASE3_ARCH_CHECK_OK arch='${ARCH}'"
 
 # 3. Verify PID 1 / init system is systemd
 INIT_NAME=""
@@ -57,6 +118,7 @@ fi
 if [[ "${INIT_NAME}" != "systemd" ]]; then
   emit_fail "PID 1 is '${INIT_NAME}', expected 'systemd'"
 fi
+log_checkpoint "PHASE3_INIT_SYSTEMD_OK"
 
 # 4. Verify systemd health state (multi-user.target reached and active)
 for _ in {1..30}; do
@@ -98,8 +160,10 @@ fi
 PRETTY_NAME="$(grep '^PRETTY_NAME=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
 VERSION_ID="$(grep '^VERSION_ID=' /etc/os-release 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
 SYSTEMD_VERSION="$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}' || true)"
+log_checkpoint "PHASE3_OS_RELEASE_OK id='${OS_ID}' version='${VERSION_ID}'"
 
 # EMIT PHASE 2 MARKER FOR REGRESSION VERIFICATION
+log_checkpoint "PHASE3_EMIT_PHASE2_MARKER"
 PHASE2_OUTPUT="==================================================
 ROCKETOS_PHASE2_BOOT_OK
 ==================================================
@@ -117,25 +181,25 @@ INIT_SYSTEM: systemd ${SYSTEMD_VERSION}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 =================================================="
 
-echo "${PHASE2_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
 if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
   echo "${PHASE2_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
 fi
+echo "${PHASE2_OUTPUT}" >> "${LOG_FILE}" 2>/dev/null || true
+echo "${PHASE2_OUTPUT}" > "${TARGET_DEV}" 2>/dev/null || true
 
 # 7. PHASE 3 GRAPHICAL VERIFICATION
 # 7a. Verify configured default target is graphical.target
+log_checkpoint "PHASE3_CHECK_DEFAULT_TARGET_START"
 DEFAULT_TARGET="$(systemctl get-default 2>/dev/null || true)"
 if [[ "${DEFAULT_TARGET}" != "graphical.target" ]]; then
   emit_fail "Configured default systemd target is '${DEFAULT_TARGET}', expected 'graphical.target'"
 fi
+log_checkpoint "PHASE3_CHECK_DEFAULT_TARGET_OK target='${DEFAULT_TARGET}'"
 
 # 7b. Wait for and require rocketos-graphical-session.service to be active
-# Note: rocketos-boot-probe runs as a Type=oneshot service WantedBy=graphical.target.
-# Therefore, graphical.target remains in 'activating' state until the probe completes.
-# Checking 'systemctl is-active graphical.target' inside the probe creates a circular
-# dependency deadlock. We verify default target above and wait directly for the session service.
+log_checkpoint "PHASE3_WAIT_GRAPHICAL_SERVICE_START"
 GRAPHICAL_ACTIVE=false
-for _ in {1..35}; do
+for ((sec=1; sec<=35; sec++)); do
   if systemctl is-active --quiet rocketos-graphical-session.service 2>/dev/null; then
     GRAPHICAL_ACTIVE=true
     break
@@ -153,12 +217,14 @@ ${SESSION_STATUS}
 --- SERVICE JOURNAL ---
 ${SESSION_JOURNAL}"
 fi
-
+log_checkpoint "PHASE3_WAIT_GRAPHICAL_SERVICE_OK"
 
 # Verify unprivileged user rocket
+log_checkpoint "PHASE3_VERIFY_ROCKET_USER_START"
 if ! id rocket >/dev/null 2>&1; then
   emit_fail "Dedicated unprivileged user 'rocket' does not exist"
 fi
+log_checkpoint "PHASE3_VERIFY_ROCKET_USER_OK"
 
 # Process Discovery Helpers
 # ------------------------------------------------------------------------------
@@ -166,10 +232,29 @@ fi
 get_authoritative_cage_pid() {
   local cage_pid=""
   cage_pid="$(systemctl show --property=MainPID --value rocketos-graphical-session.service 2>/dev/null || true)"
-  if [[ -z "${cage_pid}" || "${cage_pid}" == "0" ]]; then
-    cage_pid="$(pgrep -u rocket -x cage 2>/dev/null | head -n1 || true)"
+  if [[ "${cage_pid}" =~ ^[0-9]+$ && ${cage_pid} -gt 1 && -d "/proc/${cage_pid}" ]]; then
+    local owner
+    owner="$(ps -p "${cage_pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${owner}" == "rocket" ]]; then
+      local comm
+      comm="$(cat "/proc/${cage_pid}/comm" 2>/dev/null || true)"
+      if [[ "${comm}" == "cage" ]]; then
+        echo "${cage_pid}"
+        return 0
+      fi
+    fi
   fi
-  echo "${cage_pid}"
+
+  # Fallback to exact comm 'cage' owned by rocket
+  for p in $(pgrep -u rocket -x cage 2>/dev/null || true); do
+    if [[ -d "/proc/${p}" ]]; then
+      echo "${p}"
+      return 0
+    fi
+  done
+
+  echo ""
+  return 1
 }
 
 # Authoritatively test whether a PID corresponds to rocket-shell-host
@@ -177,10 +262,10 @@ is_shell_host_process() {
   local pid="$1"
   local cage_pid="${2:-}"
 
-  [[ -n "${pid}" && -d "/proc/${pid}" ]] || return 1
+  [[ "${pid}" =~ ^[0-9]+$ && ${pid} -gt 1 && -d "/proc/${pid}" ]] || return 1
   [[ -n "${cage_pid}" && "${pid}" == "${cage_pid}" ]] && return 1
 
-  # Must be owned by rocket
+  # Must be owned by user rocket
   local owner
   owner="$(ps -p "${pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
   [[ "${owner}" == "rocket" ]] || return 1
@@ -192,34 +277,59 @@ is_shell_host_process() {
     return 1
   fi
 
-  # Inspect cmdline (NUL-separated)
-  local first_arg
-  first_arg="$(head -z -n 1 "/proc/${pid}/cmdline" 2>/dev/null || echo "")"
-  if [[ "${first_arg}" == *"cage"* ]]; then
+  # Read cmdline (NUL-separated)
+  local cmdline=""
+  if [[ -r "/proc/${pid}/cmdline" ]]; then
+    cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+  fi
+  [[ -n "${cmdline}" ]] || return 1
+
+  # First argument / executable must NOT be cage
+  local arg0="${cmdline%% *}"
+  local base_arg0="${arg0##*/}"
+  [[ "${base_arg0}" != "cage" ]] || return 1
+
+  # Must NOT be WebKit or bwrap
+  if [[ "${cmdline}" =~ WebKit|bwrap ]]; then
     return 1
   fi
 
-  local cmdline
-  cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
-  if [[ "${cmdline}" == *"rocket-shell-host"* ]]; then
-    return 0
+  # Must genuinely execute rocket-shell-host
+  if [[ "${cmdline}" != *"rocket-shell-host"* ]]; then
+    return 1
   fi
 
-  return 1
+  # Parent relationship: verify Cage or Cage descendant in parent hierarchy if cage_pid provided
+  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    local ppid
+    ppid="$(ps -p "${pid}" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ "${ppid}" != "${cage_pid}" ]]; then
+      # Trace ancestors up to 5 levels to verify Cage is in ancestry
+      local curr="${ppid}"
+      local is_descendant=false
+      for ((i=0; i<5; i++)); do
+        if [[ "${curr}" == "${cage_pid}" ]]; then
+          is_descendant=true
+          break
+        fi
+        [[ "${curr}" =~ ^[0-9]+$ && ${curr} -gt 1 && -d "/proc/${curr}" ]] || break
+        curr="$(ps -p "${curr}" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
+      done
+      [[ "${is_descendant}" == "true" ]] || return 1
+    fi
+  fi
+
+  return 0
 }
 
 # Discover authoritative shell-host PID: inspect Cage children first, then user rocket processes
 find_shell_host_pid() {
   local cage_pid="${1:-}"
 
+  # Step 1: Inspect direct children of Cage first
   if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
-    local children=""
-    if [[ -f "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
-      children="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
-    fi
-    if [[ -z "${children}" ]]; then
-      children="$(pgrep -P "${cage_pid}" 2>/dev/null || true)"
-    fi
+    local children
+    children="$(pgrep -P "${cage_pid}" 2>/dev/null || true)"
     for child in ${children}; do
       if is_shell_host_process "${child}" "${cage_pid}"; then
         echo "${child}"
@@ -228,7 +338,7 @@ find_shell_host_pid() {
     done
   fi
 
-  # Fallback: scan all processes owned by user rocket
+  # Step 2: Scan all processes owned by user rocket
   for p in $(pgrep -u rocket 2>/dev/null || true); do
     if is_shell_host_process "${p}" "${cage_pid}"; then
       echo "${p}"
@@ -236,6 +346,7 @@ find_shell_host_pid() {
     fi
   done
 
+  echo ""
   return 1
 }
 
@@ -248,34 +359,47 @@ find_all_shell_host_pids() {
       pids+=("${p}")
     fi
   done
-  echo "${pids[@]:-}"
+  echo "${pids[*]:-}"
 }
 
-# Verify processes running under user rocket
-HOST_PID=""
+# Initial Process Discovery (Bounded)
+log_checkpoint "PHASE3_DISCOVER_CAGE_START"
 CAGE_PID=""
-for _ in {1..25}; do
+for ((sec=1; sec<=15; sec++)); do
   CAGE_PID="$(get_authoritative_cage_pid || true)"
   if [[ -n "${CAGE_PID}" ]]; then
-    HOST_PID="$(find_shell_host_pid "${CAGE_PID}" || true)"
-  fi
-  if [[ -n "${HOST_PID}" && -n "${CAGE_PID}" ]]; then
     break
   fi
   sleep 1
 done
 
 if [[ -z "${CAGE_PID}" ]]; then
-  emit_fail "cage compositor is not running under user rocket"
-fi
-if [[ -z "${HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
-  emit_fail "rocket-shell-host is not running under user rocket
+  emit_fail "cage compositor is not running under user rocket
 ${DEBUG_EVIDENCE}"
 fi
+log_checkpoint "PHASE3_DISCOVER_CAGE_OK pid=${CAGE_PID}"
+
+log_checkpoint "PHASE3_DISCOVER_HOST_START"
+HOST_PID=""
+for ((sec=1; sec<=15; sec++)); do
+  HOST_PID="$(find_shell_host_pid "${CAGE_PID}" || true)"
+  if [[ -n "${HOST_PID}" ]]; then
+    break
+  fi
+  sleep 1
+done
+
+if [[ -z "${HOST_PID}" ]]; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+  emit_fail "rocket-shell-host was not spawned within 15s
+${DEBUG_EVIDENCE}"
+fi
+
 if [[ "${CAGE_PID}" == "${HOST_PID}" ]]; then
   emit_fail "Internal probe failure: CAGE_PID (${CAGE_PID}) was identified as HOST_PID"
 fi
+log_checkpoint "PHASE3_DISCOVER_HOST_OK pid=${HOST_PID}"
 
 ROCKET_UID="$(id -u rocket 2>/dev/null || echo 1000)"
 RUNTIME_DIR="/run/user/${ROCKET_UID}"
@@ -290,12 +414,7 @@ collect_graphical_debug_evidence() {
   local cage_children="(none)"
   if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
     cage_cmdline="$(tr '\0' ' ' < "/proc/${cage_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
-    if [[ -f "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
-      cage_children="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
-    fi
-    if [[ -z "${cage_children}" ]]; then
-      cage_children="$(pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || echo 'none')"
-    fi
+    cage_children="$(pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || echo 'none')"
   fi
 
   local host_cmdline="(host cmdline unavailable)"
@@ -312,12 +431,18 @@ collect_graphical_debug_evidence() {
   local all_cage_pids
   all_cage_pids="$(pgrep -u rocket -x cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
 
+  local probe_status
+  probe_status="$(systemctl status rocketos-boot-probe.service --no-pager 2>/dev/null || echo '(probe status unavailable)')"
+  local probe_journal
+  probe_journal="$(journalctl -u rocketos-boot-probe.service -n 30 --no-pager 2>/dev/null || echo '(probe journal unavailable)')"
+
   local session_state
   session_state="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
   local session_status
-  session_status="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || echo '(status unavailable)')"
+  session_status="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || echo '(session status unavailable)')"
   local session_journal
-  session_journal="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(journal unavailable)')"
+  session_journal="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(session journal unavailable)')"
+
   local run_user_listing
   run_user_listing="$(ls -la "/run/user/${ROCKET_UID}" 2>/dev/null || echo "(listing failed for /run/user/${ROCKET_UID})")"
 
@@ -326,7 +451,7 @@ collect_graphical_debug_evidence() {
     if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
       pstree_out="$(pstree -ap "${cage_pid}" 2>/dev/null || echo '(pstree failed)')"
     else
-      pstree_out="$(pstree -ap -u rocket 2>/dev/null || echo '(pstree failed)')"
+      pstree_out="$(pstree -ap rocket 2>/dev/null || echo '(pstree failed)')"
     fi
   fi
 
@@ -367,9 +492,13 @@ Processes Owned by rocket (ps -u rocket -o pid,ppid,user,stat,comm,args):
 ${ps_rocket_out}
 All Processes (ps -ef):
 ${ps_ef_snippet}
-Service Status:
+Boot Probe Service Status:
+${probe_status}
+Boot Probe Journal:
+${probe_journal}
+Session Service Status:
 ${session_status}
-Recent Service Journal:
+Recent Session Journal:
 ${session_journal}
 ---------------------------------------------
 EOF
@@ -377,6 +506,7 @@ EOF
 
 # Verify Diagnostic WebKit UI loaded and Native Bridge ping answered
 # Bounded timeout (60 seconds) safe for software-rendered WebKitGTK under QEMU TCG
+log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_START expected_host_pid=${HOST_PID}"
 INITIAL_READINESS_TIMEOUT_SECS=60
 UI_LOADED_PID=""
 BRIDGE_PING_PID=""
@@ -410,13 +540,15 @@ ${DEBUG_EVIDENCE}"
 ${DEBUG_EVIDENCE}"
   fi
 fi
+log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_OK host_pid=${HOST_PID}"
 
 # Verify Emergency TTYs (TTY2 and TTY3) - MANDATORY AUTOMATED GATE
+log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_START"
 TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
 TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
 
 if [[ "${TTY2_STATE}" != "active" || "${TTY3_STATE}" != "active" ]]; then
-  for _ in {1..15}; do
+  for ((sec=1; sec<=15; sec++)); do
     TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
     TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
     if [[ "${TTY2_STATE}" == "active" && "${TTY3_STATE}" == "active" ]]; then
@@ -432,14 +564,16 @@ fi
 if [[ "${TTY3_STATE}" != "active" ]]; then
   emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')"
 fi
+log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_OK"
 
-SESSION_SCRIPT_PID="$(pgrep -u rocket -f rocketos-session | head -n1 || echo 'N/A')"
+# EMIT PHASE 3 GRAPHICAL BOOT MARKER
+log_checkpoint "PHASE3_EMIT_BOOT_MARKER"
+SESSION_SCRIPT_PID="$(pgrep -u rocket -f rocketos-session 2>/dev/null | head -n1 || echo 'N/A')"
 CAGE_OWNER="$(ps -p "${CAGE_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || echo 'rocket')"
 HOST_OWNER="$(ps -p "${HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || echo 'rocket')"
 GRAPHICAL_STATUS="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
 JOURNAL_SNIPPET="$(journalctl -u rocketos-graphical-session.service -n 20 --no-pager 2>/dev/null || true)"
 
-# EMIT PHASE 3 GRAPHICAL BOOT MARKER
 PHASE3_OUTPUT="==================================================
 ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK
 ==================================================
@@ -471,19 +605,21 @@ ${JOURNAL_SNIPPET}
 ----------------------------------------
 =================================================="
 
-echo "${PHASE3_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
 if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
   echo "${PHASE3_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
 fi
+echo "${PHASE3_OUTPUT}" >> "${LOG_FILE}" 2>/dev/null || true
+echo "${PHASE3_OUTPUT}" > "${TARGET_DEV}" 2>/dev/null || true
 
 # 8. AUTOMATED RUNTIME CRASH RECOVERY VALIDATION (WP5)
-echo "[boot-probe] Commencing automated controlled crash recovery validation..."
-
+log_checkpoint "PHASE3_WP5_RECOVERY_TEST_START"
 INITIAL_HOST_PID="${HOST_PID}"
+log_checkpoint "PHASE3_WP5_KILL_INITIAL_HOST pid=${INITIAL_HOST_PID}"
 # Deliberately terminate the host process with SIGKILL
 kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
 
 # Wait for systemd RestartSec=2 to relaunch the session
+log_checkpoint "PHASE3_WP5_WAIT_RESTART_START"
 RESTART_TIMEOUT_SECS=30
 RESTARTED=false
 NEW_CAGE_PID=""
@@ -510,6 +646,7 @@ fi
 if [[ "${NEW_CAGE_PID}" == "${NEW_HOST_PID}" ]]; then
   emit_fail "Internal probe failure during restart: NEW_CAGE_PID (${NEW_CAGE_PID}) == NEW_HOST_PID (${NEW_HOST_PID})"
 fi
+log_checkpoint "PHASE3_WP5_WAIT_RESTART_OK cage_pid=${NEW_CAGE_PID} host_pid=${NEW_HOST_PID}"
 
 # Verify restarted process owner is still rocket
 NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
@@ -520,6 +657,7 @@ ${DEBUG_EVIDENCE}"
 fi
 
 # Verify restarted session restored WebKit UI and answered native bridge ping under NEW_HOST_PID
+log_checkpoint "PHASE3_WP5_WAIT_RECOVERY_READINESS_START expected_host_pid=${NEW_HOST_PID}"
 RECOVERY_READINESS_TIMEOUT_SECS=60
 RECOVERED_UI_PID=""
 RECOVERED_PING_PID=""
@@ -552,20 +690,24 @@ ${DEBUG_EVIDENCE}"
 ${DEBUG_EVIDENCE}"
   fi
 fi
+log_checkpoint "PHASE3_WP5_WAIT_RECOVERY_READINESS_OK host_pid=${NEW_HOST_PID}"
 
 # Verify no accumulating orphan host or cage processes
+log_checkpoint "PHASE3_WP5_CHECK_ORPHANS_START"
 HOST_COUNT="$(find_all_shell_host_pids "${NEW_CAGE_PID}" | wc -w)"
-CAGE_COUNT="$(pgrep -u rocket -x cage | wc -l)"
+CAGE_COUNT="$(pgrep -u rocket -x cage 2>/dev/null | wc -l)"
 if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})
 ${DEBUG_EVIDENCE}"
 fi
+log_checkpoint "PHASE3_WP5_CHECK_ORPHANS_OK"
 
-RECOVERY_CGROUP="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null | grep -E "(CGroup|├─|└─)" || ps -u rocket -o pid,user,args || true)"
+RECOVERY_CGROUP="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null | grep -E "(CGroup|├─|└─)" || ps -u rocket -o pid,user,args 2>/dev/null || true)"
 RECOVERY_JOURNAL="$(journalctl -u rocketos-graphical-session.service -n 20 --no-pager 2>/dev/null || true)"
 
 # Emit WP5 Recovery Success Marker
+log_checkpoint "PHASE3_WP5_EMIT_RECOVERY_MARKER"
 RECOVERY_OUTPUT="==================================================
 ROCKETOS_WP5_RECOVERY_TEST_PASS
 ==================================================
@@ -586,9 +728,15 @@ ${RECOVERY_JOURNAL}
 ------------------------------------
 =================================================="
 
-echo "${RECOVERY_OUTPUT}" | tee -a "${LOG_FILE}" > "${TARGET_DEV}" 2>/dev/null || true
 if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
   echo "${RECOVERY_OUTPUT}" > /dev/ttyS0 2>/dev/null || true
 fi
+echo "${RECOVERY_OUTPUT}" >> "${LOG_FILE}" 2>/dev/null || true
+echo "${RECOVERY_OUTPUT}" > "${TARGET_DEV}" 2>/dev/null || true
+
+PROBE_COMPLETED=true
+touch /run/rocketos-boot-probe-done
+kill "${WATCHDOG_PID}" 2>/dev/null || true
+log_checkpoint "PHASE3_PROBE_COMPLETE"
 
 exit 0

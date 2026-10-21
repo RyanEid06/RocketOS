@@ -10,6 +10,9 @@ RemainAfterExit=yes
 ExecStart=/usr/local/bin/rocketos-boot-probe
 StandardOutput=journal+console
 StandardError=journal+console
+TimeoutSec=220
+ExecStopPost=/bin/sh -c 'if [ "$$EXIT_STATUS" != "0" ] && [ "$$EXIT_STATUS" != "" ]; then echo "[SYSTEMD] rocketos-boot-probe.service FAILED with exit status $$EXIT_STATUS" > /dev/ttyS0 2>/dev/null || true; fi'
 
 [Install]
 WantedBy=graphical.target
+
