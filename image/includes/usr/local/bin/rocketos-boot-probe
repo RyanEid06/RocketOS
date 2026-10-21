@@ -123,10 +123,20 @@ if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
 fi
 
 # 7. PHASE 3 GRAPHICAL VERIFICATION
-# Wait for graphical target and rocketos-graphical-session
+# 7a. Verify configured default target is graphical.target
+DEFAULT_TARGET="$(systemctl get-default 2>/dev/null || true)"
+if [[ "${DEFAULT_TARGET}" != "graphical.target" ]]; then
+  emit_fail "Configured default systemd target is '${DEFAULT_TARGET}', expected 'graphical.target'"
+fi
+
+# 7b. Wait for and require rocketos-graphical-session.service to be active
+# Note: rocketos-boot-probe runs as a Type=oneshot service WantedBy=graphical.target.
+# Therefore, graphical.target remains in 'activating' state until the probe completes.
+# Checking 'systemctl is-active graphical.target' inside the probe creates a circular
+# dependency deadlock. We verify default target above and wait directly for the session service.
 GRAPHICAL_ACTIVE=false
 for _ in {1..35}; do
-  if systemctl is-active --quiet graphical.target 2>/dev/null && systemctl is-active --quiet rocketos-graphical-session.service 2>/dev/null; then
+  if systemctl is-active --quiet rocketos-graphical-session.service 2>/dev/null; then
     GRAPHICAL_ACTIVE=true
     break
   fi
@@ -135,8 +145,15 @@ done
 
 if [[ "${GRAPHICAL_ACTIVE}" != "true" ]]; then
   SESSION_STATE="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo "inactive")"
-  emit_fail "graphical session failed to activate (service state: ${SESSION_STATE})"
+  SESSION_STATUS="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || true)"
+  SESSION_JOURNAL="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || true)"
+  emit_fail "rocketos-graphical-session.service failed to activate (service state: ${SESSION_STATE})
+--- SERVICE STATUS ---
+${SESSION_STATUS}
+--- SERVICE JOURNAL ---
+${SESSION_JOURNAL}"
 fi
+
 
 # Verify unprivileged user rocket
 if ! id rocket >/dev/null 2>&1; then
