@@ -97,13 +97,22 @@ trap trap_watchdog_handler SIGALRM
 # Authoritatively identify Cage PID from systemd service or exact comm
 get_authoritative_cage_pid() {
   local cage_pid=""
-  cage_pid="$(systemctl show --property=MainPID --value rocketos-graphical-session.service 2>/dev/null || true)"
+  cage_pid="$(timeout 2s systemctl show --property=MainPID --value rocketos-graphical-session.service 2>/dev/null || true)"
   if [[ "${cage_pid}" =~ ^[0-9]+$ && ${cage_pid} -gt 1 && -d "/proc/${cage_pid}" ]]; then
-    local owner=""
-    owner="$(ps -p "${cage_pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
-    if [[ "${owner}" == "rocket" ]]; then
+    local uid=""
+    if [[ -r "/proc/${cage_pid}/status" ]]; then
+      while IFS=: read -r key val; do
+        if [[ "${key}" == "Uid" ]]; then
+          read -r uid _ <<< "${val}"
+          break
+        fi
+      done < "/proc/${cage_pid}/status" 2>/dev/null || true
+    fi
+    if [[ "${uid}" == "1000" ]]; then
       local comm=""
-      comm="$(cat "/proc/${cage_pid}/comm" 2>/dev/null || true)"
+      if [[ -r "/proc/${cage_pid}/comm" ]]; then
+        read -r comm < "/proc/${cage_pid}/comm" 2>/dev/null || true
+      fi
       if [[ "${comm}" == "cage" ]]; then
         echo "${cage_pid}"
         return 0
@@ -112,7 +121,7 @@ get_authoritative_cage_pid() {
   fi
 
   # Fallback to exact comm 'cage' owned by rocket
-  for p in $(pgrep -u rocket -x cage 2>/dev/null || true); do
+  for p in $(timeout 1s pgrep -u rocket -x cage 2>/dev/null || true); do
     if [[ -d "/proc/${p}" ]]; then
       echo "${p}"
       return 0
@@ -127,32 +136,43 @@ get_authoritative_cage_pid() {
 is_shell_host_process() {
   local pid="$1"
   local cage_pid="${2:-}"
+  local check_ancestry="${3:-false}"
 
+  # 1. PID exists and is greater than 1
   [[ "${pid}" =~ ^[0-9]+$ && ${pid} -gt 1 && -d "/proc/${pid}" ]] || return 1
+
+  # 2. PID != CAGE_PID
   [[ -n "${cage_pid}" && "${pid}" == "${cage_pid}" ]] && return 1
 
-  # Must be owned by user rocket (UID 1000 or username 'rocket')
+  # 3. UID belongs to rocket (UID 1000)
   local uid=""
   if [[ -r "/proc/${pid}/status" ]]; then
-    uid="$(grep -m1 '^Uid:' "/proc/${pid}/status" 2>/dev/null | awk '{print $2}' || true)"
+    while IFS=: read -r key val; do
+      if [[ "${key}" == "Uid" ]]; then
+        read -r uid _ <<< "${val}"
+        break
+      fi
+    done < "/proc/${pid}/status" 2>/dev/null || true
   fi
-  local owner=""
-  owner="$(ps -p "${pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
-  if [[ "${uid}" != "1000" && "${owner}" != "rocket" ]]; then
-    return 1
+  if [[ "${uid}" != "1000" ]]; then
+    local owner=""
+    owner="$(timeout 1s ps -p "${pid}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
+    [[ "${owner}" == "rocket" ]] || return 1
   fi
 
-  # Comm must NOT be cage, bwrap, or WebKit subprocesses
+  # 4. Process is not Cage, bwrap, or WebKit subprocesses
   local comm=""
-  comm="$(cat "/proc/${pid}/comm" 2>/dev/null || true)"
+  if [[ -r "/proc/${pid}/comm" ]]; then
+    read -r comm < "/proc/${pid}/comm" 2>/dev/null || true
+  fi
   if [[ "${comm}" == "cage" || "${comm}" =~ ^WebKit || "${comm}" == "bwrap" ]]; then
     return 1
   fi
 
-  # Read cmdline (NUL-separated)
+  # 5. Read command line safely (timeout-bounded)
   local cmdline=""
   if [[ -r "/proc/${pid}/cmdline" ]]; then
-    cmdline="$(tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
+    cmdline="$(timeout 1s tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || true)"
   fi
   [[ -n "${cmdline}" ]] || return 1
 
@@ -166,77 +186,139 @@ is_shell_host_process() {
     return 1
   fi
 
-  # Must genuinely execute rocket-shell-host
-  if [[ "${cmdline}" != *"rocket-shell-host"* ]]; then
+  # Command line genuinely executes /usr/local/bin/rocket-shell-host
+  if [[ "${cmdline}" != *"/usr/local/bin/rocket-shell-host"* && "${cmdline}" != *"rocket-shell-host"* ]]; then
     return 1
   fi
 
-  # Parent relationship: verify Cage or Cage descendant in parent hierarchy if cage_pid provided
-  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
-    local ppid=""
-    if [[ -r "/proc/${pid}/status" ]]; then
-      ppid="$(grep -m1 '^PPid:' "/proc/${pid}/status" 2>/dev/null | awk '{print $2}' || true)"
-    fi
-    if [[ -z "${ppid}" ]]; then
-      ppid="$(ps -p "${pid}" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
-    fi
-    if [[ "${ppid}" != "${cage_pid}" ]]; then
-      # Trace ancestors up to 5 levels to verify Cage is in ancestry
-      local curr="${ppid}"
-      local is_descendant=false
-      for ((lvl=0; lvl<5; lvl++)); do
-        if [[ "${curr}" == "${cage_pid}" ]]; then
-          is_descendant=true
-          break
-        fi
-        [[ "${curr}" =~ ^[0-9]+$ && ${curr} -gt 1 && -d "/proc/${curr}" ]] || break
-        local next_ppid=""
-        if [[ -r "/proc/${curr}/status" ]]; then
-          next_ppid="$(grep -m1 '^PPid:' "/proc/${curr}/status" 2>/dev/null | awk '{print $2}' || true)"
-        fi
-        [[ -n "${next_ppid}" ]] || next_ppid="$(ps -p "${curr}" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
-        curr="${next_ppid}"
-      done
-      [[ "${is_descendant}" == "true" ]] || return 1
-    fi
+  # 6. Ancestry check: verify Cage in ancestry if requested (for fallback scan)
+  if [[ "${check_ancestry}" == "true" && -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    local curr="${pid}"
+    local is_descendant=false
+    for ((lvl=0; lvl<5; lvl++)); do
+      local ppid=""
+      if [[ -r "/proc/${curr}/status" ]]; then
+        while IFS=: read -r key val; do
+          if [[ "${key}" == "PPid" ]]; then
+            read -r ppid _ <<< "${val}"
+            break
+          fi
+        done < "/proc/${curr}/status" 2>/dev/null || true
+      fi
+      if [[ -z "${ppid}" ]]; then
+        ppid="$(timeout 1s ps -p "${curr}" -o ppid= 2>/dev/null | tr -d '[:space:]' || true)"
+      fi
+      if [[ "${ppid}" == "${cage_pid}" ]]; then
+        is_descendant=true
+        break
+      fi
+      [[ "${ppid}" =~ ^[0-9]+$ && ${ppid} -gt 1 && -d "/proc/${ppid}" ]] || break
+      curr="${ppid}"
+    done
+    [[ "${is_descendant}" == "true" ]] || return 1
   fi
 
   return 0
 }
 
-# Discover authoritative shell-host PID: inspect Cage children first, then user rocket processes
+# Discover authoritative shell-host PID: inspect Cage children first, then bounded descendants
 find_shell_host_pid() {
   local cage_pid="${1:-}"
+  local attempt="${2:-1}"
 
-  # Step 1: Inspect direct children of Cage first
+  log_checkpoint "HOST_DISCOVERY_ATTEMPT_START attempt=${attempt} cage_pid=${cage_pid}"
+
+  # Step 1: Read Cage direct children from /proc/${cage_pid}/task/${cage_pid}/children
+  log_checkpoint "HOST_DISCOVERY_READ_CAGE_CHILDREN_START"
+  local candidate_pids=()
+
   if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
-    local children
-    children="$(pgrep -P "${cage_pid}" 2>/dev/null || true)"
-    for child in ${children}; do
-      if is_shell_host_process "${child}" "${cage_pid}"; then
-        echo "${child}"
-        return 0
-      fi
+    local children_raw=""
+    if [[ -r "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      children_raw="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    # If /proc/.../children is empty or kernel doesn't populate, fallback to timeout pgrep
+    if [[ -z "${children_raw// /}" ]]; then
+      children_raw="$(timeout 1s pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || true)"
+    fi
+    for c in ${children_raw}; do
+      [[ "${c}" =~ ^[0-9]+$ ]] && candidate_pids+=("${c}")
     done
   fi
+  log_checkpoint "HOST_DISCOVERY_READ_CAGE_CHILDREN_OK count=${#candidate_pids[@]} pids='${candidate_pids[*]:-none}'"
 
-  # Step 2: Scan all processes owned by user rocket
-  for p in $(pgrep -u rocket 2>/dev/null || true); do
-    if is_shell_host_process "${p}" "${cage_pid}"; then
-      echo "${p}"
+  # Step 2: Validate direct Cage children
+  for child in "${candidate_pids[@]}"; do
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} START"
+    if is_shell_host_process "${child}" "${cage_pid}" "false"; then
+      log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} END result=MATCH"
+      log_checkpoint "HOST_DISCOVERY_ATTEMPT_END result=FOUND pid=${child}"
+      echo "${child}"
       return 0
+    fi
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} END result=NO_MATCH"
+  done
+
+  # Step 3: Check 2nd-level descendants (children of Cage's direct children)
+  local descendant_pids=()
+  for child in "${candidate_pids[@]}"; do
+    if [[ -d "/proc/${child}" ]]; then
+      local sub_children=""
+      if [[ -r "/proc/${child}/task/${child}/children" ]]; then
+        sub_children="$(cat "/proc/${child}/task/${child}/children" 2>/dev/null || true)"
+      fi
+      if [[ -z "${sub_children// /}" ]]; then
+        sub_children="$(timeout 1s pgrep -P "${child}" 2>/dev/null | tr '\n' ' ' || true)"
+      fi
+      for sc in ${sub_children}; do
+        [[ "${sc}" =~ ^[0-9]+$ ]] && descendant_pids+=("${sc}")
+      done
     fi
   done
 
-  # Step 3: Direct /proc/[0-9]* inspection fallback
-  for pdir in /proc/[0-9]*; do
-    [[ -d "${pdir}" ]] || continue
-    local p="${pdir##*/}"
-    if is_shell_host_process "${p}" "${cage_pid}"; then
-      echo "${p}"
+  for desc in "${descendant_pids[@]}"; do
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${desc} START (descendant)"
+    if is_shell_host_process "${desc}" "${cage_pid}" "false"; then
+      log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${desc} END result=MATCH"
+      log_checkpoint "HOST_DISCOVERY_ATTEMPT_END result=FOUND pid=${desc}"
+      echo "${desc}"
       return 0
     fi
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${desc} END result=NO_MATCH"
   done
+
+  # Step 4: Fallback scan (only bounded processes owned by user rocket, using ps -u rocket -o pid=)
+  log_checkpoint "HOST_DISCOVERY_FALLBACK_SCAN_START"
+  local fallback_pids=()
+  local ps_pids
+  ps_pids="$(timeout 1s ps -u rocket -o pid= 2>/dev/null || true)"
+  for fp in ${ps_pids}; do
+    [[ "${fp}" =~ ^[0-9]+$ ]] || continue
+    [[ "${fp}" == "${cage_pid}" ]] && continue
+    local already_tested=false
+    for tested in "${candidate_pids[@]}" "${descendant_pids[@]}"; do
+      if [[ "${fp}" == "${tested}" ]]; then
+        already_tested=true
+        break
+      fi
+    done
+    [[ "${already_tested}" == "true" ]] && continue
+    fallback_pids+=("${fp}")
+  done
+
+  for fp in "${fallback_pids[@]}"; do
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${fp} START (fallback)"
+    if is_shell_host_process "${fp}" "${cage_pid}" "true"; then
+      log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${fp} END result=MATCH"
+      log_checkpoint "HOST_DISCOVERY_FALLBACK_SCAN_END result=FOUND pid=${fp}"
+      log_checkpoint "HOST_DISCOVERY_ATTEMPT_END result=FOUND pid=${fp}"
+      echo "${fp}"
+      return 0
+    fi
+    log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${fp} END result=NO_MATCH"
+  done
+  log_checkpoint "HOST_DISCOVERY_FALLBACK_SCAN_END result=NONE"
+  log_checkpoint "HOST_DISCOVERY_ATTEMPT_END result=NONE"
 
   echo ""
   return 1
@@ -246,8 +328,31 @@ find_shell_host_pid() {
 find_all_shell_host_pids() {
   local cage_pid="${1:-}"
   local pids=()
-  for p in $(pgrep -u rocket 2>/dev/null || true); do
-    if is_shell_host_process "${p}" "${cage_pid}"; then
+  # 1. Direct Cage children
+  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    local children_raw=""
+    if [[ -r "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      children_raw="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    for c in ${children_raw}; do
+      if is_shell_host_process "${c}" "${cage_pid}" "false"; then
+        pids+=("${c}")
+      fi
+    done
+  fi
+  # 2. Bounded rocket processes via ps
+  local rocket_pids
+  rocket_pids="$(timeout 1s ps -u rocket -o pid= 2>/dev/null || true)"
+  for p in ${rocket_pids}; do
+    [[ "${p}" =~ ^[0-9]+$ ]] || continue
+    local already=false
+    for ep in "${pids[@]}"; do
+      if [[ "${ep}" == "${p}" ]]; then
+        already=true
+        break
+      fi
+    done
+    if [[ "${already}" != "true" ]] && is_shell_host_process "${p}" "${cage_pid}" "true"; then
       pids+=("${p}")
     fi
   done
@@ -258,24 +363,74 @@ find_all_shell_host_pids() {
 enumerate_candidate_processes() {
   local cage_pid="${1:-}"
   local out=""
-  for pdir in /proc/[0-9]*; do
-    [[ -d "${pdir}" ]] || continue
-    local pid="${pdir##*/}"
+  local pids_to_inspect=()
+
+  # 1. Cage direct children
+  if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
+    local c_raw=""
+    if [[ -r "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      c_raw="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    if [[ -z "${c_raw// /}" ]]; then
+      c_raw="$(timeout 1s pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || true)"
+    fi
+    for c in ${c_raw}; do
+      [[ "${c}" =~ ^[0-9]+$ ]] && pids_to_inspect+=("${c}")
+    done
+  fi
+
+  # 2. Descendants of those children
+  for c in "${pids_to_inspect[@]}"; do
+    if [[ -d "/proc/${c}" && -r "/proc/${c}/task/${c}/children" ]]; then
+      local sc_raw
+      sc_raw="$(cat "/proc/${c}/task/${c}/children" 2>/dev/null || true)"
+      for sc in ${sc_raw}; do
+        [[ "${sc}" =~ ^[0-9]+$ ]] && pids_to_inspect+=("${sc}")
+      done
+    fi
+  done
+
+  # 3. Add processes owned by rocket
+  local rocket_pids
+  rocket_pids="$(timeout 1s ps -u rocket -o pid= 2>/dev/null || true)"
+  for rp in ${rocket_pids}; do
+    [[ "${rp}" =~ ^[0-9]+$ ]] || continue
+    local exists=false
+    for ep in "${pids_to_inspect[@]}"; do
+      if [[ "${ep}" == "${rp}" ]]; then
+        exists=true
+        break
+      fi
+    done
+    [[ "${exists}" != "true" ]] && pids_to_inspect+=("${rp}")
+  done
+
+  for pid in "${pids_to_inspect[@]}"; do
+    [[ -d "/proc/${pid}" ]] || continue
     local ppid=""
     local uid=""
-    if [[ -r "${pdir}/status" ]]; then
-      ppid="$(grep -m1 '^PPid:' "${pdir}/status" 2>/dev/null | awk '{print $2}' || true)"
-      uid="$(grep -m1 '^Uid:' "${pdir}/status" 2>/dev/null | awk '{print $2}' || true)"
+    if [[ -r "/proc/${pid}/status" ]]; then
+      while IFS=: read -r key val; do
+        if [[ "${key}" == "PPid" ]]; then
+          read -r ppid _ <<< "${val}"
+        elif [[ "${key}" == "Uid" ]]; then
+          read -r uid _ <<< "${val}"
+        fi
+      done < "/proc/${pid}/status" 2>/dev/null || true
     fi
-    if [[ "${uid}" == "1000" || ( -n "${cage_pid}" && "${ppid}" == "${cage_pid}" ) ]]; then
-      local user=""
-      user="$(ps -p "${pid}" -o user= 2>/dev/null | tr -d '[:space:]' || echo "uid:${uid}")"
-      local comm=""
-      comm="$(cat "${pdir}/comm" 2>/dev/null || echo '(unknown)')"
-      local cmdline=""
-      cmdline="$(tr '\0' ' ' < "${pdir}/cmdline" 2>/dev/null || echo '(unreadable)')"
-      out+="PID: ${pid}, PPID: ${ppid}, USER: ${user}, COMM: ${comm}, CMDLINE: ${cmdline}"$'\n'
+    local comm="(unknown)"
+    if [[ -r "/proc/${pid}/comm" ]]; then
+      read -r comm < "/proc/${pid}/comm" 2>/dev/null || comm="(unknown)"
     fi
+    local cmdline="(unreadable)"
+    if [[ -r "/proc/${pid}/cmdline" ]]; then
+      cmdline="$(timeout 1s tr '\0' ' ' < "/proc/${pid}/cmdline" 2>/dev/null || echo '(unreadable)')"
+    fi
+    out+="PID=${pid}"$'\n'
+    out+="PPID=${ppid}"$'\n'
+    out+="UID=${uid}"$'\n'
+    out+="COMM=${comm}"$'\n'
+    out+="CMDLINE=${cmdline}"$'\n'
   done
   echo "${out:- (no candidate processes found)}"
 }
@@ -288,15 +443,20 @@ collect_graphical_debug_evidence() {
   local cage_cmdline="(cage cmdline unavailable)"
   local cage_children="(none)"
   if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
-    cage_cmdline="$(tr '\0' ' ' < "/proc/${cage_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
-    cage_children="$(pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    cage_cmdline="$(timeout 1s tr '\0' ' ' < "/proc/${cage_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
+    if [[ -r "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
+      cage_children="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
+    fi
+    if [[ -z "${cage_children// /}" ]]; then
+      cage_children="$(timeout 1s pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || echo 'none')"
+    fi
   fi
 
   local host_cmdline="(host cmdline unavailable)"
   local host_ppid="(unavailable)"
   if [[ -n "${target_pid}" && "${target_pid}" != "none" && "${target_pid}" != "unknown" && -d "/proc/${target_pid}" ]]; then
-    host_cmdline="$(tr '\0' ' ' < "/proc/${target_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
-    host_ppid="$(ps -p "${target_pid}" -o ppid= 2>/dev/null | tr -d '[:space:]' || echo 'unknown')"
+    host_cmdline="$(timeout 1s tr '\0' ' ' < "/proc/${target_pid}/cmdline" 2>/dev/null || echo '(read failed)')"
+    host_ppid="$(timeout 1s ps -p "${target_pid}" -o ppid= 2>/dev/null | tr -d '[:space:]' || echo 'unknown')"
   fi
 
   local current_hosts
@@ -304,39 +464,39 @@ collect_graphical_debug_evidence() {
   [[ -z "${current_hosts}" ]] && current_hosts="none"
 
   local all_cage_pids
-  all_cage_pids="$(pgrep -u rocket -x cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
+  all_cage_pids="$(timeout 1s pgrep -u rocket -x cage 2>/dev/null | tr '\n' ' ' || echo 'none')"
 
   local candidate_processes
   candidate_processes="$(enumerate_candidate_processes "${cage_pid}" 2>/dev/null || echo '(enumeration failed)')"
 
   local probe_status
-  probe_status="$(systemctl status rocketos-boot-probe.service --no-pager 2>/dev/null || echo '(probe status unavailable)')"
+  probe_status="$(timeout 2s systemctl status rocketos-boot-probe.service --no-pager 2>/dev/null || echo '(probe status unavailable)')"
   local probe_journal
-  probe_journal="$(journalctl -u rocketos-boot-probe.service -n 30 --no-pager 2>/dev/null || echo '(probe journal unavailable)')"
+  probe_journal="$(timeout 2s journalctl -u rocketos-boot-probe.service -n 30 --no-pager 2>/dev/null || echo '(probe journal unavailable)')"
 
   local session_state
-  session_state="$(systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
+  session_state="$(timeout 2s systemctl is-active rocketos-graphical-session.service 2>/dev/null || echo 'unknown')"
   local session_status
-  session_status="$(systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || echo '(session status unavailable)')"
+  session_status="$(timeout 2s systemctl status rocketos-graphical-session.service --no-pager 2>/dev/null || echo '(session status unavailable)')"
   local session_journal
-  session_journal="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(session journal unavailable)')"
+  session_journal="$(timeout 2s journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null || echo '(session journal unavailable)')"
 
   local run_user_listing
-  run_user_listing="$(ls -la "/run/user/${ROCKET_UID}" 2>/dev/null || echo "(listing failed for /run/user/${ROCKET_UID})")"
+  run_user_listing="$(timeout 2s ls -la "/run/user/${ROCKET_UID}" 2>/dev/null || echo "(listing failed for /run/user/${ROCKET_UID})")"
 
   local pstree_out="(pstree unavailable)"
   if command -v pstree >/dev/null 2>&1; then
     if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
-      pstree_out="$(pstree -ap "${cage_pid}" 2>/dev/null || echo '(pstree failed)')"
+      pstree_out="$(timeout 2s pstree -ap "${cage_pid}" 2>/dev/null || echo '(pstree failed)')"
     else
-      pstree_out="$(pstree -ap 2>/dev/null || echo '(pstree failed)')"
+      pstree_out="$(timeout 2s pstree -ap 2>/dev/null || echo '(pstree failed)')"
     fi
   fi
 
   local ps_rocket_out
-  ps_rocket_out="$(ps -u rocket -o pid,ppid,user,stat,comm,args 2>/dev/null || echo '(ps -u rocket failed)')"
+  ps_rocket_out="$(timeout 2s ps -u rocket -o pid,ppid,user,stat,comm,args 2>/dev/null || echo '(ps -u rocket failed)')"
   local ps_ef_snippet
-  ps_ef_snippet="$(ps -ef 2>/dev/null || echo '(ps -ef failed)')"
+  ps_ef_snippet="$(timeout 2s ps -ef 2>/dev/null || echo '(ps -ef failed)')"
 
   local ui_val="(file not present)"
   [ -f "${UI_LOADED_MARKER}" ] && ui_val="$(cat "${UI_LOADED_MARKER}" 2>/dev/null || echo '(read failed)')"
@@ -349,13 +509,16 @@ collect_graphical_debug_evidence() {
 
   cat <<EOF
 --- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
+CAGE_PID=${cage_pid}
+CAGE_CMDLINE=${cage_cmdline}
+CAGE_CHILDREN=${cage_children}
+
+DIRECT AND DESCENDANT CANDIDATE PROCESS EVIDENCE:
+${candidate_processes}
 Expected Host PID:        ${target_pid}
 Host Parent PID:          ${host_ppid}
 Host Cmdline:             ${host_cmdline}
 Current Host PID(s):      ${current_hosts}
-Cage PID:                 ${cage_pid}
-Cage Cmdline:             ${cage_cmdline}
-Cage Children:            ${cage_children}
 All Cage PID(s):          ${all_cage_pids}
 Graphical Service State:  ${session_state}
 UI Marker Value:          '${ui_val}'
@@ -366,10 +529,8 @@ Contents of /run/user/${ROCKET_UID}:
 ${run_user_listing}
 PSTREE:
 ${pstree_out}
-Processes Owned by rocket (ps -u rocket -o pid,ppid,user,stat,comm,args):
+Processes Owned by rocket:
 ${ps_rocket_out}
-Descendant & Candidate Processes (/proc enumeration):
-${candidate_processes}
 All Processes (ps -ef):
 ${ps_ef_snippet}
 Boot Probe Service Status:
@@ -531,9 +692,17 @@ log_checkpoint "PHASE3_VERIFY_ROCKET_USER_OK"
 # Initial Process Discovery (Bounded)
 log_checkpoint "PHASE3_DISCOVER_CAGE_START"
 CAGE_PID=""
-for ((sec=1; sec<=15; sec++)); do
+CAGE_DISCOVERY_START_SEC=$(date +%s)
+CAGE_DISCOVERY_TIMEOUT_SECS=15
+CAGE_DISCOVERY_DEADLINE=$((CAGE_DISCOVERY_START_SEC + CAGE_DISCOVERY_TIMEOUT_SECS))
+
+while true; do
   CAGE_PID="$(get_authoritative_cage_pid || true)"
   if [[ -n "${CAGE_PID}" ]]; then
+    break
+  fi
+  NOW=$(date +%s)
+  if [[ ${NOW} -ge ${CAGE_DISCOVERY_DEADLINE} ]]; then
     break
   fi
   sleep 1
@@ -541,16 +710,32 @@ done
 
 if [[ -z "${CAGE_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
-  emit_fail "cage compositor is not running under user rocket
+  emit_fail "cage compositor is not running under user rocket within 15s
 ${DEBUG_EVIDENCE}"
 fi
 log_checkpoint "PHASE3_DISCOVER_CAGE_OK pid=${CAGE_PID}"
 
 log_checkpoint "PHASE3_DISCOVER_HOST_START"
 HOST_PID=""
-for ((sec=1; sec<=15; sec++)); do
-  HOST_PID="$(find_shell_host_pid "${CAGE_PID}" || true)"
+HOST_DISCOVERY_START_SEC=$(date +%s)
+HOST_DISCOVERY_TIMEOUT_SECS=15
+HOST_DISCOVERY_DEADLINE=$((HOST_DISCOVERY_START_SEC + HOST_DISCOVERY_TIMEOUT_SECS))
+HOST_DISCOVERY_ATTEMPT=0
+
+while true; do
+  NOW=$(date +%s)
+  if [[ ${NOW} -ge ${HOST_DISCOVERY_DEADLINE} ]]; then
+    break
+  fi
+
+  HOST_DISCOVERY_ATTEMPT=$((HOST_DISCOVERY_ATTEMPT + 1))
+  HOST_PID="$(find_shell_host_pid "${CAGE_PID}" "${HOST_DISCOVERY_ATTEMPT}" || true)"
   if [[ -n "${HOST_PID}" ]]; then
+    break
+  fi
+
+  NOW_AFTER=$(date +%s)
+  if [[ ${NOW_AFTER} -ge ${HOST_DISCOVERY_DEADLINE} ]]; then
     break
   fi
   sleep 1
@@ -558,7 +743,7 @@ done
 
 if [[ -z "${HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
-  emit_fail "rocket-shell-host was not spawned within 15s
+  emit_fail "rocket-shell-host was not discovered within 15s
 ${DEBUG_EVIDENCE}"
 fi
 
@@ -684,18 +869,33 @@ kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
 # Wait for systemd RestartSec=2 to relaunch the session
 log_checkpoint "PHASE3_WP5_WAIT_RESTART_START"
 RESTART_TIMEOUT_SECS=30
+RESTART_START_SEC=$(date +%s)
+RESTART_DEADLINE=$((RESTART_START_SEC + RESTART_TIMEOUT_SECS))
 RESTARTED=false
 NEW_CAGE_PID=""
 NEW_HOST_PID=""
-for ((sec=1; sec<=RESTART_TIMEOUT_SECS; sec++)); do
+WP5_ATTEMPT=0
+
+while true; do
+  NOW=$(date +%s)
+  if [[ ${NOW} -ge ${RESTART_DEADLINE} ]]; then
+    break
+  fi
+
+  WP5_ATTEMPT=$((WP5_ATTEMPT + 1))
   NEW_CAGE_PID="$(get_authoritative_cage_pid || true)"
   if [[ -n "${NEW_CAGE_PID}" ]]; then
-    NEW_PID="$(find_shell_host_pid "${NEW_CAGE_PID}" || true)"
+    NEW_PID="$(find_shell_host_pid "${NEW_CAGE_PID}" "${WP5_ATTEMPT}" || true)"
     if [[ -n "${NEW_PID}" && "${NEW_PID}" != "${INITIAL_HOST_PID}" ]]; then
       NEW_HOST_PID="${NEW_PID}"
       RESTARTED=true
       break
     fi
+  fi
+
+  NOW_AFTER=$(date +%s)
+  if [[ ${NOW_AFTER} -ge ${RESTART_DEADLINE} ]]; then
+    break
   fi
   sleep 1
 done
@@ -712,7 +912,7 @@ fi
 log_checkpoint "PHASE3_WP5_WAIT_RESTART_OK cage_pid=${NEW_CAGE_PID} host_pid=${NEW_HOST_PID}"
 
 # Verify restarted process owner is still rocket
-NEW_OWNER="$(ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
+NEW_OWNER="$(timeout 1s ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
 if [[ "${NEW_OWNER}" != "rocket" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'
