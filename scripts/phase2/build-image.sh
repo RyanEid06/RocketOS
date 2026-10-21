@@ -158,6 +158,7 @@ fi
 # Run lb config
 # ------------------------------------------------------------------------------
 echo "Executing lb config for Debian 13 trixie amd64..."
+echo "Live-build version: $(lb --version 2>&1 || echo 'unknown')"
 
 lb config \
   --mode debian \
@@ -253,6 +254,13 @@ ISO_SIZE_BYTES=$(stat -c%s "${DEST_ISO}" 2>/dev/null || stat -f%z "${DEST_ISO}" 
 ISO_SIZE_MB=$(awk "BEGIN {printf \"%.2f\", ${ISO_SIZE_BYTES}/1048576}")
 SHA256_HASH=$(cut -d' ' -f1 "${OUTPUT_DIR}/${TARGET_ISO_NAME}.sha256")
 WORK_SIZE_MB=$(du -sm "${WORK_DIR}" | awk '{print $1}')
+
+# Restore non-root ownership if run under sudo
+if [[ -n "${SUDO_UID:-}" && -n "${SUDO_GID:-}" ]]; then
+  chown -R "${SUDO_UID}:${SUDO_GID}" "${OUTPUT_DIR}" 2>/dev/null || true
+elif [[ -n "${SUDO_USER:-}" ]]; then
+  chown -R "${SUDO_USER}:" "${OUTPUT_DIR}" 2>/dev/null || true
+fi
 
 echo "=================================================================="
 echo " RocketOS Phase 2 — Image Build Complete"

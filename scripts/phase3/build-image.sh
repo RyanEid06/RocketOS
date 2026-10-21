@@ -159,6 +159,7 @@ fi
 # Run lb config
 # ------------------------------------------------------------------------------
 echo "Executing lb config for Debian 13 trixie amd64..."
+echo "Live-build version: $(lb --version 2>&1 || echo 'unknown')"
 
 lb config \
   --mode debian \

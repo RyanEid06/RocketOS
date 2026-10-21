@@ -38,20 +38,10 @@ jobs:
       - name: Run RocketOS production build (Regression Gate)
         run: npm run build
 
-      - name: Install Debian live-build and QEMU prerequisites
+      - name: Install Host QEMU and Verification Prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            live-build \
-            debootstrap \
-            xorriso \
-            isolinux \
-            syslinux-utils \
-            mtools \
-            dosfstools \
-            squashfs-tools \
-            grub-pc-bin \
-            grub-efi-amd64-bin \
             qemu-system-x86 \
             qemu-utils \
             netpbm \
@@ -62,9 +52,34 @@ jobs:
       - name: Prepare Artifacts Directory as Runner
         run: mkdir -p artifacts
 
-      - name: Build RocketOS Phase 3 Live Graphical ISO
+      - name: Build RocketOS Phase 3 Live Graphical ISO (Debian Trixie Container)
         run: |
-          sudo bash scripts/phase3/build-image.sh --output-dir artifacts
+          docker run --privileged --rm \
+            -v "${GITHUB_WORKSPACE:-$PWD}:/workspace" \
+            -w /workspace \
+            debian:trixie \
+            bash -c "
+              set -euo pipefail
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                live-build \
+                debootstrap \
+                xorriso \
+                isolinux \
+                syslinux-utils \
+                mtools \
+                dosfstools \
+                squashfs-tools \
+                grub-pc-bin \
+                grub-efi-amd64-bin \
+                curl \
+                ca-certificates
+              echo '=== Live-Build Diagnostic Version ==='
+              lb --version
+              echo '=== Live-Build Config Help ==='
+              lb config --help | head -n 35
+              bash scripts/phase3/build-image.sh --output-dir artifacts
+            "
           sudo chown -R "$(id -u):$(id -g)" artifacts
 
       - name: Run QEMU BIOS Graphical Smoke Test
