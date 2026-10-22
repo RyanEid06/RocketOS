@@ -37,9 +37,20 @@ export WLR_RENDERER="${WLR_RENDERER:-pixman}"
 export WLR_NO_HARDWARE_CURSORS=1
 export LIBGL_ALWAYS_SOFTWARE=1
 
-# WebKitGTK software rasterization for virtualized environments
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
+# WebKitGTK 2.54 Skia CPU and SharedMemory transport rendering profile
+unset WEBKIT_DISABLE_COMPOSITING_MODE
+unset WEBKIT_DISABLE_DMABUF_RENDERER
+export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1
+export WEBKIT_DMABUF_RENDERER_FORCE_SHM=1
+
+echo "[RocketOS-Session] Rendering profile: wlroots=pixman, Mesa=software, WebKit Skia=CPU, transport=SHM"
+echo "[RocketOS-Session]   WLR_RENDERER=${WLR_RENDERER}"
+echo "[RocketOS-Session]   WLR_NO_HARDWARE_CURSORS=${WLR_NO_HARDWARE_CURSORS}"
+echo "[RocketOS-Session]   LIBGL_ALWAYS_SOFTWARE=${LIBGL_ALWAYS_SOFTWARE}"
+echo "[RocketOS-Session]   WEBKIT_SKIA_ENABLE_CPU_RENDERING=${WEBKIT_SKIA_ENABLE_CPU_RENDERING}"
+echo "[RocketOS-Session]   WEBKIT_DMABUF_RENDERER_FORCE_SHM=${WEBKIT_DMABUF_RENDERER_FORCE_SHM}"
+echo "[RocketOS-Session]   WEBKIT_DISABLE_COMPOSITING_MODE=${WEBKIT_DISABLE_COMPOSITING_MODE:-unset}"
+echo "[RocketOS-Session]   WEBKIT_DISABLE_DMABUF_RENDERER=${WEBKIT_DISABLE_DMABUF_RENDERER:-unset}"
 
 # Connect to user session D-Bus if available
 if [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
@@ -55,5 +66,5 @@ if [ ! -x /usr/local/bin/rocket-shell-host ]; then
     exit 1
 fi
 
-echo "[RocketOS-Session] Executing Cage kiosk compositor with rocket-shell-host..."
-exec /usr/bin/cage -- /usr/local/bin/rocket-shell-host "$@"
+echo "[RocketOS-Session] Executing Cage kiosk compositor (-s -D) with rocket-shell-host..."
+exec /usr/bin/cage -s -D -- /usr/local/bin/rocket-shell-host "$@"

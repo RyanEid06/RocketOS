@@ -491,18 +491,23 @@ if [[ ${FAILURES} -eq 0 && "${FOUND_ALL_MARKERS}" == "true" ]]; then
 else
   SESSION_LOG="${LOG_DIR}/qemu-session-phase3-${BOOT_MODE}.log"
   RECOVERY_LOG="${LOG_DIR}/qemu-recovery-phase3-${BOOT_MODE}.log"
+  FAILURE_LOG="${LOG_DIR}/qemu-failure-phase3-${BOOT_MODE}.log"
   awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 40 "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" > "${SESSION_LOG}" 2>/dev/null || true
   awk '/==================================================/,/==================================================/' "${LOG_FILE}" | grep -B 2 -A 35 "ROCKETOS_WP5_RECOVERY_TEST_PASS" > "${RECOVERY_LOG}" 2>/dev/null || true
+
+  # Dedicated failure artifact containing at least the final 300 serial lines
+  tail -n 300 "${LOG_FILE}" > "${FAILURE_LOG}" 2>/dev/null || true
 
   echo "=================================================================="
   echo " RESULT: FAIL — Verification requirements not satisfied (${FAILURES} failures)"
   echo " Boot Mode:    ${BOOT_MODE^^}"
   echo " Elapsed Time: ${ELAPSED} seconds"
+  echo " Failure Log:  ${FAILURE_LOG}"
   echo "=================================================================="
   echo ""
-  echo "--- Last 50 Lines of Serial Log (${LOG_FILE}) ---"
-  tail -n 50 "${LOG_FILE}" || echo "(empty log)"
-  echo "--------------------------------------------------"
+  echo "--- Failure Excerpt (Last 300 Lines of Serial Log: ${LOG_FILE}) ---"
+  cat "${FAILURE_LOG}" 2>/dev/null || tail -n 300 "${LOG_FILE}" || echo "(empty log)"
+  echo "------------------------------------------------------------------"
   echo ""
   exit 1
 fi

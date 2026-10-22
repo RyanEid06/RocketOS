@@ -15,6 +15,7 @@ import traceback
 
 # Establish runtime marker and logging paths under unprivileged XDG_RUNTIME_DIR
 RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+HOST_PID = os.getpid()
 STATE_FILE = os.path.join(RUNTIME_DIR, "rocketos-shell-host-state")
 HOST_LOG_FILE = os.path.join(RUNTIME_DIR, "rocketos-shell-host.log")
 ALIVE_MARKER = os.path.join(RUNTIME_DIR, "rocketos-shell-host-alive")
@@ -22,38 +23,67 @@ UI_LOADED_MARKER = os.path.join(RUNTIME_DIR, "rocketos-ui-loaded")
 BRIDGE_PING_MARKER = os.path.join(RUNTIME_DIR, "rocketos-bridge-ping-ok")
 WEBKIT_ERROR_FILE = os.path.join(RUNTIME_DIR, "rocketos-webkit-error")
 
+# Per-generation diagnostic paths tied to this specific process invocation
+GEN_STATE_FILE = f"{STATE_FILE}.{HOST_PID}"
+GEN_LOG_FILE = f"{HOST_LOG_FILE}.{HOST_PID}"
+GEN_ERROR_FILE = f"{WEBKIT_ERROR_FILE}.{HOST_PID}"
+
 def log(msg: str):
-    """Timestamped logging to stdout and dedicated host log file."""
+    """Timestamped logging to stdout, shared host log, and per-generation log."""
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    formatted = f"[{timestamp}] [rocket-shell-host] {msg}"
+    formatted = f"[{timestamp}] [rocket-shell-host pid={HOST_PID}] {msg}"
     print(formatted, flush=True)
     try:
         os.makedirs(RUNTIME_DIR, exist_ok=True)
         with open(HOST_LOG_FILE, "a") as f:
+            f.write(formatted + "\n")
+        with open(GEN_LOG_FILE, "a") as f:
             f.write(formatted + "\n")
     except Exception:
         # Logging helper must never crash the host
         pass
 
 def write_state(state: str, detail: str = ""):
-    """Atomically records current host lifecycle boundary to state file."""
+    """Atomically records current host lifecycle boundary to shared and generation state files."""
     timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    content = f"TIMESTAMP_UTC={timestamp}\nPID={os.getpid()}\nSTATE={state}\n"
+    content = f"TIMESTAMP_UTC={timestamp}\nPID={HOST_PID}\nSTATE={state}\n"
     if detail:
         content += f"DETAIL={detail}\n"
     log(f"STATE_TRANSITION -> {state}{(': ' + detail) if detail else ''}")
     try:
         os.makedirs(RUNTIME_DIR, exist_ok=True)
-        tmp_path = f"{STATE_FILE}.tmp.{os.getpid()}"
-        with open(tmp_path, "w") as f:
+        # Atomically write per-generation state file
+        tmp_gen = f"{GEN_STATE_FILE}.tmp"
+        with open(tmp_gen, "w") as f:
             f.write(content)
-        os.replace(tmp_path, STATE_FILE)
+        os.replace(tmp_gen, GEN_STATE_FILE)
+
+        # Atomically write shared state file
+        tmp_shared = f"{STATE_FILE}.tmp.{HOST_PID}"
+        with open(tmp_shared, "w") as f:
+            f.write(content)
+        os.replace(tmp_shared, STATE_FILE)
     except Exception as e:
         # Never crash from state writing failure
         try:
-            print(f"[{timestamp}] [rocket-shell-host] ERROR writing state file: {e}", file=sys.stderr, flush=True)
+            print(f"[{timestamp}] [rocket-shell-host pid={HOST_PID}] ERROR writing state file: {e}", file=sys.stderr, flush=True)
         except Exception:
             pass
+
+def write_error_evidence(error_type: str, details: str):
+    """Writes error evidence to generation file and appends to shared error file with PID header."""
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    header = f"=== [{timestamp}] PID={HOST_PID} ERROR_TYPE={error_type} ===\n"
+    content = header + details.strip() + "\n"
+    try:
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        with open(GEN_ERROR_FILE, "w") as f:
+            f.write(content)
+        with open(WEBKIT_ERROR_FILE, "a") as f:
+            f.write(content + "\n")
+        log(f"Recorded error evidence to {GEN_ERROR_FILE} and {WEBKIT_ERROR_FILE}")
+    except Exception as e:
+        log(f"Notice: Failed writing error evidence: {e}")
 
 def record_fatal_exception(exc: Exception, context: str = ""):
     """Captures unhandled initialization exceptions with complete traceback."""
@@ -63,20 +93,16 @@ def record_fatal_exception(exc: Exception, context: str = ""):
     detail = f"{exc_type}: {exc_msg} in {context}\n{tb}".strip()
     log(f"FATAL EXCEPTION in {context}: {exc_type}: {exc_msg}\n{tb}")
     write_state("HOST_FATAL_EXCEPTION", detail)
-    try:
-        os.makedirs(RUNTIME_DIR, exist_ok=True)
-        with open(WEBKIT_ERROR_FILE, "w") as f:
-            f.write(f"HOST_FATAL_EXCEPTION: {exc_type}: {exc_msg}\nCONTEXT: {context}\nPID: {os.getpid()}\nTRACEBACK:\n{tb}\n")
-    except Exception as e:
-        log(f"Notice: Failed writing fatal exception to {WEBKIT_ERROR_FILE}: {e}")
+    err_body = f"HOST_FATAL_EXCEPTION: {exc_type}: {exc_msg}\nCONTEXT: {context}\nPID: {HOST_PID}\nTRACEBACK:\n{tb}"
+    write_error_evidence("HOST_FATAL_EXCEPTION", err_body)
 
 def cleanup_stale_markers():
-    """Removes stale session markers on startup."""
-    for path in (UI_LOADED_MARKER, BRIDGE_PING_MARKER, WEBKIT_ERROR_FILE):
+    """Removes stale session markers on startup (never destroys error/crash logs)."""
+    for path in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER):
         try:
             if os.path.exists(path):
                 os.remove(path)
-                log(f"Removed stale marker/error file: {path}")
+                log(f"Removed stale marker: {path}")
         except Exception as e:
             log(f"Notice: Failed removing marker {path}: {e}")
 
@@ -85,13 +111,13 @@ def create_runtime_marker(path: str):
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            f.write(f"{os.getpid()}\n")
-        log(f"Runtime marker created: {path} (PID: {os.getpid()})")
+            f.write(f"{HOST_PID}\n")
+        log(f"Runtime marker created: {path} (PID: {HOST_PID})")
     except Exception as e:
         log(f"ERROR: Runtime marker creation failure at {path}: {e}")
 
-# Clean any prior session markers immediately before recording start
-for p in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER, WEBKIT_ERROR_FILE):
+# Clean only ephemeral liveness markers; never delete error or generation log files
+for p in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER):
     try:
         if os.path.exists(p):
             os.remove(p)
@@ -99,8 +125,8 @@ for p in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER, WEBKIT_ERROR_FILE)
         pass
 
 # 1. PROCESS_STARTED boundary
-write_state("PROCESS_STARTED", f"PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
-log(f"Host process start: PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
+write_state("PROCESS_STARTED", f"PID={HOST_PID}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
+log(f"Host process start: PID={HOST_PID}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
 
 # 2. GI_IMPORT_OK boundary
 try:
@@ -184,20 +210,12 @@ class RocketShellHostApp(Gtk.Application):
                     self.on_script_message
                 )
 
-                # 8. Register bridge message handler
-                reg_ok = False
-                try:
-                    reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
-                    log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
-                except TypeError:
-                    try:
-                        reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge", None)
-                        log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
-                    except Exception as e2:
-                        log(f"ERROR registering bridge message-handler 'rocketBridge' (2-arg): {e2}")
-                except Exception as e:
-                    log(f"ERROR registering bridge message-handler 'rocketBridge': {e}")
-                write_state("BRIDGE_HANDLER_REGISTERED", f"handler=rocketBridge result={reg_ok}")
+                # 8. Register bridge message handler (strict one-argument call)
+                reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
+                if not reg_ok:
+                    raise RuntimeError("Failed to register WebKit script message handler 'rocketBridge'")
+                log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
+                write_state("BRIDGE_HANDLER_REGISTERED", "handler=rocketBridge result=True")
 
                 # 9. Configure WebKit settings
                 settings = WebKit.Settings()
@@ -207,9 +225,22 @@ class RocketShellHostApp(Gtk.Application):
                 settings.set_allow_universal_access_from_file_urls(False)
                 settings.set_enable_webgl(False)
 
-                # Force software rasterization in virtualized environments
-                if hasattr(WebKit, 'HardwareAccelerationPolicy') and hasattr(settings, 'set_hardware_acceleration_policy'):
-                    settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
+                # Log effective hardware acceleration policy if getter exists (do NOT force NEVER)
+                if hasattr(settings, "get_hardware_acceleration_policy"):
+                    log(f"WebKit hardware acceleration policy: {settings.get_hardware_acceleration_policy()}")
+
+                # Log rendering environment variables
+                for env_var in (
+                    "WEBKIT_SKIA_ENABLE_CPU_RENDERING",
+                    "WEBKIT_DMABUF_RENDERER_FORCE_SHM",
+                    "WEBKIT_DISABLE_COMPOSITING_MODE",
+                    "WEBKIT_DISABLE_DMABUF_RENDERER",
+                    "LIBGL_ALWAYS_SOFTWARE",
+                    "WLR_RENDERER",
+                    "GDK_BACKEND",
+                ):
+                    log(f"Rendering env {env_var}={os.environ.get(env_var, '<unset>')}")
+
                 write_state("SETTINGS_CREATED")
 
                 # 10. Construct WebKitGTK 6.0 WebView using strict GObject construct properties
@@ -331,12 +362,8 @@ class RocketShellHostApp(Gtk.Application):
         self.last_load_error = f"{failing_uri}: {err_msg} (domain={err_domain}, code={err_code})"
         log(f"ERROR: WebKit page load failure for uri='{failing_uri}' (event={load_event}): {err_msg} (domain={err_domain}, code={err_code})")
         write_state("WEBKIT_LOAD_FAILED", f"uri={failing_uri} domain={err_domain} code={err_code} msg={err_msg}")
-        try:
-            with open(WEBKIT_ERROR_FILE, "w") as f:
-                f.write(f"URI: {failing_uri}\nERROR: {err_msg}\nDOMAIN: {err_domain}\nCODE: {err_code}\nPID: {os.getpid()}\nEVENT: {load_event}\n")
-            log(f"Wrote WebKit error details to {WEBKIT_ERROR_FILE}")
-        except Exception as e:
-            log(f"Notice: Failed writing {WEBKIT_ERROR_FILE}: {e}")
+        err_body = f"URI: {failing_uri}\nERROR: {err_msg}\nDOMAIN: {err_domain}\nCODE: {err_code}\nPID: {HOST_PID}\nEVENT: {load_event}"
+        write_error_evidence("WEBKIT_LOAD_FAILED", err_body)
         return False
 
     def on_web_process_terminated(self, webview, reason):
@@ -347,12 +374,8 @@ class RocketShellHostApp(Gtk.Application):
             reason_name = reason.value_nick
         log(f"ERROR: WebKit web-process-terminated: reason={reason_name} ({reason})")
         write_state("WEBKIT_PROCESS_TERMINATED", f"reason={reason_name} ({reason})")
-        try:
-            with open(WEBKIT_ERROR_FILE, "a") as f:
-                f.write(f"WEB_PROCESS_TERMINATED: reason={reason_name} ({reason}) PID={os.getpid()}\n")
-            log(f"Wrote WebKit web-process-terminated details to {WEBKIT_ERROR_FILE}")
-        except Exception as e:
-            log(f"Notice: Failed writing web-process-terminated to {WEBKIT_ERROR_FILE}: {e}")
+        err_body = f"WEB_PROCESS_TERMINATED: reason={reason_name} ({reason}) PID={HOST_PID}"
+        write_error_evidence("WEBKIT_PROCESS_TERMINATED", err_body)
 
     def on_script_message(self, ucm, js_result):
         val = None

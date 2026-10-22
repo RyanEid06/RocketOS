@@ -215,11 +215,52 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(sandboxIdx).toBeLessThan(webviewCreateIdx);
   });
 
-  it('verifies obsolete WEBKIT_FORCE_SANDBOX=0 is absent from session launcher', () => {
+  it('verifies Skia CPU and SHM transport rendering profile in session launcher and Cage flags', () => {
     const sessionContent = fs.readFileSync(sessionScriptPath, 'utf8');
     expect(sessionContent).not.toContain('WEBKIT_FORCE_SANDBOX');
-    expect(sessionContent).toContain('WEBKIT_DISABLE_COMPOSITING_MODE=1');
-    expect(sessionContent).toContain('WEBKIT_DISABLE_DMABUF_RENDERER=1');
+    // Obsolete and broken disabling flags must not be exported
+    expect(sessionContent).not.toContain('export WEBKIT_DISABLE_COMPOSITING_MODE=1');
+    expect(sessionContent).not.toContain('export WEBKIT_DISABLE_DMABUF_RENDERER=1');
+    expect(sessionContent).toContain('unset WEBKIT_DISABLE_COMPOSITING_MODE');
+    expect(sessionContent).toContain('unset WEBKIT_DISABLE_DMABUF_RENDERER');
+
+    // Safe WebKitGTK 2.54 Skia CPU and SHM rendering profile
+    expect(sessionContent).toContain('export WEBKIT_SKIA_ENABLE_CPU_RENDERING=1');
+    expect(sessionContent).toContain('export WEBKIT_DMABUF_RENDERER_FORCE_SHM=1');
+    expect(sessionContent).toContain('export LIBGL_ALWAYS_SOFTWARE=1');
+    expect(sessionContent).toContain('export WLR_RENDERER=');
+
+    // Cage kiosk invocation includes both -s (VT switching) and -D (debug logging)
+    expect(sessionContent).toContain('/usr/bin/cage -s -D -- /usr/local/bin/rocket-shell-host');
+  });
+
+  it('verifies rocket-shell-host does not force HardwareAccelerationPolicy.NEVER', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).not.toContain('HardwareAccelerationPolicy.NEVER');
+    expect(hostContent).toContain('get_hardware_acceleration_policy');
+    expect(hostContent).toContain('WEBKIT_SKIA_ENABLE_CPU_RENDERING');
+    expect(hostContent).toContain('WEBKIT_DMABUF_RENDERER_FORCE_SHM');
+  });
+
+  it('verifies strict single-argument bridge handler registration that fails explicitly', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")');
+    expect(hostContent).toContain('if not reg_ok:');
+    expect(hostContent).toContain('raise RuntimeError');
+    expect(hostContent).not.toContain('register_script_message_handler("rocketBridge", None)');
+  });
+
+  it('maintains per-PID generation state, log, and error evidence without deleting crash history', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('HOST_PID = os.getpid()');
+    expect(hostContent).toContain('GEN_STATE_FILE = f"{STATE_FILE}.{HOST_PID}"');
+    expect(hostContent).toContain('GEN_LOG_FILE = f"{HOST_LOG_FILE}.{HOST_PID}"');
+    expect(hostContent).toContain('GEN_ERROR_FILE = f"{WEBKIT_ERROR_FILE}.{HOST_PID}"');
+    expect(hostContent).toContain('def write_error_evidence(error_type: str, details: str):');
+    expect(hostContent).toContain('os.replace(tmp_gen, GEN_STATE_FILE)');
+    expect(hostContent).toContain('os.replace(tmp_shared, STATE_FILE)');
+    // Startup marker cleanup does NOT destroy crash/error evidence
+    expect(hostContent).not.toContain('os.remove(path)\n                log(f"Removed stale marker/error file: {path}")');
   });
 
   it('verifies UI marker creation is strictly tied to successful WebKit FINISHED event', () => {
@@ -309,7 +350,6 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
     expect(hostContent).toContain('def record_fatal_exception(exc: Exception, context: str = ""):');
     expect(hostContent).toContain('write_state("HOST_FATAL_EXCEPTION", detail)');
-    expect(hostContent).toContain('f.write(f"HOST_FATAL_EXCEPTION:');
     expect(hostContent).toContain('record_fatal_exception(exc, "do_activate")');
     expect(hostContent).toContain('record_fatal_exception(exc, "main")');
   });
@@ -325,11 +365,16 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
   const probeScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-boot-probe');
   const smokeTestPath = path.resolve(__dirname, '../../scripts/phase3/smoke-test-qemu.sh');
 
-  it('collects shell-host state, alive marker, host log, and sandbox prerequisites in debug evidence', () => {
+  it('collects expected generation evidence and rendering profile in debug evidence', () => {
     const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
-    expect(probeContent).toContain('Shell Host State:');
-    expect(probeContent).toContain('Shell Host Alive Marker:');
-    expect(probeContent).toContain('Shell Host Log (last 100 lines):');
+    expect(probeContent).toContain('EXPECTED HOST GENERATION:');
+    expect(probeContent).toContain('CURRENT HOST GENERATION:');
+    expect(probeContent).toContain('CAGE SESSION EXIT DIAGNOSTICS:');
+    expect(probeContent).toContain('RENDERING PROFILE:');
+    expect(probeContent).toContain('WEBKIT_SKIA_ENABLE_CPU_RENDERING');
+    expect(probeContent).toContain('WEBKIT_DMABUF_RENDERER_FORCE_SHM');
+    expect(probeContent).toContain('WEBKIT_DISABLE_COMPOSITING_MODE');
+    expect(probeContent).toContain('WEBKIT_DISABLE_DMABUF_RENDERER');
     expect(probeContent).toContain('ENVIRONMENT & SANDBOX PREREQUISITES:');
     expect(probeContent).toContain('command -v bwrap:');
     expect(probeContent).toContain('bwrap --version:');
@@ -339,9 +384,12 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
     expect(probeContent).toContain('stat /usr/share/rocketos/diagnostic/index.html:');
   });
 
-  it('resolves specific failure codes for distinct WebKit and host failure modes', () => {
+  it('resolves expected PID from .PID evidence and maps Cage exit status 133 to shell_host_native_sigtrap', () => {
     const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
-    expect(probeContent).toContain('resolve_readiness_failure_code()');
+    expect(probeContent).toContain('local gen_state_file="${STATE_FILE}.${expected_pid}"');
+    expect(probeContent).toContain('local gen_error_file="${WEBKIT_ERROR_FILE}.${expected_pid}"');
+    expect(probeContent).toContain('shell_host_native_sigtrap');
+    expect(probeContent).toContain('shell_host_native_signal');
     expect(probeContent).toContain('shell_host_startup_failure');
     expect(probeContent).toContain('shell_host_exception');
     expect(probeContent).toContain('webview_creation_failure');
@@ -352,10 +400,10 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
     expect(probeContent).toContain('ui_marker_timeout');
   });
 
-  it('enforces PID validation matching between discovered host, state file, and alive marker', () => {
+  it('enforces generation-aware PID validation matching without masking crashes', () => {
     const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
-    expect(probeContent).toContain('Host state PID mismatch');
-    expect(probeContent).toContain('Host alive marker PID mismatch');
+    expect(probeContent).toContain('kill -0 "${STATE_PID}"');
+    expect(probeContent).toContain('kill -0 "${HOST_PID}"');
     expect(probeContent).toContain('"shell_host_pid_mismatch"');
   });
 
@@ -366,8 +414,11 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
     expect(probeContent).toContain('ROCKETOS_WP5_RECOVERY_TEST_PASS');
   });
 
-  it('preserves dual BIOS and UEFI smoke test execution in QEMU runner', () => {
+  it('writes at least 300 serial lines to dedicated failure log artifact and preserves dual BIOS/UEFI', () => {
     const smokeContent = fs.readFileSync(smokeTestPath, 'utf8');
+    expect(smokeContent).toContain('FAILURE_LOG="${LOG_DIR}/qemu-failure-phase3-${BOOT_MODE}.log"');
+    expect(smokeContent).toContain('tail -n 300 "${LOG_FILE}" > "${FAILURE_LOG}"');
+    expect(smokeContent).toContain('cat "${FAILURE_LOG}"');
     expect(smokeContent).toContain('BOOT_MODE="bios"');
     expect(smokeContent).toContain('--mode)');
     expect(smokeContent).toContain('ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK');

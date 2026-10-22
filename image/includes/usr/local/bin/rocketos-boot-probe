@@ -582,6 +582,63 @@ collect_graphical_debug_evidence() {
     host_log="$(tail -n 100 "${HOST_LOG_FILE}" 2>/dev/null || echo '(read failed)')"
   fi
 
+  # Expected generation specific evidence
+  local exp_state="(generation state file not present)"
+  local exp_state_file="${STATE_FILE}.${target_pid}"
+  [ -f "${exp_state_file}" ] && exp_state="$(cat "${exp_state_file}" 2>/dev/null || echo '(read failed)')"
+
+  local exp_log="(generation log file not present)"
+  local exp_log_file="${HOST_LOG_FILE}.${target_pid}"
+  [ -f "${exp_log_file}" ] && exp_log="$(tail -n 100 "${exp_log_file}" 2>/dev/null || echo '(read failed)')"
+
+  local exp_err="(generation error file not present)"
+  local exp_err_file="${WEBKIT_ERROR_FILE}.${target_pid}"
+  [ -f "${exp_err_file}" ] && exp_err="$(cat "${exp_err_file}" 2>/dev/null || echo '(read failed)')"
+
+  local exp_alive="no"
+  if [[ -n "${target_pid}" && "${target_pid}" =~ ^[0-9]+$ ]] && kill -0 "${target_pid}" 2>/dev/null; then
+    exp_alive="yes"
+  fi
+
+  # Cage session exit status and signal parsing
+  local cage_exit_status=""
+  cage_exit_status="$(systemctl show --property=ExecMainStatus --value rocketos-graphical-session.service 2>/dev/null || true)"
+  if [[ -z "${cage_exit_status}" || "${cage_exit_status}" == "0" ]]; then
+    cage_exit_status="$(journalctl -u rocketos-graphical-session.service -n 30 --no-pager 2>/dev/null | grep -o 'status=[0-9]\+' | tail -n1 | cut -d= -f2 || true)"
+  fi
+  local child_sig_num="N/A"
+  local child_sig_name="N/A"
+  if [[ "${cage_exit_status}" =~ ^[0-9]+$ && ${cage_exit_status} -gt 128 && ${cage_exit_status} -le 192 ]]; then
+    child_sig_num=$((cage_exit_status - 128))
+    if [[ ${child_sig_num} -eq 5 ]]; then
+      child_sig_name="SIGTRAP"
+    elif [[ ${child_sig_num} -eq 9 ]]; then
+      child_sig_name="SIGKILL"
+    elif [[ ${child_sig_num} -eq 11 ]]; then
+      child_sig_name="SIGSEGV"
+    elif [[ ${child_sig_num} -eq 6 ]]; then
+      child_sig_name="SIGABRT"
+    elif [[ ${child_sig_num} -eq 15 ]]; then
+      child_sig_name="SIGTERM"
+    else
+      child_sig_name="SIGNAL_${child_sig_num}"
+    fi
+  fi
+
+  local last_host_state_parsed="unknown"
+  if [[ -f "${exp_state_file}" ]]; then
+    last_host_state_parsed="$(grep '^STATE=' "${exp_state_file}" 2>/dev/null | cut -d= -f2- || echo 'unknown')"
+  fi
+
+  # Rendering profile variables
+  local ren_wlr="${WLR_RENDERER:-pixman}"
+  local ren_libgl="${LIBGL_ALWAYS_SOFTWARE:-1}"
+  local ren_skia="${WEBKIT_SKIA_ENABLE_CPU_RENDERING:-1}"
+  local ren_shm="${WEBKIT_DMABUF_RENDERER_FORCE_SHM:-1}"
+  local ren_dis_comp="${WEBKIT_DISABLE_COMPOSITING_MODE:-unset}"
+  local ren_dis_dmabuf="${WEBKIT_DISABLE_DMABUF_RENDERER:-unset}"
+  local ren_gdk="${GDK_BACKEND:-wayland}"
+
   local bwrap_cmd
   bwrap_cmd="$(command -v bwrap 2>/dev/null || echo 'not found')"
   local bwrap_ver="(unavailable)"
@@ -615,13 +672,43 @@ All Cage PID(s):          ${all_cage_pids}
 Graphical Service State:  ${session_state}
 UI Marker Value:          '${ui_val}'
 Bridge Ping Marker Value: '${ping_val}'
-Shell Host Alive Marker:  '${alive_val}'
-Shell Host State:
+
+EXPECTED HOST GENERATION:
+PID:                      ${target_pid}
+Process still alive:      ${exp_alive}
+State:
+${exp_state}
+Generation WebKit/error evidence:
+${exp_err}
+Last 100 generation log lines:
+${exp_log}
+
+CAGE SESSION EXIT DIAGNOSTICS:
+CAGE_EXIT_STATUS=${cage_exit_status:-unknown}
+CHILD_SIGNAL_NUMBER=${child_sig_num}
+CHILD_SIGNAL_NAME=${child_sig_name}
+EXPECTED_HOST_PID=${target_pid}
+LAST_HOST_STATE=${last_host_state_parsed}
+
+CURRENT HOST GENERATION:
+Current state file:
 ${host_state}
-Shell Host Log (last 100 lines):
+Current alive marker:     '${alive_val}'
+Current shell host PID(s): ${current_hosts}
+Shared Host Log (last 100 lines):
 ${host_log}
-WebKit Load Error File:
+Shared WebKit Load Error File:
 ${webkit_err}
+
+RENDERING PROFILE:
+WLR_RENDERER=${ren_wlr}
+LIBGL_ALWAYS_SOFTWARE=${ren_libgl}
+WEBKIT_SKIA_ENABLE_CPU_RENDERING=${ren_skia}
+WEBKIT_DMABUF_RENDERER_FORCE_SHM=${ren_shm}
+WEBKIT_DISABLE_COMPOSITING_MODE=${ren_dis_comp}
+WEBKIT_DISABLE_DMABUF_RENDERER=${ren_dis_dmabuf}
+GDK_BACKEND=${ren_gdk}
+
 ENVIRONMENT & SANDBOX PREREQUISITES:
 command -v bwrap:
 ${bwrap_cmd}
@@ -659,9 +746,16 @@ EOF
 resolve_readiness_failure_code() {
   local expected_pid="$1"
 
+  local gen_state_file="${STATE_FILE}.${expected_pid}"
+  local gen_error_file="${WEBKIT_ERROR_FILE}.${expected_pid}"
   local host_state=""
   local state_pid=""
-  if [[ -f "${STATE_FILE}" ]]; then
+
+  # Authoritatively read generation-specific state first
+  if [[ -f "${gen_state_file}" ]]; then
+    host_state="$(grep '^STATE=' "${gen_state_file}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+    state_pid="$(grep '^PID=' "${gen_state_file}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+  elif [[ -f "${STATE_FILE}" ]]; then
     host_state="$(grep '^STATE=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
     state_pid="$(grep '^PID=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
   fi
@@ -676,7 +770,11 @@ resolve_readiness_failure_code() {
     echo "shell_host_exception"
     return 0
   fi
-  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "HOST_FATAL_EXCEPTION" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
+  if [[ -f "${gen_error_file}" ]] && grep -q "HOST_FATAL_EXCEPTION" "${gen_error_file}" 2>/dev/null; then
+    echo "shell_host_exception"
+    return 0
+  fi
+  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "PID: ${expected_pid}.*HOST_FATAL_EXCEPTION\|PID=${expected_pid}.*HOST_FATAL_EXCEPTION\|HOST_FATAL_EXCEPTION" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
     echo "shell_host_exception"
     return 0
   fi
@@ -686,7 +784,11 @@ resolve_readiness_failure_code() {
     echo "webkit_process_terminated"
     return 0
   fi
-  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "WEB_PROCESS_TERMINATED" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
+  if [[ -f "${gen_error_file}" ]] && grep -q "WEB_PROCESS_TERMINATED" "${gen_error_file}" 2>/dev/null; then
+    echo "webkit_process_terminated"
+    return 0
+  fi
+  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "PID: ${expected_pid}.*WEB_PROCESS_TERMINATED\|PID=${expected_pid}.*WEB_PROCESS_TERMINATED\|WEB_PROCESS_TERMINATED" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
     echo "webkit_process_terminated"
     return 0
   fi
@@ -696,14 +798,28 @@ resolve_readiness_failure_code() {
     echo "webkit_load_failed"
     return 0
   fi
+  if [[ -f "${gen_error_file}" ]] && grep -q "URI:" "${gen_error_file}" 2>/dev/null; then
+    echo "webkit_load_failed"
+    return 0
+  fi
   if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "URI:" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
     echo "webkit_load_failed"
     return 0
   fi
 
-  # 4. Host never reaches GTK activation
-  if [[ -z "${host_state}" || "${host_state}" == "PROCESS_STARTED" || "${host_state}" == "GI_IMPORT_OK" || "${host_state}" == "APPLICATION_CREATED" || "${host_state}" == "APPLICATION_RUN_ENTER" ]]; then
-    echo "shell_host_startup_failure"
+  # 4. Cage exit status signal check: Cage returns 128 + WTERMSIG(status)
+  # When status=133 -> 128 + 5 = SIGTRAP
+  local cage_exit_status=""
+  cage_exit_status="$(systemctl show --property=ExecMainStatus --value rocketos-graphical-session.service 2>/dev/null || true)"
+  if [[ -z "${cage_exit_status}" || "${cage_exit_status}" == "0" ]]; then
+    cage_exit_status="$(journalctl -u rocketos-graphical-session.service -n 30 --no-pager 2>/dev/null | grep -o 'status=[0-9]\+' | tail -n1 | cut -d= -f2 || true)"
+  fi
+
+  if [[ "${cage_exit_status}" == "133" ]]; then
+    echo "shell_host_native_sigtrap"
+    return 0
+  elif [[ "${cage_exit_status}" =~ ^[0-9]+$ && ${cage_exit_status} -gt 128 && ${cage_exit_status} -le 192 ]]; then
+    echo "shell_host_native_signal"
     return 0
   fi
 
@@ -713,7 +829,13 @@ resolve_readiness_failure_code() {
     return 0
   fi
 
-  # 6. FINISHED happened but marker is absent or has wrong PID
+  # 6. Host never reaches GTK activation
+  if [[ -z "${host_state}" || "${host_state}" == "PROCESS_STARTED" || "${host_state}" == "GI_IMPORT_OK" || "${host_state}" == "APPLICATION_CREATED" || "${host_state}" == "APPLICATION_RUN_ENTER" ]]; then
+    echo "shell_host_startup_failure"
+    return 0
+  fi
+
+  # 7. FINISHED happened but marker is absent or has wrong PID
   if [[ "${host_state}" == "WEBKIT_LOAD_FINISHED" ]]; then
     local ui_pid=""
     if [[ -f "${UI_LOADED_MARKER}" ]]; then
@@ -725,7 +847,7 @@ resolve_readiness_failure_code() {
     fi
   fi
 
-  # 7. Host state PID or alive marker PID mismatch ONLY if both processes are concurrently alive/conflicting
+  # 8. Host state PID or alive marker PID mismatch ONLY if both processes are concurrently alive/conflicting
   if [[ -n "${state_pid}" && "${state_pid}" != "${expected_pid}" ]]; then
     if kill -0 "${state_pid}" 2>/dev/null && kill -0 "${expected_pid}" 2>/dev/null; then
       echo "shell_host_pid_mismatch"
@@ -739,13 +861,13 @@ resolve_readiness_failure_code() {
     fi
   fi
 
-  # 8. Load requested/started/committed but WebKit never finished
+  # 9. Load requested/started/committed but WebKit never finished
   if [[ "${host_state}" == "LOAD_URI_REQUESTED" || "${host_state}" == "WEBVIEW_CREATED" || "${host_state}" == "WINDOW_CHILD_SET" || "${host_state}" == "GTK_WINDOW_PRESENTED" || "${host_state}" == "WEBKIT_LOAD_STARTED" || "${host_state}" == "WEBKIT_LOAD_REDIRECTED" || "${host_state}" == "WEBKIT_LOAD_COMMITTED" ]]; then
     echo "ui_marker_timeout"
     return 0
   fi
 
-  # 9. Bridge marker timeout if UI loaded but ping marker absent
+  # 10. Bridge marker timeout if UI loaded but ping marker absent
   if [[ "${host_state}" == "UI_MARKER_CREATED" || "${host_state}" == "WEBKIT_LOAD_FINISHED" ]]; then
     local ping_pid=""
     if [[ -f "${BRIDGE_PING_MARKER}" ]]; then
