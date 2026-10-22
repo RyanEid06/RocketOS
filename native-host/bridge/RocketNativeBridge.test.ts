@@ -285,9 +285,24 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(hostContent).not.toContain('WebKit.WebView.new_with_user_content_manager');
     expect(hostContent).not.toContain('WebKit.WebView.new_with_settings');
     expect(hostContent).not.toContain('WebKit.WebView.new_with_context');
-    // Verifies WebKitGTK 6 GObject construct property usage
-    expect(hostContent).toContain('WebKit.WebView(');
-    expect(hostContent).toContain('user_content_manager');
+
+    // Verifies WebKitGTK 6 strict GObject construct property usage with network_session
+    expect(hostContent).toContain('network_session=default_session');
+    expect(hostContent).toContain('user_content_manager=self.user_content_manager');
+    expect(hostContent).toContain('settings=settings');
+
+    // Verifies absence of degraded fallback construction that omits network_session
+    expect(hostContent).not.toContain('fallback constructing WebView');
+    expect(hostContent).not.toContain('attempting hyphenated properties');
+
+    // Verifies GI introspection property validation
+    expect(hostContent).toContain('WebKit.WebView.list_properties');
+    expect(hostContent).toContain('"user-content-manager"');
+    expect(hostContent).toContain('"settings"');
+    expect(hostContent).toContain('"network-session"');
+
+    // Verifies that constructor errors or missing properties trigger HOST_FATAL_EXCEPTION via do_activate handler
+    expect(hostContent).toContain('record_fatal_exception(exc, "do_activate")');
   });
 
   it('verifies top-level exception protection in main() and do_activate() with non-zero exit', () => {

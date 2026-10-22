@@ -212,44 +212,44 @@ class RocketShellHostApp(Gtk.Application):
                     settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
                 write_state("SETTINGS_CREATED")
 
-                # 10. Construct WebKitGTK 6.0 WebView using GObject construct properties
+                # 10. Construct WebKitGTK 6.0 WebView using strict GObject construct properties
                 write_state("WEBVIEW_CONSTRUCTION_ENTER")
-                log("Constructing WebKitGTK 6.0 WebView with GObject construct properties...")
+                log("Verifying WebKitGTK 6.0 WebView construct properties via GI introspection...")
 
-                webview_kwargs = {
-                    "user_content_manager": self.user_content_manager,
-                    "settings": settings,
-                }
-
-                # Attach default NetworkSession if available in this WebKitGTK 6 typelib
-                if hasattr(WebKit, "NetworkSession") and hasattr(WebKit.NetworkSession, "get_default"):
-                    try:
-                        default_session = WebKit.NetworkSession.get_default()
-                        if default_session:
-                            webview_kwargs["network_session"] = default_session
-                            log("Default WebKit.NetworkSession attached to WebView properties.")
-                    except Exception as ns_err:
-                        log(f"Notice: WebKit.NetworkSession.get_default() error: {ns_err}")
-
+                available_props = []
                 try:
-                    self.webview = WebKit.WebView(**webview_kwargs)
-                except TypeError as te:
-                    log(f"Notice: WebKit.WebView(**webview_kwargs) raised TypeError: {te}; attempting hyphenated properties...")
-                    hyphen_kwargs = {}
-                    if "user_content_manager" in webview_kwargs:
-                        hyphen_kwargs["user-content-manager"] = webview_kwargs["user_content_manager"]
-                    if "settings" in webview_kwargs:
-                        hyphen_kwargs["settings"] = webview_kwargs["settings"]
-                    if "network_session" in webview_kwargs:
-                        hyphen_kwargs["network-session"] = webview_kwargs["network_session"]
-                    try:
-                        self.webview = WebKit.WebView(**hyphen_kwargs)
-                    except TypeError:
-                        log("Notice: Fallback constructing WebView with user_content_manager and settings...")
-                        self.webview = WebKit.WebView(
-                            user_content_manager=self.user_content_manager,
-                            settings=settings
+                    if hasattr(WebKit.WebView, "list_properties"):
+                        available_props = [p.name for p in WebKit.WebView.list_properties()]
+                except Exception as prop_err:
+                    log(f"Notice: WebKit.WebView.list_properties() inspection notice: {prop_err}")
+
+                log(f"WebKit.WebView available properties: {', '.join(sorted(available_props)) if available_props else '(none listed)'}")
+
+                required_props = ["user-content-manager", "settings", "network-session"]
+                if available_props:
+                    missing_props = [
+                        rp for rp in required_props
+                        if rp not in available_props and rp.replace("-", "_") not in available_props
+                    ]
+                    if missing_props:
+                        raise RuntimeError(
+                            f"Missing required WebKitGTK 6 construct properties: {missing_props}. "
+                            f"Available properties: {available_props}"
                         )
+
+                if not hasattr(WebKit, "NetworkSession") or not hasattr(WebKit.NetworkSession, "get_default"):
+                    raise RuntimeError("WebKit.NetworkSession.get_default is not available in WebKitGTK 6 typelib")
+
+                default_session = WebKit.NetworkSession.get_default()
+                if default_session is None:
+                    raise RuntimeError("WebKit.NetworkSession.get_default() returned None")
+
+                log("Constructing WebKit.WebView with user_content_manager, settings, and network_session...")
+                self.webview = WebKit.WebView(
+                    user_content_manager=self.user_content_manager,
+                    settings=settings,
+                    network_session=default_session,
+                )
 
                 # Ensure settings are applied
                 if hasattr(self.webview, "set_settings"):
