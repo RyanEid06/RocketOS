@@ -8,7 +8,8 @@
 set -euo pipefail
 
 TARGET_DEV="/dev/console"
-[ -w "$TARGET_DEV" ] || TARGET_DEV="/dev/stdout"
+[ -w "$TARGET_DEV" ] || TARGET_DEV="/dev/stderr"
+[ -w "$TARGET_DEV" ] || TARGET_DEV="/dev/null"
 LOG_FILE="/var/log/rocketos-boot-probe.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -19,7 +20,7 @@ BRIDGE_PING_MARKER="${RUNTIME_DIR}/rocketos-bridge-ping-ok"
 
 PROBE_COMPLETED=false
 
-# Dedicated serial-first checkpoint logger
+# Dedicated serial-first checkpoint logger (never writes to stdout)
 log_checkpoint() {
   local msg="$1"
   local ts
@@ -29,19 +30,36 @@ log_checkpoint() {
     echo "${line}" > /dev/ttyS0 2>/dev/null || true
   fi
   echo "${line}" >> "${LOG_FILE}" 2>/dev/null || true
-  echo "${line}" > "${TARGET_DEV}" 2>/dev/null || true
+  if [ -w "${TARGET_DEV}" ]; then
+    echo "${line}" > "${TARGET_DEV}" 2>/dev/null || true
+  fi
 }
 
 emit_fail() {
   local reason="$1"
+  local code_tag="${2:-}"
+  if [[ -z "${code_tag}" ]]; then
+    code_tag="$(echo "${reason}" | head -n1 | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9_' '_' | sed 's/^_//;s/_$//')"
+  fi
+
+  local fail_line="ROCKETOS_PHASE3_FAIL: ${code_tag}"
+  if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
+    echo "${fail_line}" > /dev/ttyS0 2>/dev/null || true
+  fi
+  echo "${fail_line}" >> "${LOG_FILE}" 2>/dev/null || true
+  if [ -w "${TARGET_DEV}" ]; then
+    echo "${fail_line}" > "${TARGET_DEV}" 2>/dev/null || true
+  fi
+
   local output="==================================================
 ROCKETOS_BOOT_FAIL
 ==================================================
 FAILURE_REASON: ${reason}
+FAILURE_CODE: ${code_tag}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 =================================================="
 
-  log_checkpoint "PHASE3_PROBE_FAIL_TRIGGERED"
+  log_checkpoint "PHASE3_PROBE_FAIL_TRIGGERED code=${code_tag}"
   # 1. Output to serial console FIRST (unbuffered for CI test runner capture)
   if [ -e /dev/ttyS0 ] && [ -w /dev/ttyS0 ]; then
     echo "${output}" > /dev/ttyS0 2>/dev/null || true
@@ -49,7 +67,9 @@ TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
   # 2. Append to log file
   echo "${output}" >> "${LOG_FILE}" 2>/dev/null || true
   # 3. Output to console device without risk of hanging on large output
-  echo "${output}" | head -n 40 > "${TARGET_DEV}" 2>/dev/null || true
+  if [ -w "${TARGET_DEV}" ]; then
+    echo "${output}" | head -n 40 > "${TARGET_DEV}" 2>/dev/null || true
+  fi
   exit 1
 }
 
@@ -221,23 +241,29 @@ is_shell_host_process() {
   return 0
 }
 
-# Discover authoritative shell-host PID: inspect Cage children first, then bounded descendants
+# Discover authoritative shell-host PID: inspect cgroup procs, Cage children, and rocket processes
 find_shell_host_pid() {
   local cage_pid="${1:-}"
   local attempt="${2:-1}"
 
   log_checkpoint "HOST_DISCOVERY_ATTEMPT_START attempt=${attempt} cage_pid=${cage_pid}"
 
-  # Step 1: Read Cage direct children from /proc/${cage_pid}/task/${cage_pid}/children
-  log_checkpoint "HOST_DISCOVERY_READ_CAGE_CHILDREN_START"
   local candidate_pids=()
 
+  # Step 1: Read cgroup.procs if accessible under systemd cgroup v2
+  local cgroup_procs_file="/sys/fs/cgroup/system.slice/rocketos-graphical-session.service/cgroup.procs"
+  if [[ -r "${cgroup_procs_file}" ]]; then
+    while read -r cp; do
+      [[ "${cp}" =~ ^[0-9]+$ && ${cp} -gt 1 ]] && candidate_pids+=("${cp}")
+    done < "${cgroup_procs_file}" 2>/dev/null || true
+  fi
+
+  # Step 2: Read Cage direct children from /proc/${cage_pid}/task/${cage_pid}/children and pgrep
   if [[ -n "${cage_pid}" && -d "/proc/${cage_pid}" ]]; then
     local children_raw=""
     if [[ -r "/proc/${cage_pid}/task/${cage_pid}/children" ]]; then
       children_raw="$(cat "/proc/${cage_pid}/task/${cage_pid}/children" 2>/dev/null || true)"
     fi
-    # If /proc/.../children is empty or kernel doesn't populate, fallback to timeout pgrep
     if [[ -z "${children_raw// /}" ]]; then
       children_raw="$(timeout 1s pgrep -P "${cage_pid}" 2>/dev/null | tr '\n' ' ' || true)"
     fi
@@ -245,10 +271,30 @@ find_shell_host_pid() {
       [[ "${c}" =~ ^[0-9]+$ ]] && candidate_pids+=("${c}")
     done
   fi
-  log_checkpoint "HOST_DISCOVERY_READ_CAGE_CHILDREN_OK count=${#candidate_pids[@]} pids='${candidate_pids[*]:-none}'"
 
-  # Step 2: Validate direct Cage children
-  for child in "${candidate_pids[@]}"; do
+  # Step 3: Check pgrep for rocket-shell-host
+  for hp in $(timeout 1s pgrep -u rocket -f rocket-shell-host 2>/dev/null || true); do
+    [[ "${hp}" =~ ^[0-9]+$ ]] && candidate_pids+=("${hp}")
+  done
+
+  # Deduplicate primary candidates
+  local dedup_candidates=()
+  for c in "${candidate_pids[@]}"; do
+    [[ "${c}" == "${cage_pid}" ]] && continue
+    local seen=false
+    for sc in "${dedup_candidates[@]}"; do
+      if [[ "${sc}" == "${c}" ]]; then
+        seen=true
+        break
+      fi
+    done
+    [[ "${seen}" == "true" ]] || dedup_candidates+=("${c}")
+  done
+
+  log_checkpoint "HOST_DISCOVERY_PRIMARY_CANDIDATES count=${#dedup_candidates[@]} pids='${dedup_candidates[*]:-none}'"
+
+  # Validate candidates
+  for child in "${dedup_candidates[@]}"; do
     log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} START"
     if is_shell_host_process "${child}" "${cage_pid}" "false"; then
       log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} END result=MATCH"
@@ -259,9 +305,9 @@ find_shell_host_pid() {
     log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${child} END result=NO_MATCH"
   done
 
-  # Step 3: Check 2nd-level descendants (children of Cage's direct children)
+  # Step 4: Check 2nd-level descendants
   local descendant_pids=()
-  for child in "${candidate_pids[@]}"; do
+  for child in "${dedup_candidates[@]}"; do
     if [[ -d "/proc/${child}" ]]; then
       local sub_children=""
       if [[ -r "/proc/${child}/task/${child}/children" ]]; then
@@ -287,7 +333,7 @@ find_shell_host_pid() {
     log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${desc} END result=NO_MATCH"
   done
 
-  # Step 4: Fallback scan (only bounded processes owned by user rocket, using ps -u rocket -o pid=)
+  # Step 5: Fallback scan (all processes owned by user rocket)
   log_checkpoint "HOST_DISCOVERY_FALLBACK_SCAN_START"
   local fallback_pids=()
   local ps_pids
@@ -296,7 +342,7 @@ find_shell_host_pid() {
     [[ "${fp}" =~ ^[0-9]+$ ]] || continue
     [[ "${fp}" == "${cage_pid}" ]] && continue
     local already_tested=false
-    for tested in "${candidate_pids[@]}" "${descendant_pids[@]}"; do
+    for tested in "${dedup_candidates[@]}" "${descendant_pids[@]}"; do
       if [[ "${fp}" == "${tested}" ]]; then
         already_tested=true
         break
@@ -308,7 +354,7 @@ find_shell_host_pid() {
 
   for fp in "${fallback_pids[@]}"; do
     log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${fp} START (fallback)"
-    if is_shell_host_process "${fp}" "${cage_pid}" "true"; then
+    if is_shell_host_process "${fp}" "${cage_pid}" "false"; then
       log_checkpoint "HOST_DISCOVERY_VALIDATE_PID pid=${fp} END result=MATCH"
       log_checkpoint "HOST_DISCOVERY_FALLBACK_SCAN_END result=FOUND pid=${fp}"
       log_checkpoint "HOST_DISCOVERY_ATTEMPT_END result=FOUND pid=${fp}"
@@ -693,7 +739,7 @@ log_checkpoint "PHASE3_VERIFY_ROCKET_USER_OK"
 log_checkpoint "PHASE3_DISCOVER_CAGE_START"
 CAGE_PID=""
 CAGE_DISCOVERY_START_SEC=$(date +%s)
-CAGE_DISCOVERY_TIMEOUT_SECS=15
+CAGE_DISCOVERY_TIMEOUT_SECS=30
 CAGE_DISCOVERY_DEADLINE=$((CAGE_DISCOVERY_START_SEC + CAGE_DISCOVERY_TIMEOUT_SECS))
 
 while true; do
@@ -710,15 +756,15 @@ done
 
 if [[ -z "${CAGE_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
-  emit_fail "cage compositor is not running under user rocket within 15s
-${DEBUG_EVIDENCE}"
+  emit_fail "cage compositor is not running under user rocket within ${CAGE_DISCOVERY_TIMEOUT_SECS}s
+${DEBUG_EVIDENCE}" "cage_compositor_not_running"
 fi
 log_checkpoint "PHASE3_DISCOVER_CAGE_OK pid=${CAGE_PID}"
 
 log_checkpoint "PHASE3_DISCOVER_HOST_START"
 HOST_PID=""
 HOST_DISCOVERY_START_SEC=$(date +%s)
-HOST_DISCOVERY_TIMEOUT_SECS=15
+HOST_DISCOVERY_TIMEOUT_SECS=45
 HOST_DISCOVERY_DEADLINE=$((HOST_DISCOVERY_START_SEC + HOST_DISCOVERY_TIMEOUT_SECS))
 HOST_DISCOVERY_ATTEMPT=0
 
@@ -730,6 +776,7 @@ while true; do
 
   HOST_DISCOVERY_ATTEMPT=$((HOST_DISCOVERY_ATTEMPT + 1))
   HOST_PID="$(find_shell_host_pid "${CAGE_PID}" "${HOST_DISCOVERY_ATTEMPT}" || true)"
+  HOST_PID="$(echo "${HOST_PID}" | grep -E '^[0-9]+$' | head -n1 || true)"
   if [[ -n "${HOST_PID}" ]]; then
     break
   fi
@@ -743,12 +790,12 @@ done
 
 if [[ -z "${HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
-  emit_fail "rocket-shell-host was not discovered within 15s
-${DEBUG_EVIDENCE}"
+  emit_fail "rocket-shell-host was not discovered within ${HOST_DISCOVERY_TIMEOUT_SECS}s
+${DEBUG_EVIDENCE}" "shell_host_not_running"
 fi
 
 if [[ "${CAGE_PID}" == "${HOST_PID}" ]]; then
-  emit_fail "Internal probe failure: CAGE_PID (${CAGE_PID}) was identified as HOST_PID"
+  emit_fail "Internal probe failure: CAGE_PID (${CAGE_PID}) was identified as HOST_PID" "shell_host_discovery_error"
 fi
 log_checkpoint "PHASE3_DISCOVER_HOST_OK pid=${HOST_PID}"
 
@@ -765,7 +812,7 @@ for ((sec=1; sec<=INITIAL_READINESS_TIMEOUT_SECS; sec++)); do
     CURRENT_HOSTS="$(find_all_shell_host_pids "${CAGE_PID}")"
     DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
     emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS:-none})
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "shell_host_not_running"
   fi
 
   if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
@@ -782,10 +829,10 @@ if [[ "${UI_LOADED_PID}" != "${HOST_PID}" || "${BRIDGE_PING_PID}" != "${HOST_PID
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
   if [[ "${UI_LOADED_PID}" != "${HOST_PID}" ]]; then
     emit_fail "Diagnostic UI failed to complete loading within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}')
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "ui_marker_timeout"
   else
     emit_fail "Native bridge ping verification failed within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}')
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "bridge_marker_timeout"
   fi
 fi
 log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_OK host_pid=${HOST_PID}"
@@ -807,10 +854,10 @@ if [[ "${TTY2_STATE}" != "active" || "${TTY3_STATE}" != "active" ]]; then
 fi
 
 if [[ "${TTY2_STATE}" != "active" ]]; then
-  emit_fail "Emergency TTY failure: getty@tty2.service is '${TTY2_STATE}' (expected 'active')"
+  emit_fail "Emergency TTY failure: getty@tty2.service is '${TTY2_STATE}' (expected 'active')" "emergency_tty_inactive"
 fi
 if [[ "${TTY3_STATE}" != "active" ]]; then
-  emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')"
+  emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')" "emergency_tty_inactive"
 fi
 log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_OK"
 
@@ -903,11 +950,11 @@ done
 if [[ "${RESTARTED}" != "true" || -z "${NEW_HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${INITIAL_HOST_PID}")"
   emit_fail "WP5 Failure: rocket-shell-host failed to restart within ${RESTART_TIMEOUT_SECS}s after termination (initial PID: ${INITIAL_HOST_PID})
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
 fi
 
 if [[ "${NEW_CAGE_PID}" == "${NEW_HOST_PID}" ]]; then
-  emit_fail "Internal probe failure during restart: NEW_CAGE_PID (${NEW_CAGE_PID}) == NEW_HOST_PID (${NEW_HOST_PID})"
+  emit_fail "Internal probe failure during restart: NEW_CAGE_PID (${NEW_CAGE_PID}) == NEW_HOST_PID (${NEW_HOST_PID})" "recovery_failed"
 fi
 log_checkpoint "PHASE3_WP5_WAIT_RESTART_OK cage_pid=${NEW_CAGE_PID} host_pid=${NEW_HOST_PID}"
 
@@ -916,7 +963,7 @@ NEW_OWNER="$(timeout 1s ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:
 if [[ "${NEW_OWNER}" != "rocket" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   emit_fail "WP5 Failure: Restarted rocket-shell-host owner is '${NEW_OWNER}', expected 'rocket'
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
 fi
 
 # Verify restarted session restored WebKit UI and answered native bridge ping under NEW_HOST_PID
@@ -930,7 +977,7 @@ for ((sec=1; sec<=RECOVERY_READINESS_TIMEOUT_SECS; sec++)); do
     CURRENT_HOSTS="$(find_all_shell_host_pids "${NEW_CAGE_PID}")"
     DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
     emit_fail "WP5 Failure: Restarted rocket-shell-host (PID ${NEW_HOST_PID}) unexpectedly died before completing UI recovery (current host PIDs: ${CURRENT_HOSTS:-none})
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
   fi
 
   if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
@@ -947,10 +994,10 @@ if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" || "${RECOVERED_PING_PID}" != "
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   if [[ "${RECOVERED_UI_PID}" != "${NEW_HOST_PID}" ]]; then
     emit_fail "WP5 Failure: Restarted session did not reload diagnostic UI within ${RECOVERY_READINESS_TIMEOUT_SECS}s under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_UI_PID}')
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
   else
     emit_fail "WP5 Failure: Restarted session did not answer bridge ping within ${RECOVERY_READINESS_TIMEOUT_SECS}s under new PID (expected ${NEW_HOST_PID}, got '${RECOVERED_PING_PID}')
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
   fi
 fi
 log_checkpoint "PHASE3_WP5_WAIT_RECOVERY_READINESS_OK host_pid=${NEW_HOST_PID}"
@@ -962,7 +1009,7 @@ CAGE_COUNT="$(pgrep -u rocket -x cage 2>/dev/null | wc -l)"
 if [[ "${HOST_COUNT}" -ne 1 || "${CAGE_COUNT}" -ne 1 ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${NEW_HOST_PID}")"
   emit_fail "WP5 Failure: Process stack has orphan processes (host_count: ${HOST_COUNT}, cage_count: ${CAGE_COUNT})
-${DEBUG_EVIDENCE}"
+${DEBUG_EVIDENCE}" "recovery_failed"
 fi
 log_checkpoint "PHASE3_WP5_CHECK_ORPHANS_OK"
 

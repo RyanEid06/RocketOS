@@ -27,12 +27,25 @@ fi
 export XDG_SESSION_TYPE="wayland"
 export XDG_CURRENT_DESKTOP="RocketOS"
 export GDK_BACKEND="wayland"
-export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}"
+
+# Unset any pre-existing Wayland socket variables so wlroots initializes root DRM/KMS
+unset WAYLAND_DISPLAY
+unset WAYLAND_SOCKET
 
 # Enable software fallback rendering for headless / virtualized QEMU environments
 export WLR_RENDERER="${WLR_RENDERER:-pixman}"
 export WLR_NO_HARDWARE_CURSORS=1
 export LIBGL_ALWAYS_SOFTWARE=1
+
+# WebKitGTK software rasterization and sandbox configuration for virtualized environments
+export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export WEBKIT_DISABLE_DMABUF_RENDERER=1
+export WEBKIT_FORCE_SANDBOX=0
+
+# Connect to user session D-Bus if available
+if [ -S "${XDG_RUNTIME_DIR}/bus" ]; then
+    export DBUS_SESSION_BUS_ADDRESS="unix:path=${XDG_RUNTIME_DIR}/bus"
+fi
 
 # Ensure Python unbuffered logging for instant journal visibility
 export PYTHONUNBUFFERED=1
@@ -44,4 +57,4 @@ if [ ! -x /usr/local/bin/rocket-shell-host ]; then
 fi
 
 echo "[RocketOS-Session] Executing Cage kiosk compositor with rocket-shell-host..."
-exec /usr/bin/cage -s -- /usr/local/bin/rocket-shell-host "$@"
+exec /usr/bin/cage -- /usr/local/bin/rocket-shell-host "$@"

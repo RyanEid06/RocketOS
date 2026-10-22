@@ -333,6 +333,7 @@ while true; do
   # Check if serial log reported an explicit boot failure
   if grep -q "ROCKETOS_BOOT_FAIL" "${LOG_FILE}" 2>/dev/null; then
     echo "ERROR: Serial log reported explicit ROCKETOS_BOOT_FAIL."
+    grep "ROCKETOS_PHASE3_FAIL:" "${LOG_FILE}" 2>/dev/null || true
     break
   fi
 
