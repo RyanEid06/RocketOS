@@ -11,36 +11,64 @@ import json
 import time
 import signal
 import platform
+import traceback
 
-def log(msg: str):
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    print(f"[{timestamp}] [rocket-shell-host] {msg}", flush=True)
-
-# 1. Host process start + PID (logged before GTK imports)
-log(f"Host process start: PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
-
-try:
-    import gi
-    gi.require_version('Gtk', '4.0')
-    gi.require_version('WebKit', '6.0')
-    from gi.repository import Gtk, WebKit, GLib, Gio
-    log(f"GTK import success: GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}, WebKitGTK {WebKit.get_major_version()}.{WebKit.get_minor_version()}.{WebKit.get_micro_version()}")
-except ImportError as err:
-    sys.stderr.write(f"FATAL: Required GObject libraries not found: {err}\n")
-    sys.stderr.flush()
-    sys.exit(1)
-
-DIAGNOSTIC_DIR = "/usr/share/rocketos/diagnostic"
-DIAGNOSTIC_URL = f"file://{DIAGNOSTIC_DIR}/index.html"
-SUPPORTED_PROTOCOL_VERSION = 1
-MAX_REQUEST_SIZE = 65536  # 64 KB limit to prevent memory exhaustion
-
-# Establish runtime marker paths under unprivileged XDG_RUNTIME_DIR
+# Establish runtime marker and logging paths under unprivileged XDG_RUNTIME_DIR
 RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+STATE_FILE = os.path.join(RUNTIME_DIR, "rocketos-shell-host-state")
+HOST_LOG_FILE = os.path.join(RUNTIME_DIR, "rocketos-shell-host.log")
+ALIVE_MARKER = os.path.join(RUNTIME_DIR, "rocketos-shell-host-alive")
 UI_LOADED_MARKER = os.path.join(RUNTIME_DIR, "rocketos-ui-loaded")
 BRIDGE_PING_MARKER = os.path.join(RUNTIME_DIR, "rocketos-bridge-ping-ok")
-
 WEBKIT_ERROR_FILE = os.path.join(RUNTIME_DIR, "rocketos-webkit-error")
+
+def log(msg: str):
+    """Timestamped logging to stdout and dedicated host log file."""
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    formatted = f"[{timestamp}] [rocket-shell-host] {msg}"
+    print(formatted, flush=True)
+    try:
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        with open(HOST_LOG_FILE, "a") as f:
+            f.write(formatted + "\n")
+    except Exception:
+        # Logging helper must never crash the host
+        pass
+
+def write_state(state: str, detail: str = ""):
+    """Atomically records current host lifecycle boundary to state file."""
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    content = f"TIMESTAMP_UTC={timestamp}\nPID={os.getpid()}\nSTATE={state}\n"
+    if detail:
+        content += f"DETAIL={detail}\n"
+    log(f"STATE_TRANSITION -> {state}{(': ' + detail) if detail else ''}")
+    try:
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        tmp_path = f"{STATE_FILE}.tmp.{os.getpid()}"
+        with open(tmp_path, "w") as f:
+            f.write(content)
+        os.replace(tmp_path, STATE_FILE)
+    except Exception as e:
+        # Never crash from state writing failure
+        try:
+            print(f"[{timestamp}] [rocket-shell-host] ERROR writing state file: {e}", file=sys.stderr, flush=True)
+        except Exception:
+            pass
+
+def record_fatal_exception(exc: Exception, context: str = ""):
+    """Captures unhandled initialization exceptions with complete traceback."""
+    tb = traceback.format_exc()
+    exc_type = type(exc).__name__
+    exc_msg = str(exc)
+    detail = f"{exc_type}: {exc_msg} in {context}\n{tb}".strip()
+    log(f"FATAL EXCEPTION in {context}: {exc_type}: {exc_msg}\n{tb}")
+    write_state("HOST_FATAL_EXCEPTION", detail)
+    try:
+        os.makedirs(RUNTIME_DIR, exist_ok=True)
+        with open(WEBKIT_ERROR_FILE, "w") as f:
+            f.write(f"HOST_FATAL_EXCEPTION: {exc_type}: {exc_msg}\nCONTEXT: {context}\nPID: {os.getpid()}\nTRACEBACK:\n{tb}\n")
+    except Exception as e:
+        log(f"Notice: Failed writing fatal exception to {WEBKIT_ERROR_FILE}: {e}")
 
 def cleanup_stale_markers():
     """Removes stale session markers on startup."""
@@ -61,6 +89,39 @@ def create_runtime_marker(path: str):
         log(f"Runtime marker created: {path} (PID: {os.getpid()})")
     except Exception as e:
         log(f"ERROR: Runtime marker creation failure at {path}: {e}")
+
+# Clean any prior session markers immediately before recording start
+for p in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER, WEBKIT_ERROR_FILE):
+    try:
+        if os.path.exists(p):
+            os.remove(p)
+    except Exception:
+        pass
+
+# 1. PROCESS_STARTED boundary
+write_state("PROCESS_STARTED", f"PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
+log(f"Host process start: PID={os.getpid()}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
+
+# 2. GI_IMPORT_OK boundary
+try:
+    import gi
+    gi.require_version('Gtk', '4.0')
+    gi.require_version('WebKit', '6.0')
+    from gi.repository import Gtk, WebKit, GLib, Gio
+    gtk_ver = f"{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}"
+    wk_ver = f"{WebKit.get_major_version()}.{WebKit.get_minor_version()}.{WebKit.get_micro_version()}"
+    log(f"GTK import success: GTK {gtk_ver}, WebKitGTK {wk_ver}")
+    write_state("GI_IMPORT_OK", f"GTK={gtk_ver}, WebKitGTK={wk_ver}")
+except Exception as err:
+    record_fatal_exception(err, "gi_import")
+    sys.stderr.write(f"FATAL: Required GObject libraries not found: {err}\n")
+    sys.stderr.flush()
+    sys.exit(1)
+
+DIAGNOSTIC_DIR = "/usr/share/rocketos/diagnostic"
+DIAGNOSTIC_URL = f"file://{DIAGNOSTIC_DIR}/index.html"
+SUPPORTED_PROTOCOL_VERSION = 1
+MAX_REQUEST_SIZE = 65536  # 64 KB limit to prevent memory exhaustion
 
 def get_os_release_dict():
     res = {}
@@ -92,79 +153,99 @@ class RocketShellHostApp(Gtk.Application):
         self.last_load_error = None
 
     def do_activate(self):
-        log("Host activation requested: initializing RocketOS Shell Host (GTK4 + WebKitGTK 6.0)...")
-        cleanup_stale_markers()
+        try:
+            # 5. GTK_ACTIVATE_ENTER boundary
+            write_state("GTK_ACTIVATE_ENTER")
+            create_runtime_marker(ALIVE_MARKER)
+            log("Host activation requested: initializing RocketOS Shell Host (GTK4 + WebKitGTK 6.0)...")
+            cleanup_stale_markers()
 
-        if not self.window:
-            # 1. Acquire default WebContext and configure sandbox BEFORE any WebView is created
-            log("Default WebContext acquired.")
-            default_context = WebKit.WebContext.get_default()
-            default_context.add_path_to_sandbox(DIAGNOSTIC_DIR, True)
-            log(f"WebKit sandbox path added: {DIAGNOSTIC_DIR} (read-only)")
+            if not self.window:
+                # 6. Acquire default WebContext and configure sandbox BEFORE any WebView is created
+                log("Default WebContext acquired.")
+                default_context = WebKit.WebContext.get_default()
+                default_context.add_path_to_sandbox(DIAGNOSTIC_DIR, True)
+                log(f"WebKit sandbox path added: {DIAGNOSTIC_DIR} (read-only)")
+                write_state("WEB_CONTEXT_READY", f"sandbox_path={DIAGNOSTIC_DIR}")
 
-            log("Creating GTK4 ApplicationWindow (1280x800 fullscreen)...")
-            self.window = Gtk.ApplicationWindow(application=self, title="RocketOS Shell Host")
-            self.window.set_default_size(1280, 800)
-            self.window.fullscreen()
+                log("Creating GTK4 ApplicationWindow (1280x800 fullscreen)...")
+                self.window = Gtk.ApplicationWindow(application=self, title="RocketOS Shell Host")
+                self.window.set_default_size(1280, 800)
+                self.window.fullscreen()
 
-            # 2. Initialize WebKitGTK 6.0 UserContentManager
-            self.user_content_manager = WebKit.UserContentManager()
-            log("UserContentManager created.")
+                # 7. Initialize WebKitGTK 6.0 UserContentManager
+                self.user_content_manager = WebKit.UserContentManager()
+                log("UserContentManager created.")
+                write_state("CONTENT_MANAGER_CREATED")
 
-            # Connect signal BEFORE registering handler to prevent race conditions
-            self.user_content_manager.connect(
-                "script-message-received::rocketBridge",
-                self.on_script_message
-            )
+                # Connect signal BEFORE registering handler to prevent race conditions
+                self.user_content_manager.connect(
+                    "script-message-received::rocketBridge",
+                    self.on_script_message
+                )
 
-            # Defensive script message handler registration across WebKitGTK PyGObject variations
-            reg_ok = False
-            try:
-                reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
-                log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
-            except TypeError:
+                # 8. Register bridge message handler
+                reg_ok = False
                 try:
-                    reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge", None)
+                    reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
                     log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
-                except Exception as e2:
-                    log(f"ERROR registering bridge message-handler 'rocketBridge' (2-arg): {e2}")
-            except Exception as e:
-                log(f"ERROR registering bridge message-handler 'rocketBridge': {e}")
+                except TypeError:
+                    try:
+                        reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge", None)
+                        log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
+                    except Exception as e2:
+                        log(f"ERROR registering bridge message-handler 'rocketBridge' (2-arg): {e2}")
+                except Exception as e:
+                    log(f"ERROR registering bridge message-handler 'rocketBridge': {e}")
+                write_state("BRIDGE_HANDLER_REGISTERED", f"handler=rocketBridge result={reg_ok}")
 
-            # Harden WebKitGTK settings: secure defaults and software rendering for Phase 3
-            settings = WebKit.Settings()
-            settings.set_enable_javascript(True)
-            settings.set_allow_file_access_from_file_urls(True)
-            settings.set_enable_developer_extras(False)
-            settings.set_allow_universal_access_from_file_urls(False)
-            settings.set_enable_webgl(False)
+                # 9. Configure WebKit settings
+                settings = WebKit.Settings()
+                settings.set_enable_javascript(True)
+                settings.set_allow_file_access_from_file_urls(True)
+                settings.set_enable_developer_extras(False)
+                settings.set_allow_universal_access_from_file_urls(False)
+                settings.set_enable_webgl(False)
 
-            # Force software rasterization in virtualized environments
-            if hasattr(WebKit, 'HardwareAccelerationPolicy') and hasattr(settings, 'set_hardware_acceleration_policy'):
-                settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
+                # Force software rasterization in virtualized environments
+                if hasattr(WebKit, 'HardwareAccelerationPolicy') and hasattr(settings, 'set_hardware_acceleration_policy'):
+                    settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
+                write_state("SETTINGS_CREATED")
 
-            # 3. Create WebView using UserContentManager and default WebContext
-            self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
-            log("WebView created.")
-            self.webview.set_settings(settings)
-            self.webview.connect("load-changed", self.on_load_changed)
-            self.webview.connect("load-failed", self.on_load_failed)
-            self.webview.connect("web-process-terminated", self.on_web_process_terminated)
+                # 10. Create WebView using UserContentManager and default WebContext
+                self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
+                log("WebView created.")
+                self.webview.set_settings(settings)
+                self.webview.connect("load-changed", self.on_load_changed)
+                self.webview.connect("load-failed", self.on_load_failed)
+                self.webview.connect("web-process-terminated", self.on_web_process_terminated)
+                write_state("WEBVIEW_CREATED")
 
-            self.window.set_child(self.webview)
+                # 11. WINDOW_CHILD_SET
+                self.window.set_child(self.webview)
+                write_state("WINDOW_CHILD_SET")
 
-            target_url = DIAGNOSTIC_URL
-            if not os.path.exists(os.path.join(DIAGNOSTIC_DIR, "index.html")):
-                log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
-                target_url = "about:blank"
-                log(f"Diagnostic URI load start (fallback): {target_url}")
-                self.webview.load_html(self.get_fallback_html(), "file:///")
-            else:
-                log(f"Diagnostic URI load start: {target_url}")
-                self.webview.load_uri(target_url)
+                # 12. LOAD_URI_REQUESTED
+                target_url = DIAGNOSTIC_URL
+                if not os.path.exists(os.path.join(DIAGNOSTIC_DIR, "index.html")):
+                    log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
+                    target_url = "about:blank"
+                    log(f"Diagnostic URI load start (fallback): {target_url}")
+                    write_state("LOAD_URI_REQUESTED", target_url)
+                    self.webview.load_html(self.get_fallback_html(), "file:///")
+                else:
+                    log(f"Diagnostic URI load start: {target_url}")
+                    write_state("LOAD_URI_REQUESTED", target_url)
+                    self.webview.load_uri(target_url)
 
-        self.window.present()
-        log("GTK4 window presented.")
+            # 13. GTK_WINDOW_PRESENTED
+            self.window.present()
+            log("GTK4 window presented.")
+            write_state("GTK_WINDOW_PRESENTED")
+
+        except Exception as exc:
+            record_fatal_exception(exc, "do_activate")
+            sys.exit(1)
 
     def on_load_changed(self, webview, event):
         uri = webview.get_uri() or "unknown"
@@ -172,18 +253,23 @@ class RocketShellHostApp(Gtk.Application):
             log(f"WebKit load started: {uri}")
             self.load_failed = False
             self.last_load_error = None
+            write_state("WEBKIT_LOAD_STARTED", uri)
         elif event == WebKit.LoadEvent.REDIRECTED:
             log(f"WebKit load redirected: {uri}")
+            write_state("WEBKIT_LOAD_REDIRECTED", uri)
         elif event == WebKit.LoadEvent.COMMITTED:
             log(f"Committed load: {uri}")
+            write_state("WEBKIT_LOAD_COMMITTED", uri)
         elif event == WebKit.LoadEvent.FINISHED:
             log(f"WebKit load finished event: {uri}")
+            write_state("WEBKIT_LOAD_FINISHED", uri)
             if self.load_failed:
                 log(f"Load finished after failure; refusing to create UI_LOADED_MARKER (error: {self.last_load_error})")
             else:
                 if uri == DIAGNOSTIC_URL or (uri and uri.startswith("file:///usr/share/rocketos/diagnostic/")):
                     log(f"Successful load finish: {uri}")
                     create_runtime_marker(UI_LOADED_MARKER)
+                    write_state("UI_MARKER_CREATED", f"path={UI_LOADED_MARKER}")
                 else:
                     log(f"Notice: WebKit finished loading non-diagnostic URI: {uri}")
 
@@ -196,6 +282,7 @@ class RocketShellHostApp(Gtk.Application):
             err_msg = error.message
         self.last_load_error = f"{failing_uri}: {err_msg} (domain={err_domain}, code={err_code})"
         log(f"ERROR: WebKit page load failure for uri='{failing_uri}' (event={load_event}): {err_msg} (domain={err_domain}, code={err_code})")
+        write_state("WEBKIT_LOAD_FAILED", f"uri={failing_uri} domain={err_domain} code={err_code} msg={err_msg}")
         try:
             with open(WEBKIT_ERROR_FILE, "w") as f:
                 f.write(f"URI: {failing_uri}\nERROR: {err_msg}\nDOMAIN: {err_domain}\nCODE: {err_code}\nPID: {os.getpid()}\nEVENT: {load_event}\n")
@@ -211,6 +298,7 @@ class RocketShellHostApp(Gtk.Application):
         elif hasattr(reason, 'value_nick'):
             reason_name = reason.value_nick
         log(f"ERROR: WebKit web-process-terminated: reason={reason_name} ({reason})")
+        write_state("WEBKIT_PROCESS_TERMINATED", f"reason={reason_name} ({reason})")
         try:
             with open(WEBKIT_ERROR_FILE, "a") as f:
                 f.write(f"WEB_PROCESS_TERMINATED: reason={reason_name} ({reason}) PID={os.getpid()}\n")
@@ -333,12 +421,14 @@ class RocketShellHostApp(Gtk.Application):
                 if not self.first_ping_received:
                     self.first_ping_received = True
                     log(f"First native bridge ping received from client (req_id={req_id})")
+                    write_state("BRIDGE_PING_RECEIVED", f"req_id={req_id}")
                 response["data"] = {
                     "pong": True,
                     "timestamp": int(time.time() * 1000)
                 }
                 # Create deterministic bridge ping runtime marker
                 create_runtime_marker(BRIDGE_PING_MARKER)
+                write_state("BRIDGE_MARKER_CREATED", f"path={BRIDGE_PING_MARKER}")
 
             elif req_type == "getSystemInfo":
                 os_info = get_os_release_dict()
@@ -394,20 +484,32 @@ class RocketShellHostApp(Gtk.Application):
 
 def handle_signal(sig, frame):
     log(f"Received signal {sig}, exiting gracefully...")
+    write_state("APPLICATION_EXITED", f"signal={sig}")
     sys.exit(0)
 
 def main():
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    log(f"Starting RocketOS Native Shell Host (Phase 3, PID: {os.getpid()})...")
-    log("Constructing RocketShellHostApp (Gtk.Application)...")
-    app = RocketShellHostApp()
-    log("Gtk.Application constructed successfully; calling app.run(sys.argv)...")
-    exit_status = app.run(sys.argv)
-    log(f"RocketOS Native Shell Host exited with code {exit_status}")
-    sys.exit(exit_status)
+    try:
+        log(f"Starting RocketOS Native Shell Host (Phase 3, PID: {os.getpid()})...")
+        log("Constructing RocketShellHostApp (Gtk.Application)...")
+        app = RocketShellHostApp()
+        # 3. APPLICATION_CREATED boundary
+        write_state("APPLICATION_CREATED")
+
+        log("Gtk.Application constructed successfully; calling app.run(sys.argv)...")
+        # 4. APPLICATION_RUN_ENTER boundary
+        write_state("APPLICATION_RUN_ENTER")
+        exit_status = app.run(sys.argv)
+
+        log(f"RocketOS Native Shell Host exited with code {exit_status}")
+        # 20. APPLICATION_EXITED boundary
+        write_state("APPLICATION_EXITED", f"exit_code={exit_status}")
+        sys.exit(exit_status)
+    except Exception as exc:
+        record_fatal_exception(exc, "main")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
-

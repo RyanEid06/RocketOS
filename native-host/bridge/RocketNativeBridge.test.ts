@@ -243,5 +243,110 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(hostContent).toContain('WEBKIT_ERROR_FILE');
     expect(hostContent).toContain('WEB_PROCESS_TERMINATED: reason=');
   });
+
+  it('records all authoritative lifecycle state transitions in rocket-shell-host', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    const requiredStates = [
+      'PROCESS_STARTED',
+      'GI_IMPORT_OK',
+      'APPLICATION_CREATED',
+      'APPLICATION_RUN_ENTER',
+      'GTK_ACTIVATE_ENTER',
+      'WEB_CONTEXT_READY',
+      'CONTENT_MANAGER_CREATED',
+      'BRIDGE_HANDLER_REGISTERED',
+      'SETTINGS_CREATED',
+      'WEBVIEW_CREATED',
+      'WINDOW_CHILD_SET',
+      'LOAD_URI_REQUESTED',
+      'GTK_WINDOW_PRESENTED',
+      'WEBKIT_LOAD_STARTED',
+      'WEBKIT_LOAD_REDIRECTED',
+      'WEBKIT_LOAD_COMMITTED',
+      'WEBKIT_LOAD_FINISHED',
+      'WEBKIT_LOAD_FAILED',
+      'WEBKIT_PROCESS_TERMINATED',
+      'UI_MARKER_CREATED',
+      'BRIDGE_PING_RECEIVED',
+      'BRIDGE_MARKER_CREATED',
+      'APPLICATION_EXITED',
+      'HOST_FATAL_EXCEPTION',
+    ];
+
+    for (const state of requiredStates) {
+      expect(hostContent).toContain(`"${state}"`);
+    }
+  });
+
+  it('verifies top-level exception protection in main() and do_activate() with non-zero exit', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('def record_fatal_exception(exc: Exception, context: str = ""):');
+    expect(hostContent).toContain('write_state("HOST_FATAL_EXCEPTION", detail)');
+    expect(hostContent).toContain('f.write(f"HOST_FATAL_EXCEPTION:');
+    expect(hostContent).toContain('record_fatal_exception(exc, "do_activate")');
+    expect(hostContent).toContain('record_fatal_exception(exc, "main")');
+  });
+
+  it('verifies dedicated host log file writing does not crash on failure', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('HOST_LOG_FILE = os.path.join(RUNTIME_DIR, "rocketos-shell-host.log")');
+    expect(hostContent).toContain('with open(HOST_LOG_FILE, "a") as f:');
+  });
+});
+
+describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', () => {
+  const probeScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-boot-probe');
+  const smokeTestPath = path.resolve(__dirname, '../../scripts/phase3/smoke-test-qemu.sh');
+
+  it('collects shell-host state, alive marker, host log, and sandbox prerequisites in debug evidence', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('Shell Host State:');
+    expect(probeContent).toContain('Shell Host Alive Marker:');
+    expect(probeContent).toContain('Shell Host Log (last 100 lines):');
+    expect(probeContent).toContain('ENVIRONMENT & SANDBOX PREREQUISITES:');
+    expect(probeContent).toContain('command -v bwrap:');
+    expect(probeContent).toContain('bwrap --version:');
+    expect(probeContent).toContain('sysctl kernel.unprivileged_userns_clone:');
+    expect(probeContent).toContain('cat /proc/sys/user/max_user_namespaces:');
+    expect(probeContent).toContain('ls -l /usr/share/rocketos/diagnostic:');
+    expect(probeContent).toContain('stat /usr/share/rocketos/diagnostic/index.html:');
+  });
+
+  it('resolves specific failure codes for distinct WebKit and host failure modes', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('resolve_readiness_failure_code()');
+    expect(probeContent).toContain('shell_host_startup_failure');
+    expect(probeContent).toContain('shell_host_exception');
+    expect(probeContent).toContain('webview_creation_failure');
+    expect(probeContent).toContain('webkit_process_terminated');
+    expect(probeContent).toContain('webkit_load_failed');
+    expect(probeContent).toContain('ui_marker_creation_failure');
+    expect(probeContent).toContain('shell_host_pid_mismatch');
+    expect(probeContent).toContain('ui_marker_timeout');
+  });
+
+  it('enforces PID validation matching between discovered host, state file, and alive marker', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('Host state PID mismatch');
+    expect(probeContent).toContain('Host alive marker PID mismatch');
+    expect(probeContent).toContain('"shell_host_pid_mismatch"');
+  });
+
+  it('preserves the 60-second readiness timeout and WP5 recovery verification gate', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('INITIAL_READINESS_TIMEOUT_SECS=60');
+    expect(probeContent).toContain('RECOVERY_READINESS_TIMEOUT_SECS=60');
+    expect(probeContent).toContain('ROCKETOS_WP5_RECOVERY_TEST_PASS');
+  });
+
+  it('preserves dual BIOS and UEFI smoke test execution in QEMU runner', () => {
+    const smokeContent = fs.readFileSync(smokeTestPath, 'utf8');
+    expect(smokeContent).toContain('BOOT_MODE="bios"');
+    expect(smokeContent).toContain('--mode)');
+    expect(smokeContent).toContain('ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK');
+    expect(smokeContent).toContain('UI_LOADED_MARKER: verified');
+    expect(smokeContent).toContain('BRIDGE_PING_MARKER: verified');
+    expect(smokeContent).toContain('ROCKETOS_WP5_RECOVERY_TEST_PASS');
+  });
 });
 

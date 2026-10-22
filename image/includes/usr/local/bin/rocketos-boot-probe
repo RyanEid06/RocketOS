@@ -17,6 +17,10 @@ ROCKET_UID=1000
 RUNTIME_DIR="/run/user/${ROCKET_UID}"
 UI_LOADED_MARKER="${RUNTIME_DIR}/rocketos-ui-loaded"
 BRIDGE_PING_MARKER="${RUNTIME_DIR}/rocketos-bridge-ping-ok"
+STATE_FILE="${RUNTIME_DIR}/rocketos-shell-host-state"
+ALIVE_MARKER="${RUNTIME_DIR}/rocketos-shell-host-alive"
+HOST_LOG_FILE="${RUNTIME_DIR}/rocketos-shell-host.log"
+WEBKIT_ERROR_FILE="${RUNTIME_DIR}/rocketos-webkit-error"
 
 PROBE_COMPLETED=false
 
@@ -553,6 +557,34 @@ collect_graphical_debug_evidence() {
   local webkit_err_file="/run/user/${ROCKET_UID}/rocketos-webkit-error"
   [ -f "${webkit_err_file}" ] && webkit_err="$(cat "${webkit_err_file}" 2>/dev/null || echo '(read failed)')"
 
+  local host_state="(file not present)"
+  [ -f "${STATE_FILE}" ] && host_state="$(cat "${STATE_FILE}" 2>/dev/null || echo '(read failed)')"
+
+  local alive_val="(file not present)"
+  [ -f "${ALIVE_MARKER}" ] && alive_val="$(cat "${ALIVE_MARKER}" 2>/dev/null || echo '(read failed)')"
+
+  local host_log="(file not present)"
+  if [ -f "${HOST_LOG_FILE}" ]; then
+    host_log="$(tail -n 100 "${HOST_LOG_FILE}" 2>/dev/null || echo '(read failed)')"
+  fi
+
+  local bwrap_cmd
+  bwrap_cmd="$(command -v bwrap 2>/dev/null || echo 'not found')"
+  local bwrap_ver="(unavailable)"
+  if [[ "${bwrap_cmd}" != "not found" ]]; then
+    bwrap_ver="$(timeout 2s bwrap --version 2>/dev/null || echo '(bwrap --version failed)')"
+  fi
+  local userns_clone
+  userns_clone="$(timeout 2s sysctl -n kernel.unprivileged_userns_clone 2>/dev/null || timeout 2s sysctl kernel.unprivileged_userns_clone 2>/dev/null || echo 'N/A')"
+  local max_userns="(unreadable)"
+  if [ -f /proc/sys/user/max_user_namespaces ]; then
+    max_userns="$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo '(unreadable)')"
+  fi
+  local diag_dir_ls
+  diag_dir_ls="$(timeout 2s ls -l /usr/share/rocketos/diagnostic 2>/dev/null || echo '(ls failed)')"
+  local diag_stat
+  diag_stat="$(timeout 2s stat /usr/share/rocketos/diagnostic/index.html 2>/dev/null || echo '(stat failed)')"
+
   cat <<EOF
 --- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
 CAGE_PID=${cage_pid}
@@ -569,8 +601,26 @@ All Cage PID(s):          ${all_cage_pids}
 Graphical Service State:  ${session_state}
 UI Marker Value:          '${ui_val}'
 Bridge Ping Marker Value: '${ping_val}'
+Shell Host Alive Marker:  '${alive_val}'
+Shell Host State:
+${host_state}
+Shell Host Log (last 100 lines):
+${host_log}
 WebKit Load Error File:
 ${webkit_err}
+ENVIRONMENT & SANDBOX PREREQUISITES:
+command -v bwrap:
+${bwrap_cmd}
+bwrap --version:
+${bwrap_ver}
+sysctl kernel.unprivileged_userns_clone:
+${userns_clone}
+cat /proc/sys/user/max_user_namespaces:
+${max_userns}
+ls -l /usr/share/rocketos/diagnostic:
+${diag_dir_ls}
+stat /usr/share/rocketos/diagnostic/index.html:
+${diag_stat}
 Contents of /run/user/${ROCKET_UID}:
 ${run_user_listing}
 PSTREE:
@@ -589,6 +639,107 @@ Recent Session Journal:
 ${session_journal}
 ---------------------------------------------
 EOF
+}
+
+# Resolve exact failure code from shell-host lifecycle state and error markers
+resolve_readiness_failure_code() {
+  local expected_pid="$1"
+
+  local host_state=""
+  local state_pid=""
+  if [[ -f "${STATE_FILE}" ]]; then
+    host_state="$(grep '^STATE=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+    state_pid="$(grep '^PID=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+  fi
+
+  local alive_pid=""
+  if [[ -f "${ALIVE_MARKER}" ]]; then
+    alive_pid="$(head -n1 "${ALIVE_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+  fi
+
+  # 1. Host state PID or alive marker PID mismatch with discovered host PID
+  if [[ -n "${state_pid}" && "${state_pid}" != "${expected_pid}" ]]; then
+    echo "shell_host_pid_mismatch"
+    return 0
+  fi
+  if [[ -n "${alive_pid}" && "${alive_pid}" != "${expected_pid}" ]]; then
+    echo "shell_host_pid_mismatch"
+    return 0
+  fi
+
+  # 2. Host fatal exception during initialization / activate
+  if [[ "${host_state}" == "HOST_FATAL_EXCEPTION" ]]; then
+    echo "shell_host_exception"
+    return 0
+  fi
+  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "HOST_FATAL_EXCEPTION" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
+    echo "shell_host_exception"
+    return 0
+  fi
+
+  # 3. WebKit web process terminated
+  if [[ "${host_state}" == "WEBKIT_PROCESS_TERMINATED" ]]; then
+    echo "webkit_process_terminated"
+    return 0
+  fi
+  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "WEB_PROCESS_TERMINATED" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
+    echo "webkit_process_terminated"
+    return 0
+  fi
+
+  # 4. WebKit load failed
+  if [[ "${host_state}" == "WEBKIT_LOAD_FAILED" ]]; then
+    echo "webkit_load_failed"
+    return 0
+  fi
+  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "URI:" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
+    echo "webkit_load_failed"
+    return 0
+  fi
+
+  # 5. Host never reaches GTK activation
+  if [[ -z "${host_state}" || "${host_state}" == "PROCESS_STARTED" || "${host_state}" == "GI_IMPORT_OK" || "${host_state}" == "APPLICATION_CREATED" || "${host_state}" == "APPLICATION_RUN_ENTER" ]]; then
+    echo "shell_host_startup_failure"
+    return 0
+  fi
+
+  # 6. WebView is never successfully created
+  if [[ "${host_state}" == "GTK_ACTIVATE_ENTER" || "${host_state}" == "WEB_CONTEXT_READY" || "${host_state}" == "CONTENT_MANAGER_CREATED" || "${host_state}" == "BRIDGE_HANDLER_REGISTERED" || "${host_state}" == "SETTINGS_CREATED" ]]; then
+    echo "webview_creation_failure"
+    return 0
+  fi
+
+  # 7. FINISHED happened but marker is absent or has wrong PID
+  if [[ "${host_state}" == "WEBKIT_LOAD_FINISHED" ]]; then
+    local ui_pid=""
+    if [[ -f "${UI_LOADED_MARKER}" ]]; then
+      ui_pid="$(head -n1 "${UI_LOADED_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    fi
+    if [[ "${ui_pid}" != "${expected_pid}" ]]; then
+      echo "ui_marker_creation_failure"
+      return 0
+    fi
+  fi
+
+  # 8. Load requested/started/committed but WebKit never finished
+  if [[ "${host_state}" == "LOAD_URI_REQUESTED" || "${host_state}" == "WEBVIEW_CREATED" || "${host_state}" == "WINDOW_CHILD_SET" || "${host_state}" == "GTK_WINDOW_PRESENTED" || "${host_state}" == "WEBKIT_LOAD_STARTED" || "${host_state}" == "WEBKIT_LOAD_REDIRECTED" || "${host_state}" == "WEBKIT_LOAD_COMMITTED" ]]; then
+    echo "ui_marker_timeout"
+    return 0
+  fi
+
+  # Bridge marker timeout if UI loaded but ping marker absent
+  if [[ "${host_state}" == "UI_MARKER_CREATED" || "${host_state}" == "WEBKIT_LOAD_FINISHED" ]]; then
+    local ping_pid=""
+    if [[ -f "${BRIDGE_PING_MARKER}" ]]; then
+      ping_pid="$(head -n1 "${BRIDGE_PING_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    fi
+    if [[ "${ping_pid}" != "${expected_pid}" ]]; then
+      echo "bridge_marker_timeout"
+      return 0
+    fi
+  fi
+
+  echo "ui_marker_timeout"
 }
 
 # ------------------------------------------------------------------------------
@@ -799,6 +950,25 @@ if [[ "${CAGE_PID}" == "${HOST_PID}" ]]; then
 fi
 log_checkpoint "PHASE3_DISCOVER_HOST_OK pid=${HOST_PID}"
 
+# Strengthen PID validation: verify state and alive marker PIDs if present
+if [ -f "${STATE_FILE}" ]; then
+  STATE_PID="$(grep '^PID=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+  if [[ -n "${STATE_PID}" && "${STATE_PID}" != "${HOST_PID}" ]]; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+    emit_fail "Host state PID mismatch: discovered host PID is ${HOST_PID} but state file recorded PID ${STATE_PID}
+${DEBUG_EVIDENCE}" "shell_host_pid_mismatch"
+  fi
+fi
+
+if [ -f "${ALIVE_MARKER}" ]; then
+  ALIVE_PID="$(cat "${ALIVE_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ -n "${ALIVE_PID}" && "${ALIVE_PID}" != "${HOST_PID}" ]]; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+    emit_fail "Host alive marker PID mismatch: discovered host PID is ${HOST_PID} but alive marker recorded PID ${ALIVE_PID}
+${DEBUG_EVIDENCE}" "shell_host_pid_mismatch"
+  fi
+fi
+
 # Verify Diagnostic WebKit UI loaded and Native Bridge ping answered
 # Bounded timeout (60 seconds) safe for software-rendered WebKitGTK under QEMU TCG
 log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_START expected_host_pid=${HOST_PID}"
@@ -811,8 +981,27 @@ for ((sec=1; sec<=INITIAL_READINESS_TIMEOUT_SECS; sec++)); do
   if ! kill -0 "${HOST_PID}" 2>/dev/null; then
     CURRENT_HOSTS="$(find_all_shell_host_pids "${CAGE_PID}")"
     DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
-    emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS:-none})
-${DEBUG_EVIDENCE}" "shell_host_not_running"
+    FAIL_CODE="$(resolve_readiness_failure_code "${HOST_PID}")"
+    emit_fail "Initial rocket-shell-host (PID ${HOST_PID}) unexpectedly terminated before completing UI readiness (current host PIDs: ${CURRENT_HOSTS:-none}, failure code: ${FAIL_CODE})
+${DEBUG_EVIDENCE}" "${FAIL_CODE}"
+  fi
+
+  # Check for PID mismatch during runtime
+  if [ -f "${STATE_FILE}" ]; then
+    STATE_PID="$(grep '^PID=' "${STATE_FILE}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+    if [[ -n "${STATE_PID}" && "${STATE_PID}" != "${HOST_PID}" ]]; then
+      DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+      emit_fail "Host state PID mismatch during readiness: expected ${HOST_PID} but state file recorded ${STATE_PID}
+${DEBUG_EVIDENCE}" "shell_host_pid_mismatch"
+    fi
+  fi
+  if [ -f "${ALIVE_MARKER}" ]; then
+    ALIVE_PID="$(cat "${ALIVE_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [[ -n "${ALIVE_PID}" && "${ALIVE_PID}" != "${HOST_PID}" ]]; then
+      DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+      emit_fail "Host alive marker PID mismatch during readiness: expected ${HOST_PID} but alive marker recorded ${ALIVE_PID}
+${DEBUG_EVIDENCE}" "shell_host_pid_mismatch"
+    fi
   fi
 
   if [ -f "${UI_LOADED_MARKER}" ] && [ -f "${BRIDGE_PING_MARKER}" ]; then
@@ -827,12 +1016,13 @@ done
 
 if [[ "${UI_LOADED_PID}" != "${HOST_PID}" || "${BRIDGE_PING_PID}" != "${HOST_PID}" ]]; then
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID}")"
+  FAIL_CODE="$(resolve_readiness_failure_code "${HOST_PID}")"
   if [[ "${UI_LOADED_PID}" != "${HOST_PID}" ]]; then
-    emit_fail "Diagnostic UI failed to complete loading within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}')
-${DEBUG_EVIDENCE}" "ui_marker_timeout"
+    emit_fail "Diagnostic UI failed to complete loading within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${UI_LOADED_PID}', resolved failure: ${FAIL_CODE})
+${DEBUG_EVIDENCE}" "${FAIL_CODE}"
   else
-    emit_fail "Native bridge ping verification failed within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}')
-${DEBUG_EVIDENCE}" "bridge_marker_timeout"
+    emit_fail "Native bridge ping verification failed within ${INITIAL_READINESS_TIMEOUT_SECS}s (expected host PID ${HOST_PID}, marker recorded '${BRIDGE_PING_PID}', resolved failure: ${FAIL_CODE})
+${DEBUG_EVIDENCE}" "${FAIL_CODE}"
   fi
 fi
 log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_OK host_pid=${HOST_PID}"
