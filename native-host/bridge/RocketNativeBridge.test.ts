@@ -209,7 +209,7 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(hostContent).toContain('default_context.add_path_to_sandbox(DIAGNOSTIC_DIR, True)');
 
     const sandboxIdx = hostContent.indexOf('default_context.add_path_to_sandbox');
-    const webviewCreateIdx = hostContent.indexOf('WebKit.WebView.new_with_user_content_manager');
+    const webviewCreateIdx = hostContent.indexOf('self.webview = WebKit.WebView(');
     expect(sandboxIdx).toBeGreaterThan(0);
     expect(webviewCreateIdx).toBeGreaterThan(0);
     expect(sandboxIdx).toBeLessThan(webviewCreateIdx);
@@ -256,6 +256,7 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
       'CONTENT_MANAGER_CREATED',
       'BRIDGE_HANDLER_REGISTERED',
       'SETTINGS_CREATED',
+      'WEBVIEW_CONSTRUCTION_ENTER',
       'WEBVIEW_CREATED',
       'WINDOW_CHILD_SET',
       'LOAD_URI_REQUESTED',
@@ -276,6 +277,17 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     for (const state of requiredStates) {
       expect(hostContent).toContain(`"${state}"`);
     }
+  });
+
+  it('verifies WebKitGTK 6 compatibility by ensuring removed 4.x constructors are not used', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    // WebKitGTK 6.0 removed specialized C/GI constructors
+    expect(hostContent).not.toContain('WebKit.WebView.new_with_user_content_manager');
+    expect(hostContent).not.toContain('WebKit.WebView.new_with_settings');
+    expect(hostContent).not.toContain('WebKit.WebView.new_with_context');
+    // Verifies WebKitGTK 6 GObject construct property usage
+    expect(hostContent).toContain('WebKit.WebView(');
+    expect(hostContent).toContain('user_content_manager');
   });
 
   it('verifies top-level exception protection in main() and do_activate() with non-zero exit', () => {

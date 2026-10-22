@@ -212,10 +212,58 @@ class RocketShellHostApp(Gtk.Application):
                     settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
                 write_state("SETTINGS_CREATED")
 
-                # 10. Create WebView using UserContentManager and default WebContext
-                self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
-                log("WebView created.")
-                self.webview.set_settings(settings)
+                # 10. Construct WebKitGTK 6.0 WebView using GObject construct properties
+                write_state("WEBVIEW_CONSTRUCTION_ENTER")
+                log("Constructing WebKitGTK 6.0 WebView with GObject construct properties...")
+
+                webview_kwargs = {
+                    "user_content_manager": self.user_content_manager,
+                    "settings": settings,
+                }
+
+                # Attach default NetworkSession if available in this WebKitGTK 6 typelib
+                if hasattr(WebKit, "NetworkSession") and hasattr(WebKit.NetworkSession, "get_default"):
+                    try:
+                        default_session = WebKit.NetworkSession.get_default()
+                        if default_session:
+                            webview_kwargs["network_session"] = default_session
+                            log("Default WebKit.NetworkSession attached to WebView properties.")
+                    except Exception as ns_err:
+                        log(f"Notice: WebKit.NetworkSession.get_default() error: {ns_err}")
+
+                try:
+                    self.webview = WebKit.WebView(**webview_kwargs)
+                except TypeError as te:
+                    log(f"Notice: WebKit.WebView(**webview_kwargs) raised TypeError: {te}; attempting hyphenated properties...")
+                    hyphen_kwargs = {}
+                    if "user_content_manager" in webview_kwargs:
+                        hyphen_kwargs["user-content-manager"] = webview_kwargs["user_content_manager"]
+                    if "settings" in webview_kwargs:
+                        hyphen_kwargs["settings"] = webview_kwargs["settings"]
+                    if "network_session" in webview_kwargs:
+                        hyphen_kwargs["network-session"] = webview_kwargs["network_session"]
+                    try:
+                        self.webview = WebKit.WebView(**hyphen_kwargs)
+                    except TypeError:
+                        log("Notice: Fallback constructing WebView with user_content_manager and settings...")
+                        self.webview = WebKit.WebView(
+                            user_content_manager=self.user_content_manager,
+                            settings=settings
+                        )
+
+                # Ensure settings are applied
+                if hasattr(self.webview, "set_settings"):
+                    self.webview.set_settings(settings)
+
+                # Verify UserContentManager is bound to view
+                actual_ucm = None
+                if hasattr(self.webview, "get_user_content_manager"):
+                    actual_ucm = self.webview.get_user_content_manager()
+                ucm_matched = actual_ucm is self.user_content_manager
+                log(f"WebView constructed successfully. UserContentManager verified: {ucm_matched} (instance={actual_ucm})")
+                if not ucm_matched and actual_ucm is None:
+                    log("Warning: WebView does not report an active UserContentManager!")
+
                 self.webview.connect("load-changed", self.on_load_changed)
                 self.webview.connect("load-failed", self.on_load_failed)
                 self.webview.connect("web-process-terminated", self.on_web_process_terminated)
