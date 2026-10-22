@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { RocketNativeBridge } from './RocketNativeBridge';
 
@@ -195,3 +197,51 @@ describe('RocketNativeBridge (Phase 3 Isolated Native Bridge Protocol)', () => {
     await expect(fastTimeoutBridge.ping()).rejects.toThrow(/timed out/);
   });
 });
+
+describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
+  const hostScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocket-shell-host');
+  const sessionScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-session');
+
+  it('defines diagnostic directory and mounts it to WebKit sandbox before WebView creation', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('DIAGNOSTIC_DIR = "/usr/share/rocketos/diagnostic"');
+    expect(hostContent).toContain('default_context = WebKit.WebContext.get_default()');
+    expect(hostContent).toContain('default_context.add_path_to_sandbox(DIAGNOSTIC_DIR, True)');
+
+    const sandboxIdx = hostContent.indexOf('default_context.add_path_to_sandbox');
+    const webviewCreateIdx = hostContent.indexOf('WebKit.WebView.new_with_user_content_manager');
+    expect(sandboxIdx).toBeGreaterThan(0);
+    expect(webviewCreateIdx).toBeGreaterThan(0);
+    expect(sandboxIdx).toBeLessThan(webviewCreateIdx);
+  });
+
+  it('verifies obsolete WEBKIT_FORCE_SANDBOX=0 is absent from session launcher', () => {
+    const sessionContent = fs.readFileSync(sessionScriptPath, 'utf8');
+    expect(sessionContent).not.toContain('WEBKIT_FORCE_SANDBOX');
+    expect(sessionContent).toContain('WEBKIT_DISABLE_COMPOSITING_MODE=1');
+    expect(sessionContent).toContain('WEBKIT_DISABLE_DMABUF_RENDERER=1');
+  });
+
+  it('verifies UI marker creation is strictly tied to successful WebKit FINISHED event', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('event == WebKit.LoadEvent.FINISHED');
+    expect(hostContent).toContain('create_runtime_marker(UI_LOADED_MARKER)');
+    expect(hostContent).toContain('if self.load_failed:');
+    expect(hostContent).toContain('refusing to create UI_LOADED_MARKER');
+  });
+
+  it('verifies bridge marker creation is strictly tied to an actual native ping request', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('if req_type == "ping":');
+    expect(hostContent).toContain('create_runtime_marker(BRIDGE_PING_MARKER)');
+  });
+
+  it('verifies failure evidence includes web-process-terminated signal handler', () => {
+    const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
+    expect(hostContent).toContain('self.webview.connect("web-process-terminated", self.on_web_process_terminated)');
+    expect(hostContent).toContain('def on_web_process_terminated(self, webview, reason):');
+    expect(hostContent).toContain('WEBKIT_ERROR_FILE');
+    expect(hostContent).toContain('WEB_PROCESS_TERMINATED: reason=');
+  });
+});
+

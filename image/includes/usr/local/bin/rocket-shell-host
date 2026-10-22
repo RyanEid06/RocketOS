@@ -30,7 +30,8 @@ except ImportError as err:
     sys.stderr.flush()
     sys.exit(1)
 
-DIAGNOSTIC_URL = "file:///usr/share/rocketos/diagnostic/index.html"
+DIAGNOSTIC_DIR = "/usr/share/rocketos/diagnostic"
+DIAGNOSTIC_URL = f"file://{DIAGNOSTIC_DIR}/index.html"
 SUPPORTED_PROTOCOL_VERSION = 1
 MAX_REQUEST_SIZE = 65536  # 64 KB limit to prevent memory exhaustion
 
@@ -95,14 +96,20 @@ class RocketShellHostApp(Gtk.Application):
         cleanup_stale_markers()
 
         if not self.window:
+            # 1. Acquire default WebContext and configure sandbox BEFORE any WebView is created
+            log("Default WebContext acquired.")
+            default_context = WebKit.WebContext.get_default()
+            default_context.add_path_to_sandbox(DIAGNOSTIC_DIR, True)
+            log(f"WebKit sandbox path added: {DIAGNOSTIC_DIR} (read-only)")
+
             log("Creating GTK4 ApplicationWindow (1280x800 fullscreen)...")
             self.window = Gtk.ApplicationWindow(application=self, title="RocketOS Shell Host")
             self.window.set_default_size(1280, 800)
             self.window.fullscreen()
 
-            # Initialize WebKitGTK 6.0 UserContentManager and WebView
-            log("Creating WebKitGTK 6.0 UserContentManager and WebView...")
+            # 2. Initialize WebKitGTK 6.0 UserContentManager
             self.user_content_manager = WebKit.UserContentManager()
+            log("UserContentManager created.")
 
             # Connect signal BEFORE registering handler to prevent race conditions
             self.user_content_manager.connect(
@@ -111,13 +118,14 @@ class RocketShellHostApp(Gtk.Application):
             )
 
             # Defensive script message handler registration across WebKitGTK PyGObject variations
+            reg_ok = False
             try:
                 reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
-                log(f"Bridge message-handler 'rocketBridge' registered (1-arg): result={reg_ok}")
+                log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
             except TypeError:
                 try:
                     reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge", None)
-                    log(f"Bridge message-handler 'rocketBridge' registered (2-arg): result={reg_ok}")
+                    log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
                 except Exception as e2:
                     log(f"ERROR registering bridge message-handler 'rocketBridge' (2-arg): {e2}")
             except Exception as e:
@@ -135,15 +143,18 @@ class RocketShellHostApp(Gtk.Application):
             if hasattr(WebKit, 'HardwareAccelerationPolicy') and hasattr(settings, 'set_hardware_acceleration_policy'):
                 settings.set_hardware_acceleration_policy(WebKit.HardwareAccelerationPolicy.NEVER)
 
+            # 3. Create WebView using UserContentManager and default WebContext
             self.webview = WebKit.WebView.new_with_user_content_manager(self.user_content_manager)
+            log("WebView created.")
             self.webview.set_settings(settings)
             self.webview.connect("load-changed", self.on_load_changed)
             self.webview.connect("load-failed", self.on_load_failed)
+            self.webview.connect("web-process-terminated", self.on_web_process_terminated)
 
             self.window.set_child(self.webview)
 
             target_url = DIAGNOSTIC_URL
-            if not os.path.exists("/usr/share/rocketos/diagnostic/index.html"):
+            if not os.path.exists(os.path.join(DIAGNOSTIC_DIR, "index.html")):
                 log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
                 target_url = "about:blank"
                 log(f"Diagnostic URI load start (fallback): {target_url}")
@@ -192,6 +203,20 @@ class RocketShellHostApp(Gtk.Application):
         except Exception as e:
             log(f"Notice: Failed writing {WEBKIT_ERROR_FILE}: {e}")
         return False
+
+    def on_web_process_terminated(self, webview, reason):
+        reason_name = str(reason)
+        if hasattr(reason, 'value_name'):
+            reason_name = reason.value_name
+        elif hasattr(reason, 'value_nick'):
+            reason_name = reason.value_nick
+        log(f"ERROR: WebKit web-process-terminated: reason={reason_name} ({reason})")
+        try:
+            with open(WEBKIT_ERROR_FILE, "a") as f:
+                f.write(f"WEB_PROCESS_TERMINATED: reason={reason_name} ({reason}) PID={os.getpid()}\n")
+            log(f"Wrote WebKit web-process-terminated details to {WEBKIT_ERROR_FILE}")
+        except Exception as e:
+            log(f"Notice: Failed writing web-process-terminated to {WEBKIT_ERROR_FILE}: {e}")
 
     def on_script_message(self, ucm, js_result):
         val = None
