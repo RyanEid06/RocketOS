@@ -72,4 +72,27 @@ if [ ! -e /usr/lib/os-release ]; then
     ln -sf /etc/os-release /usr/lib/os-release
 fi
 
+# 7. Validate Phase 3 Sandbox & Capability Configuration
+echo "[RocketOS-Hook] Validating Phase 3 sandbox & capability configuration..."
+if [ ! -f /usr/bin/bwrap ] || [ ! -x /usr/bin/bwrap ]; then
+    echo "ERROR: /usr/bin/bwrap does not exist or is not executable in chroot!" >&2
+    exit 1
+fi
+
+SERVICE_FILE="/etc/systemd/system/rocketos-graphical-session.service"
+if [ -f "${SERVICE_FILE}" ]; then
+    if ! grep -q "^CapabilityBoundingSet=$" "${SERVICE_FILE}"; then
+        echo "ERROR: ${SERVICE_FILE} missing empty CapabilityBoundingSet=" >&2
+        exit 1
+    fi
+    if ! grep -q "^AmbientCapabilities=$" "${SERVICE_FILE}"; then
+        echo "ERROR: ${SERVICE_FILE} missing empty AmbientCapabilities=" >&2
+        exit 1
+    fi
+    if grep -i "CAP_" "${SERVICE_FILE}"; then
+        echo "ERROR: ${SERVICE_FILE} explicitly grants capabilities (forbidden)!" >&2
+        exit 1
+    fi
+fi
+
 echo "[RocketOS-Hook] RocketOS Phase 3 configuration applied successfully."

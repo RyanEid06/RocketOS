@@ -466,3 +466,150 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
   });
 });
 
+describe('Phase 3 Capability Bounding Set & Bubblewrap Sandbox Stabilization Contract', () => {
+  const servicePath = path.resolve(__dirname, '../../image/includes/etc/systemd/system/rocketos-graphical-session.service');
+  const pkgManifestPath = path.resolve(__dirname, '../../image/packages/rocketos-graphical.list.chroot');
+  const sessionScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-session');
+  const probeScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-boot-probe');
+  const chrootHookPath = path.resolve(__dirname, '../../image/hooks/0100-rocketos-setup.hook.chroot');
+  const buildScriptPath = path.resolve(__dirname, '../../scripts/phase3/build-image.sh');
+
+  it('enforces capability clearing, PAM session, and exit 78 restart prevention in systemd service', () => {
+    const serviceContent = fs.readFileSync(servicePath, 'utf8');
+
+    // Retains login PAM session for standard unprivileged graphical user session
+    expect(serviceContent).toContain('User=rocket');
+    expect(serviceContent).toContain('Group=rocket');
+    expect(serviceContent).toContain('PAMName=login');
+
+    // Clears all capabilities at systemd boundary
+    expect(serviceContent).toMatch(/^CapabilityBoundingSet=$/m);
+    expect(serviceContent).toMatch(/^AmbientCapabilities=$/m);
+
+    // Strictly forbids granting any Linux capabilities
+    expect(serviceContent).not.toMatch(/CAP_/i);
+    expect(serviceContent).not.toContain('CAP_SYS_ADMIN');
+    expect(serviceContent).not.toContain('CAP_SYS_RAWIO');
+    expect(serviceContent).not.toContain('CAP_SYS_TTY_CONFIG');
+    expect(serviceContent).not.toContain('CAP_SETUID');
+    expect(serviceContent).not.toContain('CAP_SETGID');
+
+    // Preserves crash recovery while preventing restart storms on configuration exit 78
+    expect(serviceContent).toContain('Restart=always');
+    expect(serviceContent).toContain('RestartSec=2');
+    expect(serviceContent).toContain('RestartPreventExitStatus=78');
+
+    // Proves StartLimitBurst is NOT used to suppress ordinary recovery
+    expect(serviceContent).not.toContain('StartLimitBurst');
+  });
+
+  it('explicitly declares bubblewrap as a first-class Phase 3 package dependency', () => {
+    const pkgContent = fs.readFileSync(pkgManifestPath, 'utf8');
+    const lines = pkgContent.split('\n').map((l) => l.trim());
+    expect(lines).toContain('bubblewrap');
+  });
+
+  it('performs strict /proc/self/status capability audit and exits 78 on any non-zero capability', () => {
+    const sessionContent = fs.readFileSync(sessionScriptPath, 'utf8');
+
+    // Audits /proc/self/status for capability fields
+    expect(sessionContent).toContain('/proc/self/status');
+    expect(sessionContent).toContain('CapInh');
+    expect(sessionContent).toContain('CapPrm');
+    expect(sessionContent).toContain('CapEff');
+    expect(sessionContent).toContain('CapBnd');
+    expect(sessionContent).toContain('CapAmb');
+    expect(sessionContent).toContain('NoNewPrivs');
+
+    // Enforces zero capability requirement and logs state
+    expect(sessionContent).toContain('[RocketOS-Session] Capability state:');
+    expect(sessionContent).toContain('is_zero_cap');
+
+    // Writes CAPABILITY_LEAK error marker and exits 78
+    expect(sessionContent).toContain('rocketos-sandbox-preflight-error');
+    expect(sessionContent).toContain('TYPE=CAPABILITY_LEAK');
+    expect(sessionContent).toContain('exit 78');
+  });
+
+  it('performs functional bubblewrap sandbox preflight test and emits success marker', () => {
+    const sessionContent = fs.readFileSync(sessionScriptPath, 'utf8');
+
+    // Checks bwrap presence
+    expect(sessionContent).toContain('command -v bwrap');
+    expect(sessionContent).toContain('TYPE=BWRAP_MISSING');
+    expect(sessionContent).toContain('bubblewrap path:');
+    expect(sessionContent).toContain('--version');
+
+    // Executes unprivileged real sandbox test
+    expect(sessionContent).toContain('--ro-bind / /');
+    expect(sessionContent).toContain('TYPE=BWRAP_FUNCTIONAL_FAILURE');
+
+    // Authoritative success marker required for CI
+    expect(sessionContent).toContain('ROCKETOS_BWRAP_SANDBOX_PREFLIGHT_OK');
+
+    // Preflight occurs before Cage compositor execution
+    const preflightOkIdx = sessionContent.indexOf('ROCKETOS_BWRAP_SANDBOX_PREFLIGHT_OK');
+    const cageExecIdx = sessionContent.indexOf('exec /usr/bin/cage -s --');
+    expect(preflightOkIdx).toBeGreaterThan(0);
+    expect(cageExecIdx).toBeGreaterThan(preflightOkIdx);
+  });
+
+  it('classifies sandbox preflight errors and exact bwrap capability error ahead of generic SIGTRAP', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+
+    // Verifies path definition
+    expect(probeContent).toContain('SANDBOX_PREFLIGHT_ERROR=');
+    expect(probeContent).toContain('rocketos-sandbox-preflight-error');
+
+    // Verifies all three required sandbox classification failure codes
+    expect(probeContent).toContain('webkit_sandbox_capability_leak');
+    expect(probeContent).toContain('webkit_sandbox_bwrap_missing');
+    expect(probeContent).toContain('webkit_sandbox_preflight_failure');
+
+    // Verifies exact bwrap journal string check
+    expect(probeContent).toContain('Unexpected capabilities but not setuid');
+
+    // Strictly verifies ordering: sandbox preflight check occurs before shell_host_native_sigtrap (exit status 133)
+    const sandboxLeakIdx = probeContent.indexOf('"webkit_sandbox_capability_leak"');
+    const sigtrapIdx = probeContent.indexOf('"shell_host_native_sigtrap"');
+    expect(sandboxLeakIdx).toBeGreaterThan(0);
+    expect(sigtrapIdx).toBeGreaterThan(0);
+    expect(sandboxLeakIdx).toBeLessThan(sigtrapIdx);
+  });
+
+  it('includes complete sandbox and capability telemetry in debug evidence output', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('SANDBOX / CAPABILITY STATE:');
+    expect(probeContent).toContain('rocketos-sandbox-preflight-error:');
+    expect(probeContent).toContain('Graphical service capability policy:');
+    expect(probeContent).toContain('CapabilityBoundingSet:');
+    expect(probeContent).toContain('AmbientCapabilities:');
+    expect(probeContent).toContain('Current rocketos-session capability fields:');
+    expect(probeContent).toContain('CapInh:');
+    expect(probeContent).toContain('CapPrm:');
+    expect(probeContent).toContain('CapEff:');
+    expect(probeContent).toContain('CapBnd:');
+    expect(probeContent).toContain('CapAmb:');
+    expect(probeContent).toContain('NoNewPrivs:');
+    expect(probeContent).toContain('Recent bwrap-related journal:');
+  });
+
+  it('validates bubblewrap presence and service capability directives during image build', () => {
+    const chrootHookContent = fs.readFileSync(chrootHookPath, 'utf8');
+    const buildScriptContent = fs.readFileSync(buildScriptPath, 'utf8');
+
+    // Chroot hook validation
+    expect(chrootHookContent).toContain('/usr/bin/bwrap');
+    expect(chrootHookContent).toContain('CapabilityBoundingSet=');
+    expect(chrootHookContent).toContain('AmbientCapabilities=');
+    expect(chrootHookContent).toContain('CAP_');
+
+    // Build script validation
+    expect(buildScriptContent).toContain('CapabilityBoundingSet=');
+    expect(buildScriptContent).toContain('AmbientCapabilities=');
+    expect(buildScriptContent).toContain('CAP_');
+    expect(buildScriptContent).toContain('/usr/bin/bwrap');
+  });
+});
+
+

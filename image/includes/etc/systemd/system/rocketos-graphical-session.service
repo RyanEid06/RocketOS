@@ -10,6 +10,11 @@ Type=simple
 User=rocket
 Group=rocket
 PAMName=login
+# RocketOS graphical apps are fully unprivileged.
+# Explicitly clear capabilities after PAM setup so WebKitGTK bubblewrap
+# receives the capability-free process environment it requires.
+CapabilityBoundingSet=
+AmbientCapabilities=
 Environment=HOME=/home/rocket
 Environment=USER=rocket
 Environment=PYTHONUNBUFFERED=1
@@ -25,6 +30,7 @@ UtmpIdentifier=tty1
 ExecStart=/usr/local/bin/rocketos-session
 Restart=always
 RestartSec=2
+RestartPreventExitStatus=78
 TimeoutStopSec=10
 
 [Install]

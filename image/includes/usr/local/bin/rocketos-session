@@ -60,7 +60,100 @@ fi
 # Ensure Python unbuffered logging for instant journal visibility
 export PYTHONUNBUFFERED=1
 
-# Log Cage version
+# 3. Phase 3 Sandbox & Capability Preflight Audit
+rm -f "${XDG_RUNTIME_DIR}/rocketos-sandbox-preflight-error"
+
+CAP_INH=""
+CAP_PRM=""
+CAP_EFF=""
+CAP_BND=""
+CAP_AMB=""
+NO_NEW_PRIVS=""
+
+if [ -f /proc/self/status ]; then
+    while IFS=':' read -r key val; do
+        val="$(echo "${val}" | tr -d '[:space:]')"
+        case "${key}" in
+            CapInh) CAP_INH="${val}" ;;
+            CapPrm) CAP_PRM="${val}" ;;
+            CapEff) CAP_EFF="${val}" ;;
+            CapBnd) CAP_BND="${val}" ;;
+            CapAmb) CAP_AMB="${val}" ;;
+            NoNewPrivs) NO_NEW_PRIVS="${val}" ;;
+        esac
+    done < /proc/self/status
+fi
+
+echo "[RocketOS-Session] Capability state:"
+echo "[RocketOS-Session]   CapInh=${CAP_INH}"
+echo "[RocketOS-Session]   CapPrm=${CAP_PRM}"
+echo "[RocketOS-Session]   CapEff=${CAP_EFF}"
+echo "[RocketOS-Session]   CapBnd=${CAP_BND}"
+echo "[RocketOS-Session]   CapAmb=${CAP_AMB}"
+echo "[RocketOS-Session]   NoNewPrivs=${NO_NEW_PRIVS}"
+
+# For RocketOS graphical session, all capability sets must be strictly zero
+is_zero_cap() {
+    local val="$1"
+    [[ -n "${val}" && "${val}" =~ ^0+$ ]]
+}
+
+if ! is_zero_cap "${CAP_INH}" || ! is_zero_cap "${CAP_PRM}" || ! is_zero_cap "${CAP_EFF}" || ! is_zero_cap "${CAP_BND}" || ! is_zero_cap "${CAP_AMB}"; then
+    cat <<EOF > "${XDG_RUNTIME_DIR}/rocketos-sandbox-preflight-error"
+TYPE=CAPABILITY_LEAK
+UID=${CURRENT_UID}
+USER=${CURRENT_USER}
+CapInh=${CAP_INH}
+CapPrm=${CAP_PRM}
+CapEff=${CAP_EFF}
+CapBnd=${CAP_BND}
+CapAmb=${CAP_AMB}
+EOF
+    echo "[RocketOS-Session] FATAL: Unexpected capabilities detected in graphical session (CapInh=${CAP_INH}, CapPrm=${CAP_PRM}, CapEff=${CAP_EFF}, CapBnd=${CAP_BND}, CapAmb=${CAP_AMB})" >&2
+    exit 78
+fi
+
+# 4. Bubblewrap Functional Preflight
+if ! command -v bwrap >/dev/null 2>&1; then
+    cat <<EOF > "${XDG_RUNTIME_DIR}/rocketos-sandbox-preflight-error"
+TYPE=BWRAP_MISSING
+UID=${CURRENT_UID}
+USER=${CURRENT_USER}
+EOF
+    echo "[RocketOS-Session] FATAL: bubblewrap (bwrap) not found in PATH" >&2
+    exit 78
+fi
+
+BWRAP_PATH="$(command -v bwrap)"
+BWRAP_VERSION="$("${BWRAP_PATH}" --version 2>&1 || echo '(version unavailable)')"
+echo "[RocketOS-Session] bubblewrap path: ${BWRAP_PATH}"
+echo "[RocketOS-Session] bubblewrap version: ${BWRAP_VERSION}"
+
+TRUE_PATH="/bin/true"
+[ -x "${TRUE_PATH}" ] || TRUE_PATH="/usr/bin/true"
+[ -x "${TRUE_PATH}" ] || TRUE_PATH="$(command -v true || echo "/bin/true")"
+
+BWRAP_OUTPUT=""
+BWRAP_EXIT_CODE=0
+set +e
+BWRAP_OUTPUT="$(timeout 5s "${BWRAP_PATH}" --ro-bind / / "${TRUE_PATH}" 2>&1)"
+BWRAP_EXIT_CODE=$?
+set -e
+
+if [ ${BWRAP_EXIT_CODE} -ne 0 ]; then
+    cat <<EOF > "${XDG_RUNTIME_DIR}/rocketos-sandbox-preflight-error"
+TYPE=BWRAP_FUNCTIONAL_FAILURE
+EXIT_STATUS=${BWRAP_EXIT_CODE}
+OUTPUT=${BWRAP_OUTPUT}
+EOF
+    echo "[RocketOS-Session] FATAL: bubblewrap functional sandbox preflight failed (exit code ${BWRAP_EXIT_CODE})" >&2
+    echo "[RocketOS-Session] Captured output: ${BWRAP_OUTPUT}" >&2
+    exit 78
+fi
+
+echo "[RocketOS-Session] ROCKETOS_BWRAP_SANDBOX_PREFLIGHT_OK"
+
+# 5. Launch Cage Kiosk Compositor
 CAGE_VERSION="$(/usr/bin/cage -v 2>&1 || true)"
 echo "[RocketOS-Session] Cage version: ${CAGE_VERSION}"
 

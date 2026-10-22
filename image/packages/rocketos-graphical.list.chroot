@@ -14,6 +14,7 @@ gir1.2-webkit-6.0
 python3-gi
 python3
 psmisc
+bubblewrap
 
 # Graphics Acceleration & Software Rendering
 libgl1-mesa-dri

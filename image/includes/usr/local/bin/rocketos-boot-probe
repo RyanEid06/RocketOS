@@ -21,6 +21,7 @@ STATE_FILE="${RUNTIME_DIR}/rocketos-shell-host-state"
 ALIVE_MARKER="${RUNTIME_DIR}/rocketos-shell-host-alive"
 HOST_LOG_FILE="${RUNTIME_DIR}/rocketos-shell-host.log"
 WEBKIT_ERROR_FILE="${RUNTIME_DIR}/rocketos-webkit-error"
+SANDBOX_PREFLIGHT_ERROR="${RUNTIME_DIR}/rocketos-sandbox-preflight-error"
 
 PROBE_COMPLETED=false
 
@@ -656,6 +657,54 @@ collect_graphical_debug_evidence() {
   local diag_stat
   diag_stat="$(timeout 2s stat /usr/share/rocketos/diagnostic/index.html 2>/dev/null || echo '(stat failed)')"
 
+  # Sandbox and capability diagnostic state
+  local preflight_err_content="<absent>"
+  if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]]; then
+    preflight_err_content="$(cat "${SANDBOX_PREFLIGHT_ERROR}" 2>/dev/null || echo '(read failed)')"
+  fi
+
+  local svc_cap_bnd
+  svc_cap_bnd="$(timeout 2s systemctl show rocketos-graphical-session.service --property=CapabilityBoundingSet --value 2>/dev/null || echo '(unavailable)')"
+  local svc_cap_amb
+  svc_cap_amb="$(timeout 2s systemctl show rocketos-graphical-session.service --property=AmbientCapabilities --value 2>/dev/null || echo '(unavailable)')"
+
+  local sess_pid
+  sess_pid="$(timeout 1s pgrep -u rocket -f rocketos-session 2>/dev/null | head -n1 || echo '')"
+  local sess_cap_inh="(unavailable)"
+  local sess_cap_prm="(unavailable)"
+  local sess_cap_eff="(unavailable)"
+  local sess_cap_bnd="(unavailable)"
+  local sess_cap_amb="(unavailable)"
+  local sess_no_new_privs="(unavailable)"
+
+  if [[ -n "${sess_pid}" && -r "/proc/${sess_pid}/status" ]]; then
+    while IFS=: read -r key val; do
+      val="$(echo "${val}" | tr -d '[:space:]')"
+      case "${key}" in
+        CapInh) sess_cap_inh="${val}" ;;
+        CapPrm) sess_cap_prm="${val}" ;;
+        CapEff) sess_cap_eff="${val}" ;;
+        CapBnd) sess_cap_bnd="${val}" ;;
+        CapAmb) sess_cap_amb="${val}" ;;
+        NoNewPrivs) sess_no_new_privs="${val}" ;;
+      esac
+    done < "/proc/${sess_pid}/status" 2>/dev/null || true
+  else
+    local j_inh
+    j_inh="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'CapInh=[0-9a-fA-F]\+' | tail -n1 | cut -d= -f2 || true)"
+    if [[ -n "${j_inh}" ]]; then
+      sess_cap_inh="${j_inh}"
+      sess_cap_prm="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'CapPrm=[0-9a-fA-F]\+' | tail -n1 | cut -d= -f2 || echo 'unknown')"
+      sess_cap_eff="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'CapEff=[0-9a-fA-F]\+' | tail -n1 | cut -d= -f2 || echo 'unknown')"
+      sess_cap_bnd="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'CapBnd=[0-9a-fA-F]\+' | tail -n1 | cut -d= -f2 || echo 'unknown')"
+      sess_cap_amb="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'CapAmb=[0-9a-fA-F]\+' | tail -n1 | cut -d= -f2 || echo 'unknown')"
+      sess_no_new_privs="$(journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -o 'NoNewPrivs=[0-9]\+' | tail -n1 | cut -d= -f2 || echo 'unknown')"
+    fi
+  fi
+
+  local bwrap_recent_journal
+  bwrap_recent_journal="$(journalctl -u rocketos-graphical-session.service -n 100 --no-pager 2>/dev/null | grep -i bwrap || echo '(no bwrap log entries in recent journal)')"
+
   cat <<EOF
 --- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
 CAGE_PID=${cage_pid}
@@ -713,6 +762,28 @@ WEBKIT_DMABUF_RENDERER_FORCE_SHM=${ren_shm}
 WEBKIT_DISABLE_COMPOSITING_MODE=${ren_dis_comp}
 WEBKIT_DISABLE_DMABUF_RENDERER=${ren_dis_dmabuf}
 GDK_BACKEND=${ren_gdk}
+
+SANDBOX / CAPABILITY STATE:
+rocketos-sandbox-preflight-error:
+${preflight_err_content}
+
+Graphical service capability policy:
+CapabilityBoundingSet: ${svc_cap_bnd}
+AmbientCapabilities: ${svc_cap_amb}
+
+Current rocketos-session capability fields:
+CapInh: ${sess_cap_inh}
+CapPrm: ${sess_cap_prm}
+CapEff: ${sess_cap_eff}
+CapBnd: ${sess_cap_bnd}
+CapAmb: ${sess_cap_amb}
+NoNewPrivs: ${sess_no_new_privs}
+
+bubblewrap path: ${bwrap_cmd}
+bubblewrap version: ${bwrap_ver}
+
+Recent bwrap-related journal:
+${bwrap_recent_journal}
 
 ENVIRONMENT & SANDBOX PREREQUISITES:
 command -v bwrap:
@@ -790,7 +861,29 @@ resolve_readiness_failure_code() {
     return 0
   fi
 
-  # 3. WebKit web process terminated (strictly scoped to generation)
+  # 3. Sandbox preflight error and bwrap capability leak checks (strictly outranks native signal 133)
+  if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]]; then
+    local preflight_type
+    preflight_type="$(grep '^TYPE=' "${SANDBOX_PREFLIGHT_ERROR}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+    if [[ "${preflight_type}" == "CAPABILITY_LEAK" ]]; then
+      echo "webkit_sandbox_capability_leak"
+      return 0
+    elif [[ "${preflight_type}" == "BWRAP_MISSING" ]]; then
+      echo "webkit_sandbox_bwrap_missing"
+      return 0
+    elif [[ "${preflight_type}" == "BWRAP_FUNCTIONAL_FAILURE" ]]; then
+      echo "webkit_sandbox_preflight_failure"
+      return 0
+    fi
+  fi
+
+  # Exact bwrap capability error in session journal
+  if journalctl -u rocketos-graphical-session.service -n 100 --no-pager 2>/dev/null | grep -q "Unexpected capabilities but not setuid"; then
+    echo "webkit_sandbox_capability_leak"
+    return 0
+  fi
+
+  # 4. WebKit web process terminated (strictly scoped to generation)
   if [[ "${host_state}" == "WEBKIT_PROCESS_TERMINATED" ]]; then
     echo "webkit_process_terminated"
     return 0
@@ -1085,6 +1178,27 @@ while true; do
   local main_pid
   main_pid="$(timeout 2s systemctl show rocketos-graphical-session.service --property=MainPID --value 2>/dev/null || echo 0)"
 
+  # Check if sandbox preflight error occurred (outranks generic launcher failure)
+  if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]] || journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -q "Unexpected capabilities but not setuid"; then
+    local sb_fail="webkit_sandbox_preflight_failure"
+    if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]]; then
+      local pt
+      pt="$(grep '^TYPE=' "${SANDBOX_PREFLIGHT_ERROR}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+      if [[ "${pt}" == "CAPABILITY_LEAK" ]]; then
+        sb_fail="webkit_sandbox_capability_leak"
+      elif [[ "${pt}" == "BWRAP_MISSING" ]]; then
+        sb_fail="webkit_sandbox_bwrap_missing"
+      elif [[ "${pt}" == "BWRAP_FUNCTIONAL_FAILURE" ]]; then
+        sb_fail="webkit_sandbox_preflight_failure"
+      fi
+    elif journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -q "Unexpected capabilities but not setuid"; then
+      sb_fail="webkit_sandbox_capability_leak"
+    fi
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+    emit_fail "Graphical session sandbox preflight failure (${sb_fail}):
+${DEBUG_EVIDENCE}" "${sb_fail}"
+  fi
+
   # Check if any generation state files exist
   local gen_files
   gen_files="$(ls -1 "${STATE_FILE}".* 2>/dev/null | grep -E '\.[0-9]+$' || true)"
@@ -1103,6 +1217,27 @@ ${DEBUG_EVIDENCE}" "graphical_session_launcher_failure"
 done
 
 if [[ -z "${HOST_PID}" ]]; then
+  # Check if sandbox preflight error occurred
+  if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]] || journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -q "Unexpected capabilities but not setuid"; then
+    local sb_fail="webkit_sandbox_preflight_failure"
+    if [[ -f "${SANDBOX_PREFLIGHT_ERROR}" ]]; then
+      local pt
+      pt="$(grep '^TYPE=' "${SANDBOX_PREFLIGHT_ERROR}" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+      if [[ "${pt}" == "CAPABILITY_LEAK" ]]; then
+        sb_fail="webkit_sandbox_capability_leak"
+      elif [[ "${pt}" == "BWRAP_MISSING" ]]; then
+        sb_fail="webkit_sandbox_bwrap_missing"
+      elif [[ "${pt}" == "BWRAP_FUNCTIONAL_FAILURE" ]]; then
+        sb_fail="webkit_sandbox_preflight_failure"
+      fi
+    elif journalctl -u rocketos-graphical-session.service -n 50 --no-pager 2>/dev/null | grep -q "Unexpected capabilities but not setuid"; then
+      sb_fail="webkit_sandbox_capability_leak"
+    fi
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+    emit_fail "Graphical session sandbox preflight failure (${sb_fail}):
+${DEBUG_EVIDENCE}" "${sb_fail}"
+  fi
+
   # Check if any generation state files exist to resolve failure from the latest generation
   local newest_gen_pid=""
   local gen_files

@@ -155,6 +155,23 @@ if [[ -d "${IMAGE_DIR}/bootloaders" ]]; then
   cp -r "${IMAGE_DIR}/bootloaders/"* config/bootloaders/
 fi
 
+# Validate Phase 3 capability directives in declarative service template
+SERVICE_TEMPLATE="config/includes.chroot/etc/systemd/system/rocketos-graphical-session.service"
+if [[ -f "${SERVICE_TEMPLATE}" ]]; then
+  if ! grep -q "^CapabilityBoundingSet=$" "${SERVICE_TEMPLATE}"; then
+    echo "ERROR: ${SERVICE_TEMPLATE} missing empty CapabilityBoundingSet=" >&2
+    exit 1
+  fi
+  if ! grep -q "^AmbientCapabilities=$" "${SERVICE_TEMPLATE}"; then
+    echo "ERROR: ${SERVICE_TEMPLATE} missing empty AmbientCapabilities=" >&2
+    exit 1
+  fi
+  if grep -i "CAP_" "${SERVICE_TEMPLATE}"; then
+    echo "ERROR: ${SERVICE_TEMPLATE} explicitly grants capabilities (forbidden)!" >&2
+    exit 1
+  fi
+fi
+
 # ------------------------------------------------------------------------------
 # Run lb config
 # ------------------------------------------------------------------------------
@@ -208,6 +225,37 @@ lb build 2>&1 | tee "${OUTPUT_DIR}/build.log"
 
 END_TIME=$(date +%s)
 BUILD_DURATION=$((END_TIME - START_TIME))
+
+# ------------------------------------------------------------------------------
+# Image Filesystem & Sandbox Capability Validation
+# ------------------------------------------------------------------------------
+echo "Validating image filesystem sandbox prerequisites..."
+if [[ -d chroot ]]; then
+  if [[ ! -f chroot/usr/bin/bwrap ]]; then
+    echo "ERROR: Image validation failed: /usr/bin/bwrap does not exist in built image filesystem." >&2
+    exit 1
+  fi
+  if [[ ! -x chroot/usr/bin/bwrap ]]; then
+    echo "ERROR: Image validation failed: /usr/bin/bwrap is not executable in built image filesystem." >&2
+    exit 1
+  fi
+  SVC_CHROOT="chroot/etc/systemd/system/rocketos-graphical-session.service"
+  if [[ -f "${SVC_CHROOT}" ]]; then
+    if ! grep -q "^CapabilityBoundingSet=$" "${SVC_CHROOT}"; then
+      echo "ERROR: Image validation failed: ${SVC_CHROOT} missing empty CapabilityBoundingSet=" >&2
+      exit 1
+    fi
+    if ! grep -q "^AmbientCapabilities=$" "${SVC_CHROOT}"; then
+      echo "ERROR: Image validation failed: ${SVC_CHROOT} missing empty AmbientCapabilities=" >&2
+      exit 1
+    fi
+    if grep -i "CAP_" "${SVC_CHROOT}"; then
+      echo "ERROR: Image validation failed: ${SVC_CHROOT} explicitly grants capabilities (forbidden)!" >&2
+      exit 1
+    fi
+  fi
+  echo "Image filesystem validation: /usr/bin/bwrap exists, is executable, and capability policy verified."
+fi
 
 # ------------------------------------------------------------------------------
 # Locate Generated Binary & Package Manifest
