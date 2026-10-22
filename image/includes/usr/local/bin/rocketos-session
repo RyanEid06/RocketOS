@@ -60,11 +60,9 @@ fi
 # Ensure Python unbuffered logging for instant journal visibility
 export PYTHONUNBUFFERED=1
 
-# Ensure shell host binary is executable
-if [ ! -x /usr/local/bin/rocket-shell-host ]; then
-    echo "ERROR: /usr/local/bin/rocket-shell-host is missing or not executable." >&2
-    exit 1
-fi
+# Log Cage version
+CAGE_VERSION="$(/usr/bin/cage -v 2>&1 || true)"
+echo "[RocketOS-Session] Cage version: ${CAGE_VERSION}"
 
-echo "[RocketOS-Session] Executing Cage kiosk compositor (-s -D) with rocket-shell-host..."
-exec /usr/bin/cage -s -D -- /usr/local/bin/rocket-shell-host "$@"
+echo "[RocketOS-Session] Executing Cage kiosk compositor (-s) with VT switching enabled..."
+exec /usr/bin/cage -s -- /usr/local/bin/rocket-shell-host "$@"

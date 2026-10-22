@@ -700,6 +700,11 @@ ${host_log}
 Shared WebKit Load Error File:
 ${webkit_err}
 
+CAGE / WEBKIT RUNTIME:
+Cage version:             $(/usr/bin/cage -v 2>&1 || echo '(cage -v unavailable)')
+GTK version:              $(grep 'GTK=' "${exp_state_file}" 2>/dev/null | cut -d= -f2- || grep -o 'GTK [0-9.]\+' "${exp_log_file}" 2>/dev/null | head -n1 || echo '(unknown)')
+WebKitGTK version:        $(grep 'WebKitGTK=' "${exp_state_file}" 2>/dev/null | cut -d= -f2- || grep -o 'WebKitGTK [0-9.]\+' "${exp_log_file}" 2>/dev/null | head -n1 || echo '(unknown)')
+
 RENDERING PROFILE:
 WLR_RENDERER=${ren_wlr}
 LIBGL_ALWAYS_SOFTWARE=${ren_libgl}
@@ -765,7 +770,17 @@ resolve_readiness_failure_code() {
     alive_pid="$(head -n1 "${ALIVE_MARKER}" 2>/dev/null | tr -d '[:space:]' || true)"
   fi
 
-  # 1. Host fatal exception during initialization / activate (highest priority)
+  # 1. Missing diagnostic asset failure
+  if [[ "${host_state}" == "DIAGNOSTIC_ASSET_MISSING" ]]; then
+    echo "diagnostic_asset_missing"
+    return 0
+  fi
+  if [[ -f "${gen_error_file}" ]] && grep -q "DIAGNOSTIC_ASSET_MISSING" "${gen_error_file}" 2>/dev/null; then
+    echo "diagnostic_asset_missing"
+    return 0
+  fi
+
+  # 2. Host fatal exception during initialization / activate (strictly scoped to generation)
   if [[ "${host_state}" == "HOST_FATAL_EXCEPTION" ]]; then
     echo "shell_host_exception"
     return 0
@@ -774,12 +789,8 @@ resolve_readiness_failure_code() {
     echo "shell_host_exception"
     return 0
   fi
-  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "PID: ${expected_pid}.*HOST_FATAL_EXCEPTION\|PID=${expected_pid}.*HOST_FATAL_EXCEPTION\|HOST_FATAL_EXCEPTION" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
-    echo "shell_host_exception"
-    return 0
-  fi
 
-  # 2. WebKit web process terminated
+  # 3. WebKit web process terminated (strictly scoped to generation)
   if [[ "${host_state}" == "WEBKIT_PROCESS_TERMINATED" ]]; then
     echo "webkit_process_terminated"
     return 0
@@ -788,12 +799,8 @@ resolve_readiness_failure_code() {
     echo "webkit_process_terminated"
     return 0
   fi
-  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "PID: ${expected_pid}.*WEB_PROCESS_TERMINATED\|PID=${expected_pid}.*WEB_PROCESS_TERMINATED\|WEB_PROCESS_TERMINATED" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
-    echo "webkit_process_terminated"
-    return 0
-  fi
 
-  # 3. WebKit load failed
+  # 4. WebKit load failed (strictly scoped to generation)
   if [[ "${host_state}" == "WEBKIT_LOAD_FAILED" ]]; then
     echo "webkit_load_failed"
     return 0
@@ -802,12 +809,8 @@ resolve_readiness_failure_code() {
     echo "webkit_load_failed"
     return 0
   fi
-  if [[ -f "${WEBKIT_ERROR_FILE}" ]] && grep -q "URI:" "${WEBKIT_ERROR_FILE}" 2>/dev/null; then
-    echo "webkit_load_failed"
-    return 0
-  fi
 
-  # 4. Cage exit status signal check: Cage returns 128 + WTERMSIG(status)
+  # 5. Cage exit status signal check: Cage returns 128 + WTERMSIG(status)
   # When status=133 -> 128 + 5 = SIGTRAP
   local cage_exit_status=""
   cage_exit_status="$(systemctl show --property=ExecMainStatus --value rocketos-graphical-session.service 2>/dev/null || true)"
@@ -1072,6 +1075,26 @@ while true; do
     break
   fi
 
+  # Check for early failure: graphical session launcher crash-looping before host starts
+  local n_restarts
+  n_restarts="$(timeout 2s systemctl show rocketos-graphical-session.service --property=NRestarts --value 2>/dev/null || echo 0)"
+  local exec_status
+  exec_status="$(timeout 2s systemctl show rocketos-graphical-session.service --property=ExecMainStatus --value 2>/dev/null || echo 0)"
+  local exec_code
+  exec_code="$(timeout 2s systemctl show rocketos-graphical-session.service --property=ExecMainCode --value 2>/dev/null || echo 'unknown')"
+  local main_pid
+  main_pid="$(timeout 2s systemctl show rocketos-graphical-session.service --property=MainPID --value 2>/dev/null || echo 0)"
+
+  # Check if any generation state files exist
+  local gen_files
+  gen_files="$(ls -1 "${STATE_FILE}".* 2>/dev/null | grep -E '\.[0-9]+$' || true)"
+
+  if [[ -z "${gen_files}" && "${n_restarts}" =~ ^[0-9]+$ && ${n_restarts} -ge 3 && -n "${exec_status}" && "${exec_status}" != "0" ]]; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+    emit_fail "Graphical session failed during launch (NRestarts=${n_restarts}, ExecMainStatus=${exec_status}, ExecMainCode=${exec_code}, MainPID=${main_pid})
+${DEBUG_EVIDENCE}" "graphical_session_launcher_failure"
+  fi
+
   NOW_AFTER=$(date +%s)
   if [[ ${NOW_AFTER} -ge ${HOST_DISCOVERY_DEADLINE} ]]; then
     break
@@ -1080,6 +1103,37 @@ while true; do
 done
 
 if [[ -z "${HOST_PID}" ]]; then
+  # Check if any generation state files exist to resolve failure from the latest generation
+  local newest_gen_pid=""
+  local gen_files
+  gen_files="$(ls -1 "${STATE_FILE}".* 2>/dev/null | grep -E '\.[0-9]+$' || true)"
+  if [[ -n "${gen_files}" ]]; then
+    local newest_file
+    newest_file="$(ls -1t "${STATE_FILE}".* 2>/dev/null | grep -E '\.[0-9]+$' | head -n1 || true)"
+    if [[ -n "${newest_file}" ]]; then
+      newest_gen_pid="${newest_file##*.}"
+    fi
+  fi
+
+  if [[ -n "${newest_gen_pid}" && "${newest_gen_pid}" =~ ^[0-9]+$ ]]; then
+    log_checkpoint "HOST_DISCOVERY_FAILED_RESOLVING_NEWEST_GENERATION pid=${newest_gen_pid}"
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${newest_gen_pid}")"
+    FAIL_CODE="$(resolve_readiness_failure_code "${newest_gen_pid}")"
+    emit_fail "rocket-shell-host is not currently running; latest generation PID ${newest_gen_pid} resolved failure: ${FAIL_CODE}
+${DEBUG_EVIDENCE}" "${FAIL_CODE}"
+  fi
+
+  # Check if launcher failure occurred
+  local n_restarts
+  n_restarts="$(timeout 2s systemctl show rocketos-graphical-session.service --property=NRestarts --value 2>/dev/null || echo 0)"
+  local exec_status
+  exec_status="$(timeout 2s systemctl show rocketos-graphical-session.service --property=ExecMainStatus --value 2>/dev/null || echo 0)"
+  if [[ "${n_restarts}" =~ ^[0-9]+$ && ${n_restarts} -ge 1 && -n "${exec_status}" && "${exec_status}" != "0" ]]; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
+    emit_fail "Graphical session launcher failure: cage failed to start rocket-shell-host (NRestarts=${n_restarts}, ExecMainStatus=${exec_status})
+${DEBUG_EVIDENCE}" "graphical_session_launcher_failure"
+  fi
+
   DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "none")"
   emit_fail "rocket-shell-host was not discovered within ${HOST_DISCOVERY_TIMEOUT_SECS}s
 ${DEBUG_EVIDENCE}" "shell_host_not_running"

@@ -116,13 +116,8 @@ def create_runtime_marker(path: str):
     except Exception as e:
         log(f"ERROR: Runtime marker creation failure at {path}: {e}")
 
-# Clean only ephemeral liveness markers; never delete error or generation log files
-for p in (ALIVE_MARKER, UI_LOADED_MARKER, BRIDGE_PING_MARKER):
-    try:
-        if os.path.exists(p):
-            os.remove(p)
-    except Exception:
-        pass
+# Clean stale ephemeral markers once at startup before publishing current lifecycle
+cleanup_stale_markers()
 
 # 1. PROCESS_STARTED boundary
 write_state("PROCESS_STARTED", f"PID={HOST_PID}, PPID={os.getppid()}, UID={os.getuid()}, args={sys.argv}")
@@ -184,7 +179,6 @@ class RocketShellHostApp(Gtk.Application):
             write_state("GTK_ACTIVATE_ENTER")
             create_runtime_marker(ALIVE_MARKER)
             log("Host activation requested: initializing RocketOS Shell Host (GTK4 + WebKitGTK 6.0)...")
-            cleanup_stale_markers()
 
             if not self.window:
                 # 6. Acquire default WebContext and configure sandbox BEFORE any WebView is created
@@ -210,12 +204,20 @@ class RocketShellHostApp(Gtk.Application):
                     self.on_script_message
                 )
 
-                # 8. Register bridge message handler (strict one-argument call)
-                reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")
+                # 8. Register bridge message handler (WebKitGTK 6 default world)
+                reg_ok = self.user_content_manager.register_script_message_handler(
+                    "rocketBridge",
+                    None,
+                )
                 if not reg_ok:
-                    raise RuntimeError("Failed to register WebKit script message handler 'rocketBridge'")
-                log(f"Bridge message-handler 'rocketBridge' registered: result={reg_ok}")
-                write_state("BRIDGE_HANDLER_REGISTERED", "handler=rocketBridge result=True")
+                    raise RuntimeError(
+                        "Failed to register WebKit script message handler 'rocketBridge'"
+                    )
+                log(f"Bridge message-handler 'rocketBridge' registered (world=default): result={reg_ok}")
+                write_state(
+                    "BRIDGE_HANDLER_REGISTERED",
+                    "handler=rocketBridge world=default result=True",
+                )
 
                 # 9. Configure WebKit settings
                 settings = WebKit.Settings()
@@ -305,17 +307,23 @@ class RocketShellHostApp(Gtk.Application):
                 write_state("WINDOW_CHILD_SET")
 
                 # 12. LOAD_URI_REQUESTED
-                target_url = DIAGNOSTIC_URL
-                if not os.path.exists(os.path.join(DIAGNOSTIC_DIR, "index.html")):
-                    log(f"Warning: {DIAGNOSTIC_URL} not found on filesystem. Loading fallback.")
-                    target_url = "about:blank"
-                    log(f"Diagnostic URI load start (fallback): {target_url}")
-                    write_state("LOAD_URI_REQUESTED", target_url)
-                    self.webview.load_html(self.get_fallback_html(), "file:///")
-                else:
-                    log(f"Diagnostic URI load start: {target_url}")
-                    write_state("LOAD_URI_REQUESTED", target_url)
-                    self.webview.load_uri(target_url)
+                diagnostic_index = os.path.join(DIAGNOSTIC_DIR, "index.html")
+                if not os.path.exists(diagnostic_index):
+                    write_state(
+                        "DIAGNOSTIC_ASSET_MISSING",
+                        f"path={diagnostic_index}",
+                    )
+                    write_error_evidence(
+                        "DIAGNOSTIC_ASSET_MISSING",
+                        f"Required Phase 3 diagnostic asset missing: {diagnostic_index}",
+                    )
+                    raise RuntimeError(
+                        f"Required Phase 3 diagnostic asset missing: {diagnostic_index}"
+                    )
+
+                log(f"Diagnostic URI load start: {DIAGNOSTIC_URL}")
+                write_state("LOAD_URI_REQUESTED", DIAGNOSTIC_URL)
+                self.webview.load_uri(DIAGNOSTIC_URL)
 
             # 13. GTK_WINDOW_PRESENTED
             self.window.present()
@@ -545,13 +553,6 @@ class RocketShellHostApp(Gtk.Application):
         script = f"if (window.__rocketBridgeReceive) {{ window.__rocketBridgeReceive({escaped_json}); }}"
         if self.webview:
             self.webview.evaluate_javascript(script, -1, None, None, None, None, None)
-
-    def get_fallback_html(self):
-        return """<!DOCTYPE html>
-<html>
-<head><title>RocketOS Shell Host</title><style>body { background: #0b0f19; color: #fff; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }</style></head>
-<body><h1>RocketOS Phase 3 Shell Host Active</h1></body>
-</html>"""
 
 def handle_signal(sig, frame):
     log(f"Received signal {sig}, exiting gracefully...")

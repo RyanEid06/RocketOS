@@ -230,8 +230,11 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(sessionContent).toContain('export LIBGL_ALWAYS_SOFTWARE=1');
     expect(sessionContent).toContain('export WLR_RENDERER=');
 
-    // Cage kiosk invocation includes both -s (VT switching) and -D (debug logging)
-    expect(sessionContent).toContain('/usr/bin/cage -s -D -- /usr/local/bin/rocket-shell-host');
+    // Cage kiosk invocation uses valid Trixie -s flag (VT switching) and strictly avoids unsupported uppercase -D
+    expect(sessionContent).toContain('/usr/bin/cage -s -- /usr/local/bin/rocket-shell-host');
+    expect(sessionContent).not.toContain('/usr/bin/cage -s -D');
+    expect(sessionContent).not.toContain(' -D ');
+    expect(sessionContent).toContain('CAGE_VERSION="$(/usr/bin/cage -v 2>&1 || true)"');
   });
 
   it('verifies rocket-shell-host does not force HardwareAccelerationPolicy.NEVER', () => {
@@ -242,15 +245,22 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(hostContent).toContain('WEBKIT_DMABUF_RENDERER_FORCE_SHM');
   });
 
-  it('verifies strict single-argument bridge handler registration that fails explicitly', () => {
+  it('verifies strict WebKitGTK 6 message handler registration and diagnostic asset validation', () => {
     const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
-    expect(hostContent).toContain('reg_ok = self.user_content_manager.register_script_message_handler("rocketBridge")');
+    // WebKitGTK 6 expects (name: str, world_name: Optional[str])
+    expect(hostContent).toContain('register_script_message_handler(\n                    "rocketBridge",\n                    None,\n                )');
     expect(hostContent).toContain('if not reg_ok:');
     expect(hostContent).toContain('raise RuntimeError');
-    expect(hostContent).not.toContain('register_script_message_handler("rocketBridge", None)');
+    expect(hostContent).toContain('BRIDGE_HANDLER_REGISTERED');
+
+    // Strict diagnostic asset check: fails immediately if missing without fallback HTML
+    expect(hostContent).toContain('DIAGNOSTIC_ASSET_MISSING');
+    expect(hostContent).toContain('Required Phase 3 diagnostic asset missing:');
+    expect(hostContent).not.toContain('get_fallback_html');
+    expect(hostContent).not.toContain('about:blank');
   });
 
-  it('maintains per-PID generation state, log, and error evidence without deleting crash history', () => {
+  it('maintains per-PID generation state, log, and error evidence with correct startup marker lifecycle', () => {
     const hostContent = fs.readFileSync(hostScriptPath, 'utf8');
     expect(hostContent).toContain('HOST_PID = os.getpid()');
     expect(hostContent).toContain('GEN_STATE_FILE = f"{STATE_FILE}.{HOST_PID}"');
@@ -259,8 +269,21 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
     expect(hostContent).toContain('def write_error_evidence(error_type: str, details: str):');
     expect(hostContent).toContain('os.replace(tmp_gen, GEN_STATE_FILE)');
     expect(hostContent).toContain('os.replace(tmp_shared, STATE_FILE)');
-    // Startup marker cleanup does NOT destroy crash/error evidence
-    expect(hostContent).not.toContain('os.remove(path)\n                log(f"Removed stale marker/error file: {path}")');
+
+    // Startup marker cleanup occurs before PROCESS_STARTED and never in do_activate()
+    const cleanupIdx = hostContent.indexOf('cleanup_stale_markers()');
+    const processStartedIdx = hostContent.indexOf('write_state("PROCESS_STARTED"');
+    const activateIdx = hostContent.indexOf('def do_activate(self):');
+    const aliveMarkerIdx = hostContent.indexOf('create_runtime_marker(ALIVE_MARKER)');
+
+    expect(cleanupIdx).toBeGreaterThan(0);
+    expect(processStartedIdx).toBeGreaterThan(cleanupIdx);
+    expect(activateIdx).toBeGreaterThan(processStartedIdx);
+    expect(aliveMarkerIdx).toBeGreaterThan(activateIdx);
+
+    // Verify cleanup_stale_markers is not called inside do_activate
+    const doActivateBody = hostContent.slice(activateIdx, hostContent.indexOf('def on_load_changed'));
+    expect(doActivateBody).not.toContain('cleanup_stale_markers()');
   });
 
   it('verifies UI marker creation is strictly tied to successful WebKit FINISHED event', () => {
@@ -300,6 +323,7 @@ describe('Phase 3 Shell Host & WebKit Sandbox Contract', () => {
       'WEBVIEW_CONSTRUCTION_ENTER',
       'WEBVIEW_CREATED',
       'WINDOW_CHILD_SET',
+      'DIAGNOSTIC_ASSET_MISSING',
       'LOAD_URI_REQUESTED',
       'GTK_WINDOW_PRESENTED',
       'WEBKIT_LOAD_STARTED',
@@ -365,11 +389,15 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
   const probeScriptPath = path.resolve(__dirname, '../../image/includes/usr/local/bin/rocketos-boot-probe');
   const smokeTestPath = path.resolve(__dirname, '../../scripts/phase3/smoke-test-qemu.sh');
 
-  it('collects expected generation evidence and rendering profile in debug evidence', () => {
+  it('collects expected generation evidence, runtime versions, and rendering profile in debug evidence', () => {
     const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
     expect(probeContent).toContain('EXPECTED HOST GENERATION:');
     expect(probeContent).toContain('CURRENT HOST GENERATION:');
     expect(probeContent).toContain('CAGE SESSION EXIT DIAGNOSTICS:');
+    expect(probeContent).toContain('CAGE / WEBKIT RUNTIME:');
+    expect(probeContent).toContain('Cage version:');
+    expect(probeContent).toContain('GTK version:');
+    expect(probeContent).toContain('WebKitGTK version:');
     expect(probeContent).toContain('RENDERING PROFILE:');
     expect(probeContent).toContain('WEBKIT_SKIA_ENABLE_CPU_RENDERING');
     expect(probeContent).toContain('WEBKIT_DMABUF_RENDERER_FORCE_SHM');
@@ -388,6 +416,7 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
     const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
     expect(probeContent).toContain('local gen_state_file="${STATE_FILE}.${expected_pid}"');
     expect(probeContent).toContain('local gen_error_file="${WEBKIT_ERROR_FILE}.${expected_pid}"');
+    expect(probeContent).toContain('diagnostic_asset_missing');
     expect(probeContent).toContain('shell_host_native_sigtrap');
     expect(probeContent).toContain('shell_host_native_signal');
     expect(probeContent).toContain('shell_host_startup_failure');
@@ -398,6 +427,15 @@ describe('Phase 3 Boot Probe Diagnostics & Failure Code Resolution Contract', ()
     expect(probeContent).toContain('ui_marker_creation_failure');
     expect(probeContent).toContain('shell_host_pid_mismatch');
     expect(probeContent).toContain('ui_marker_timeout');
+  });
+
+  it('detects early graphical launcher failures and resolves newest generation PID from state files', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+    expect(probeContent).toContain('graphical_session_launcher_failure');
+    expect(probeContent).toContain('NRestarts');
+    expect(probeContent).toContain('ExecMainStatus');
+    expect(probeContent).toContain('HOST_DISCOVERY_FAILED_RESOLVING_NEWEST_GENERATION');
+    expect(probeContent).toContain('ls -1t "${STATE_FILE}".*');
   });
 
   it('enforces generation-aware PID validation matching without masking crashes', () => {
