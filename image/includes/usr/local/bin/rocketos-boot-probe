@@ -1505,9 +1505,28 @@ echo "${PHASE3_OUTPUT}" > "${TARGET_DEV}" 2>/dev/null || true
 # 8. AUTOMATED RUNTIME CRASH RECOVERY VALIDATION (WP5)
 log_checkpoint "PHASE3_WP5_RECOVERY_TEST_START"
 INITIAL_HOST_PID="${HOST_PID}"
+# Keep a real WebKit helper alive across host death: a leaked Cage pipe must
+# not let this helper suppress systemd recovery. Plain host kills miss this race.
+RECOVERY_HELPER_PID="$(pgrep -P "${INITIAL_HOST_PID}" -f '/WebKitNetworkProcess' | head -n1 || true)"
+if [[ -z "${RECOVERY_HELPER_PID}" ]]; then
+  emit_fail "WP5 failure: no WebKit network helper available for recovery fault injection" "recovery_failed"
+fi
+trap 'kill -CONT "${RECOVERY_HELPER_PID}" 2>/dev/null || true' EXIT
+kill -STOP "${RECOVERY_HELPER_PID}"
+for _ in {1..20}; do
+  RECOVERY_HELPER_STATE="$(ps -p "${RECOVERY_HELPER_PID}" -o stat= 2>/dev/null || true)"
+  [[ "${RECOVERY_HELPER_STATE}" == T* ]] && break
+  sleep 0.05
+done
+if [[ "${RECOVERY_HELPER_STATE}" != T* ]]; then
+  emit_fail "WP5 failure: WebKit helper did not enter stopped state" "recovery_failed"
+fi
+log_checkpoint "PHASE3_WP5_HELPER_STOPPED pid=${RECOVERY_HELPER_PID}"
 log_checkpoint "PHASE3_WP5_KILL_INITIAL_HOST pid=${INITIAL_HOST_PID}"
 # Deliberately terminate the host process with SIGKILL
-kill -9 "${INITIAL_HOST_PID}" 2>/dev/null || true
+if ! kill -9 "${INITIAL_HOST_PID}" 2>/dev/null; then
+  emit_fail "WP5 failure: could not terminate initial shell host" "recovery_failed"
+fi
 
 # Wait for systemd RestartSec=2 to relaunch the session
 log_checkpoint "PHASE3_WP5_WAIT_RESTART_START"
@@ -1553,6 +1572,10 @@ if [[ "${NEW_CAGE_PID}" == "${NEW_HOST_PID}" ]]; then
   emit_fail "Internal probe failure during restart: NEW_CAGE_PID (${NEW_CAGE_PID}) == NEW_HOST_PID (${NEW_HOST_PID})" "recovery_failed"
 fi
 log_checkpoint "PHASE3_WP5_WAIT_RESTART_OK cage_pid=${NEW_CAGE_PID} host_pid=${NEW_HOST_PID}"
+RESTART_RECOVERY_SECS=$(( $(date +%s) - RESTART_START_SEC ))
+# Release the injected fault only after a replacement has actually appeared.
+kill -CONT "${RECOVERY_HELPER_PID}" 2>/dev/null || true
+trap - EXIT
 
 # Verify restarted process owner is still rocket
 NEW_OWNER="$(timeout 1s ps -p "${NEW_HOST_PID}" -o user= 2>/dev/null | tr -d '[:space:]' || true)"
@@ -1619,13 +1642,14 @@ ROCKETOS_WP5_RECOVERY_TEST_PASS
 ==================================================
 INITIAL_HOST_PID: ${INITIAL_HOST_PID}
 TERMINATION_SIGNAL: SIGKILL
+RECOVERY_FAULT: host SIGKILL with stopped WebKit helper
 NEW_HOST_PID: ${NEW_HOST_PID}
 RESTARTED_USER: ${NEW_OWNER}
 RECOVERED_UI_LOADED_PID: ${NEW_HOST_PID}
 RECOVERED_BRIDGE_PING_PID: ${NEW_HOST_PID}
 ACTIVE_HOST_COUNT: ${HOST_COUNT}
 ACTIVE_CAGE_COUNT: ${CAGE_COUNT}
-RESTART_RECOVERY_SECS: 2
+RESTART_RECOVERY_SECS: ${RESTART_RECOVERY_SECS}
 TIMESTAMP_UTC: $(date -u '+%Y-%m-%dT%H:%M:%SZ')
 --- RECOVERED SESSION CGROUP & PROCESSES ---
 ${RECOVERY_CGROUP}

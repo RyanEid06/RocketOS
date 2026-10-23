@@ -12,6 +12,18 @@ import time
 import signal
 import platform
 import traceback
+import errno
+
+# Cage's client-lifetime pipe must stay in this host, never in WebKit helpers.
+# Otherwise a surviving helper can keep Cage (and its systemd service) active
+# after the host dies. Preserve the descriptors here; close them only on exec.
+for inherited_fd in os.listdir("/proc/self/fd"):
+    if int(inherited_fd) > 2:
+        try:
+            os.set_inheritable(int(inherited_fd), False)
+        except OSError as exc:
+            if exc.errno != errno.EBADF:  # /proc enumeration's own fd is closed.
+                raise
 
 # Establish runtime marker and logging paths under unprivileged XDG_RUNTIME_DIR
 RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"

@@ -32,6 +32,9 @@ jobs:
       - name: Run RocketOS test suite (Regression Gate)
         run: npm test
 
+      - name: Verify host recovery with surviving helper (Regression Gate)
+        run: python3 scripts/phase3/test-host-recovery.py
+
       - name: Run RocketOS TypeScript lint (Regression Gate)
         run: npm run lint
 

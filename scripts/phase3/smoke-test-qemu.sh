@@ -332,7 +332,7 @@ while true; do
   ELAPSED=$((NOW - START_TIME))
 
   # Check if serial log reported an explicit boot failure
-  if grep -q "ROCKETOS_BOOT_FAIL" "${LOG_FILE}" 2>/dev/null; then
+  if grep -Eq "ROCKETOS_BOOT_FAIL|ROCKETOS_PHASE3_FAIL:" "${LOG_FILE}" 2>/dev/null; then
     echo "ERROR: Serial log reported explicit ROCKETOS_BOOT_FAIL."
     grep "ROCKETOS_PHASE3_FAIL:" "${LOG_FILE}" 2>/dev/null || true
     break
@@ -351,7 +351,10 @@ while true; do
   grep -q "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" 2>/dev/null && P3_OK=true || true
   grep -q "UI_LOADED_MARKER: verified" "${LOG_FILE}" 2>/dev/null && UI_OK=true || true
   grep -q "BRIDGE_PING_MARKER: verified" "${LOG_FILE}" 2>/dev/null && PING_OK=true || true
-  grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null && WP5_OK=true || true
+  if grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null &&
+     grep -q "RECOVERY_FAULT: host SIGKILL with stopped WebKit helper" "${LOG_FILE}" 2>/dev/null; then
+    WP5_OK=true
+  fi
   grep -q "EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)" "${LOG_FILE}" 2>/dev/null && TTY_OK=true || true
   grep -q "EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)" "${LOG_FILE}" 2>/dev/null && CMDLINE_OK=true || true
 
@@ -383,6 +386,11 @@ capture_screendump
 echo ""
 FAILURES=0
 
+if grep -Eq "ROCKETOS_BOOT_FAIL|ROCKETOS_PHASE3_FAIL:" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Explicit guest failure marker present; success markers cannot override it." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
 if ! grep -q "ROCKETOS_PHASE2_BOOT_OK" "${LOG_FILE}" 2>/dev/null; then
   echo "FAIL: Base systemd marker ROCKETOS_PHASE2_BOOT_OK not found (Phase 2 regression)." >&2
   FAILURES=$((FAILURES + 1))
@@ -405,6 +413,11 @@ fi
 
 if ! grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null; then
   echo "FAIL: Crash recovery marker ROCKETOS_WP5_RECOVERY_TEST_PASS not found." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+if ! grep -q "RECOVERY_FAULT: host SIGKILL with stopped WebKit helper" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Recovery with a surviving WebKit helper was not verified." >&2
   FAILURES=$((FAILURES + 1))
 fi
 
