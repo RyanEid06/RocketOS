@@ -198,7 +198,7 @@ lb config \
   --updates true \
   --binary-images iso-hybrid \
   --bootloaders "syslinux,grub-efi" \
-  --bootappend-live "boot=live components quiet console=ttyS0,115200 console=tty0" \
+  --bootappend-live "boot=live components quiet console=ttyS0,115200 console=tty0 nottyautologin" \
   --iso-application "RocketOS 0.1 Alpha Phase 3" \
   --iso-preparer "RocketOS Core Team" \
   --iso-publisher "RocketOS Project" \

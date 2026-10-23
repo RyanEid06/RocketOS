@@ -323,6 +323,7 @@ echo "  2. ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK"
 echo "  3. UI_LOADED_MARKER: verified"
 echo "  4. BRIDGE_PING_MARKER: verified"
 echo "  5. ROCKETOS_WP5_RECOVERY_TEST_PASS"
+echo "  6. EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)"
 START_TIME=$(date +%s)
 FOUND_ALL_MARKERS=false
 
@@ -343,14 +344,18 @@ while true; do
   UI_OK=false
   PING_OK=false
   WP5_OK=false
+  TTY_OK=false
+  CMDLINE_OK=false
 
   grep -q "ROCKETOS_PHASE2_BOOT_OK" "${LOG_FILE}" 2>/dev/null && P2_OK=true || true
   grep -q "ROCKETOS_PHASE3_GRAPHICAL_BOOT_OK" "${LOG_FILE}" 2>/dev/null && P3_OK=true || true
   grep -q "UI_LOADED_MARKER: verified" "${LOG_FILE}" 2>/dev/null && UI_OK=true || true
   grep -q "BRIDGE_PING_MARKER: verified" "${LOG_FILE}" 2>/dev/null && PING_OK=true || true
   grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null && WP5_OK=true || true
+  grep -q "EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)" "${LOG_FILE}" 2>/dev/null && TTY_OK=true || true
+  grep -q "EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)" "${LOG_FILE}" 2>/dev/null && CMDLINE_OK=true || true
 
-  if [[ "${P2_OK}" == "true" && "${P3_OK}" == "true" && "${UI_OK}" == "true" && "${PING_OK}" == "true" && "${WP5_OK}" == "true" ]]; then
+  if [[ "${P2_OK}" == "true" && "${P3_OK}" == "true" && "${UI_OK}" == "true" && "${PING_OK}" == "true" && "${WP5_OK}" == "true" && "${TTY_OK}" == "true" && "${CMDLINE_OK}" == "true" ]]; then
     FOUND_ALL_MARKERS=true
     break
   fi
@@ -400,6 +405,24 @@ fi
 
 if ! grep -q "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" 2>/dev/null; then
   echo "FAIL: Crash recovery marker ROCKETOS_WP5_RECOVERY_TEST_PASS not found." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+if ! grep -q "EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Emergency TTY kernel command line marker not verified (expected 'nottyautologin')." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+if ! grep -q "EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Emergency TTY autologin disabled marker not verified in serial output." >&2
+  FAILURES=$((FAILURES + 1))
+fi
+
+if grep -q "emergency_tty_autologin_detected" "${LOG_FILE}" 2>/dev/null || \
+   grep -q "emergency_tty_autologin_running" "${LOG_FILE}" 2>/dev/null || \
+   grep -q "emergency_tty_autologin_dropin_detected" "${LOG_FILE}" 2>/dev/null || \
+   grep -q "emergency_tty_missing_nottyautologin" "${LOG_FILE}" 2>/dev/null; then
+  echo "FAIL: Emergency TTY autologin regression detected in serial boot output." >&2
   FAILURES=$((FAILURES + 1))
 fi
 
@@ -485,6 +508,14 @@ if [[ ${FAILURES} -eq 0 && "${FOUND_ALL_MARKERS}" == "true" ]]; then
   echo ""
   echo "--- Recovery Evidence Log (${RECOVERY_LOG}) ---"
   cat "${RECOVERY_LOG}" 2>/dev/null || grep -A 30 "ROCKETOS_WP5_RECOVERY_TEST_PASS" "${LOG_FILE}" || true
+  echo ""
+  echo "--- Emergency TTY Verification Evidence ---"
+  echo "TTY2 State:         $(grep 'EMERGENCY_TTY2:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'unknown')"
+  echo "TTY3 State:         $(grep 'EMERGENCY_TTY3:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'unknown')"
+  echo "Kernel Cmdline:     $(grep 'EMERGENCY_TTY_CMDLINE:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'not verified')"
+  echo "Autologin Config:   $(grep 'EMERGENCY_TTY_AUTOLOGIN:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'not verified')"
+  echo "TTY2 ExecStart:     $(grep 'EMERGENCY_TTY2_EXECSTART:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'none')"
+  echo "TTY3 ExecStart:     $(grep 'EMERGENCY_TTY3_EXECSTART:' "${LOG_FILE}" 2>/dev/null | tail -n1 | cut -d: -f2- | xargs || echo 'none')"
   echo "---------------------------------------"
   echo ""
   exit 0

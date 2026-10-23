@@ -702,8 +702,11 @@ collect_graphical_debug_evidence() {
     fi
   fi
 
-  local bwrap_recent_journal
-  bwrap_recent_journal="$(journalctl -u rocketos-graphical-session.service -n 100 --no-pager 2>/dev/null | grep -i bwrap || echo '(no bwrap log entries in recent journal)')"
+  local em_tty2_state="$(timeout 2s systemctl is-active getty@tty2.service 2>/dev/null || echo 'unknown')"
+  local em_tty3_state="$(timeout 2s systemctl is-active getty@tty3.service 2>/dev/null || echo 'unknown')"
+  local em_tty2_exec="$(timeout 2s systemctl show getty@tty2.service --property=ExecStart --value 2>/dev/null || echo 'unknown')"
+  local em_tty3_exec="$(timeout 2s systemctl show getty@tty3.service --property=ExecStart --value 2>/dev/null || echo 'unknown')"
+  local em_cmdline="$(cat /proc/cmdline 2>/dev/null || echo '(unreadable)')"
 
   cat <<EOF
 --- GRAPHICAL RUNTIME DIAGNOSTIC EVIDENCE ---
@@ -814,6 +817,11 @@ Session Service Status:
 ${session_status}
 Recent Session Journal:
 ${session_journal}
+Emergency TTY2 State:     ${em_tty2_state}
+Emergency TTY3 State:     ${em_tty3_state}
+Emergency TTY2 ExecStart: ${em_tty2_exec}
+Emergency TTY3 ExecStart: ${em_tty3_exec}
+Kernel Cmdline:           ${em_cmdline}
 ---------------------------------------------
 EOF
 }
@@ -1358,6 +1366,17 @@ log_checkpoint "PHASE3_WAIT_INITIAL_READINESS_OK host_pid=${HOST_PID}"
 
 # Verify Emergency TTYs (TTY2 and TTY3) - MANDATORY AUTOMATED GATE
 log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_START"
+
+# 1. Verify /proc/cmdline contains nottyautologin (prevents Debian Live automatic-login regression)
+CMDLINE_CONTENT="$(cat /proc/cmdline 2>/dev/null || true)"
+if ! grep -qw "nottyautologin" /proc/cmdline 2>/dev/null; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+  emit_fail "Emergency TTY regression: /proc/cmdline does not contain 'nottyautologin' parameter (current /proc/cmdline: '${CMDLINE_CONTENT}'). Debian Live automatic login failure will prevent emergency TTY login prompt.
+${DEBUG_EVIDENCE}" "emergency_tty_missing_nottyautologin"
+fi
+log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_CMDLINE_OK"
+
+# 2. Verify getty@tty2.service and getty@tty3.service are active
 TTY2_STATE="$(systemctl is-active getty@tty2.service 2>/dev/null || echo "inactive")"
 TTY3_STATE="$(systemctl is-active getty@tty3.service 2>/dev/null || echo "inactive")"
 
@@ -1373,11 +1392,65 @@ if [[ "${TTY2_STATE}" != "active" || "${TTY3_STATE}" != "active" ]]; then
 fi
 
 if [[ "${TTY2_STATE}" != "active" ]]; then
-  emit_fail "Emergency TTY failure: getty@tty2.service is '${TTY2_STATE}' (expected 'active')" "emergency_tty_inactive"
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+  emit_fail "Emergency TTY failure: getty@tty2.service is '${TTY2_STATE}' (expected 'active')
+${DEBUG_EVIDENCE}" "emergency_tty_inactive"
 fi
 if [[ "${TTY3_STATE}" != "active" ]]; then
-  emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')" "emergency_tty_inactive"
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+  emit_fail "Emergency TTY failure: getty@tty3.service is '${TTY3_STATE}' (expected 'active')
+${DEBUG_EVIDENCE}" "emergency_tty_inactive"
 fi
+log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_ACTIVE_OK"
+
+# 3. Verify effective getty configuration is not using an automatic-login option such as --autologin
+TTY2_EXECSTART="$(systemctl show getty@tty2.service --property=ExecStart --value 2>/dev/null || true)"
+TTY3_EXECSTART="$(systemctl show getty@tty3.service --property=ExecStart --value 2>/dev/null || true)"
+TTY2_DROPINS="$(systemctl show getty@tty2.service --property=DropInPaths --value 2>/dev/null || true)"
+TTY3_DROPINS="$(systemctl show getty@tty3.service --property=DropInPaths --value 2>/dev/null || true)"
+
+# Check ExecStart definition for autologin arguments (--autologin or -a)
+if echo "${TTY2_EXECSTART}" | grep -E -q '(^|[[:space:]])(--autologin|-a([[:space:]]|=|$))'; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+  emit_fail "Emergency TTY regression: getty@tty2.service is configured with automatic-login option: ${TTY2_EXECSTART}
+${DEBUG_EVIDENCE}" "emergency_tty2_autologin_detected"
+fi
+if echo "${TTY3_EXECSTART}" | grep -E -q '(^|[[:space:]])(--autologin|-a([[:space:]]|=|$))'; then
+  DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+  emit_fail "Emergency TTY regression: getty@tty3.service is configured with automatic-login option: ${TTY3_EXECSTART}
+${DEBUG_EVIDENCE}" "emergency_tty3_autologin_detected"
+fi
+
+# Check drop-in files for autologin directives
+for dropin in ${TTY2_DROPINS} ${TTY3_DROPINS}; do
+  if [[ -f "${dropin}" ]] && grep -E -i -q 'autologin' "${dropin}"; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+    emit_fail "Emergency TTY regression: Drop-in file '${dropin}' contains autologin directive: $(cat "${dropin}")
+${DEBUG_EVIDENCE}" "emergency_tty_autologin_dropin_detected"
+  fi
+done
+
+# Check running agetty process arguments via /proc cmdline
+TTY2_PID="$(systemctl show getty@tty2.service --property=MainPID --value 2>/dev/null || true)"
+if [[ -n "${TTY2_PID}" && "${TTY2_PID}" =~ ^[0-9]+$ && -r "/proc/${TTY2_PID}/cmdline" ]]; then
+  TTY2_PROC_CMD="$(timeout 1s tr '\0' ' ' < "/proc/${TTY2_PID}/cmdline" 2>/dev/null || true)"
+  if echo "${TTY2_PROC_CMD}" | grep -E -q '(^|[[:space:]])(--autologin|-a([[:space:]]|=|$))'; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+    emit_fail "Emergency TTY regression: getty@tty2 process (PID ${TTY2_PID}) running with autologin: ${TTY2_PROC_CMD}
+${DEBUG_EVIDENCE}" "emergency_tty2_autologin_running"
+  fi
+fi
+
+TTY3_PID="$(systemctl show getty@tty3.service --property=MainPID --value 2>/dev/null || true)"
+if [[ -n "${TTY3_PID}" && "${TTY3_PID}" =~ ^[0-9]+$ && -r "/proc/${TTY3_PID}/cmdline" ]]; then
+  TTY3_PROC_CMD="$(timeout 1s tr '\0' ' ' < "/proc/${TTY3_PID}/cmdline" 2>/dev/null || true)"
+  if echo "${TTY3_PROC_CMD}" | grep -E -q '(^|[[:space:]])(--autologin|-a([[:space:]]|=|$))'; then
+    DEBUG_EVIDENCE="$(collect_graphical_debug_evidence "${HOST_PID:-unknown}")"
+    emit_fail "Emergency TTY regression: getty@tty3 process (PID ${TTY3_PID}) running with autologin: ${TTY3_PROC_CMD}
+${DEBUG_EVIDENCE}" "emergency_tty3_autologin_running"
+  fi
+fi
+
 log_checkpoint "PHASE3_CHECK_EMERGENCY_TTYS_OK"
 
 # EMIT PHASE 3 GRAPHICAL BOOT MARKER
@@ -1410,6 +1483,10 @@ UI_LOADED_MARKER: verified
 BRIDGE_PING_MARKER: verified
 EMERGENCY_TTY2: ${TTY2_STATE}
 EMERGENCY_TTY3: ${TTY3_STATE}
+EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)
+EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)
+EMERGENCY_TTY2_EXECSTART: ${TTY2_EXECSTART:-none}
+EMERGENCY_TTY3_EXECSTART: ${TTY3_EXECSTART:-none}
 KERNEL_UNAME: ${KERNEL_UNAME}
 ARCHITECTURE: ${ARCH}
 HOSTNAME: $(hostname)

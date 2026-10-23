@@ -610,6 +610,61 @@ describe('Phase 3 Capability Bounding Set & Bubblewrap Sandbox Stabilization Con
     expect(buildScriptContent).toContain('CAP_');
     expect(buildScriptContent).toContain('/usr/bin/bwrap');
   });
+
+  it('permanently configures nottyautologin in Phase 3 build script kernel parameters', () => {
+    const buildScriptContent = fs.readFileSync(buildScriptPath, 'utf8');
+    expect(buildScriptContent).toContain('--bootappend-live');
+    expect(buildScriptContent).toContain('nottyautologin');
+    expect(buildScriptContent).toMatch(
+      /--bootappend-live\s+"boot=live components quiet console=ttyS0,115200 console=tty0 nottyautologin"/
+    );
+  });
+
+  it('enforces emergency TTY validation verifying nottyautologin in /proc/cmdline and absence of autologin', () => {
+    const probeContent = fs.readFileSync(probeScriptPath, 'utf8');
+
+    // Verifies nottyautologin presence in /proc/cmdline
+    expect(probeContent).toContain('grep -qw "nottyautologin" /proc/cmdline');
+    expect(probeContent).toContain('emergency_tty_missing_nottyautologin');
+
+    // Verifies getty@tty2 and getty@tty3 are active
+    expect(probeContent).toContain('systemctl is-active getty@tty2.service');
+    expect(probeContent).toContain('systemctl is-active getty@tty3.service');
+
+    // Verifies no autologin options in ExecStart, drop-ins, or process cmdline
+    expect(probeContent).toContain('--autologin');
+    expect(probeContent).toContain('emergency_tty2_autologin_detected');
+    expect(probeContent).toContain('emergency_tty3_autologin_detected');
+    expect(probeContent).toContain('emergency_tty_autologin_dropin_detected');
+    expect(probeContent).toContain('emergency_tty2_autologin_running');
+    expect(probeContent).toContain('emergency_tty3_autologin_running');
+
+    // Verifies emitted PASS markers
+    expect(probeContent).toContain('EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)');
+    expect(probeContent).toContain('EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)');
+  });
+
+  it('verifies emergency TTY autologin gate and emits evidence in QEMU smoke test script', () => {
+    const smokeTestPath = path.resolve(__dirname, '../../scripts/phase3/smoke-test-qemu.sh');
+    const smokeContent = fs.readFileSync(smokeTestPath, 'utf8');
+
+    // Verifies marker in monitoring loop
+    expect(smokeContent).toContain('EMERGENCY_TTY_AUTOLOGIN: disabled (verified no --autologin)');
+    expect(smokeContent).toContain('EMERGENCY_TTY_CMDLINE: verified (nottyautologin present)');
+
+    // Verifies strict failure checks
+    expect(smokeContent).toContain('Emergency TTY kernel command line marker not verified');
+    expect(smokeContent).toContain('Emergency TTY autologin disabled marker not verified');
+    expect(smokeContent).toContain('emergency_tty_autologin_detected');
+    expect(smokeContent).toContain('emergency_tty_missing_nottyautologin');
+
+    // Verifies PASS report evidence block
+    expect(smokeContent).toContain('--- Emergency TTY Verification Evidence ---');
+    expect(smokeContent).toContain('TTY2 State:');
+    expect(smokeContent).toContain('TTY3 State:');
+    expect(smokeContent).toContain('Kernel Cmdline:');
+    expect(smokeContent).toContain('Autologin Config:');
+  });
 });
 
 
