@@ -11,3 +11,12 @@
 - Evidence/details: docs/ROCKETOS_PHASE3_RECOVERY_DIAGNOSIS.md; artifacts/recovery-console.log. VM stopped; guest writes synced, final mount/unmount and e2fsck -fn passed; disposable VM copies/helpers and generated dist removed. Recovered screenshot artifacts/recovery-final-framebuffer.png visually inspected. Owner authorized commit/push and visible live-VM handoff. Final handoff state and exact launch command are recorded in ignored artifacts/phase3-live-handoff.txt; inspect git HEAD for the delivery commit. No merge or Phase 4 work.
 
 - Finalization review: complete diff and seven-file allowlist reviewed; artifacts remain ignored and untracked by Git. Refreshed Python SIGKILL/SIGTERM recovery regression, Bash syntax, and npm test (116/116) passed. Workflow push filters exclude codex/**, so this branch push does not automatically start CI; do not dispatch an ISO build for this handoff.
+
+## 2026-10-24 live testing handoff
+
+- Fetched GitHub: recovery source 213797f matches origin/codex/phase3-shell-recovery and includes latest origin/main fdc110e. No new runtime source changes needed.
+- Fresh Windows QEMU/WHPX boot from existing ISO/kernel/initrd and patched original persistence disk. Virtual USB tablet added to the launch command for accurate pointer input. No ISO download/rebuild or Phase 4 work.
+- REAL_LINUX current boot 7347c1d0-f36d-4bf2-bf31-a0a071b8544b: strengthened WP5 PASS in 3 seconds; host1130->1875, Cage1592, exactly one live host/Cage, owner rocket, matching UI/bridge markers1875, boot probe Result=success/ExecMainStatus0, no current-boot Phase 3 failure markers, TTY2/TTY3 active, persistence mounted /dev/sda ext4. Installed host/probe hashes match source.
+- Visually checked diagnostic UI and exercised all three buttons: Ping PASS (6 ms), Bridge Version PASS, Host/Build Info PASS. VM Windows PID21708 remains open and running for owner acceptance; do not stop it as cleanup.
+- Exact launch command and local runtime evidence: artifacts/phase3-live-handoff.txt and artifacts/phase3-live-console.log (ignored, never commit VM artifacts). Existing CI branch filters exclude codex/**; no new CI run.
+- Next action: owner manual Phase 3 acceptance in the open graphical window. Further fixes should patch the persistence overlay using the existing ISO and remain on the recovery branch unless explicitly directed otherwise.
